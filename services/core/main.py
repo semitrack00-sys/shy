@@ -1,4 +1,4 @@
-﻿import os
+import os
 import uuid
 
 import httpx
@@ -6,6 +6,7 @@ import psycopg
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from model_router.router import ModelRouter
+from tools.gateway import ToolGateway
 
 from memory import (
     conversation_exists,
@@ -17,7 +18,7 @@ from memory import (
 
 app = FastAPI(
     title="SHY AI",
-    version="0.5.0",
+    version="0.6.0",
     description="SHY AI Core"
 )
 
@@ -32,6 +33,22 @@ LOCAL_MODEL = os.getenv(
 )
 
 router = ModelRouter(LOCAL_MODEL)
+
+tool_gateway = ToolGateway()
+
+
+def system_health_tool():
+    return {
+        "system": "SHY",
+        "core_version": "0.6.0",
+        "status": "healthy",
+    }
+
+
+tool_gateway.register(
+    "system.health",
+    system_health_tool,
+)
 
 SYSTEM_PROMPT = """
 You are SHY, a high-capability AI system.
@@ -89,12 +106,25 @@ async def health():
     return {
         "status": "ok",
         "system": "SHY",
-        "version": "0.5.0",
+        "version": "0.6.0",
         "local_model": LOCAL_MODEL,
         "ollama_connected": ollama_connected,
         "database_connected": database_connected,
     }
 
+
+@app.get("/tools/system-health")
+async def tool_system_health():
+    result = tool_gateway.execute("system.health")
+
+    return {
+        "tool": result.tool_name,
+        "status": result.status,
+        "decision": result.decision,
+        "risk": result.risk,
+        "reason": result.reason,
+        "output": result.output,
+    }
 
 @app.post("/chat")
 async def chat(request: ChatRequest):

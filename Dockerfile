@@ -9,7 +9,13 @@ COPY services/core/main.py .
 COPY services/core/memory.py .
 COPY services/model-router/app/router.py ./model_router/router.py
 
+COPY services/permissions/policy.py ./permissions/policy.py
+COPY services/permissions/approvals.py ./permissions/approvals.py
+COPY services/tools/gateway.py ./tools/gateway.py
+
 RUN touch ./model_router/__init__.py
+RUN touch ./permissions/__init__.py
+RUN touch ./tools/__init__.py
 
 EXPOSE 8000
 
