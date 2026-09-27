@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from typing import Literal
 
 TaskType = Literal[
@@ -70,5 +70,5 @@ class ModelRouter:
             provider="ollama-local",
             model=self.local_model,
             task_type=task_type,
-            reason="Local intelligence is the only enabled provider in SHY v0.4."
+            reason="Local intelligence is the only enabled provider."
         )

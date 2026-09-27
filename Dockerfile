@@ -1,4 +1,4 @@
-﻿FROM python:3.13-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
@@ -6,6 +6,7 @@ COPY services/core/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY services/core/main.py .
+COPY services/core/memory.py .
 COPY services/model-router/app/router.py ./model_router/router.py
 
 RUN touch ./model_router/__init__.py
