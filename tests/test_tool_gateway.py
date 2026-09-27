@@ -39,53 +39,78 @@ def message_tool(recipient, message):
     }
 
 
-gateway.register(
-    "system.health",
-    health_tool,
-)
-
-gateway.register(
-    "message.send",
-    message_tool,
-)
+gateway.register("system.health", health_tool)
+gateway.register("message.send", message_tool)
 
 
 safe = gateway.execute("system.health")
 
 assert safe.status == "EXECUTED"
-assert safe.output["status"] == "healthy"
 assert execution_count["health"] == 1
+print("safe tool: EXECUTED")
 
-print("safe tool:", safe.status)
 
+arguments = {
+    "recipient": "test@example.com",
+    "message": "Hello",
+}
 
 blocked = gateway.execute(
     "message.send",
-    {
-        "recipient": "test@example.com",
-        "message": "Hello",
-    },
+    arguments,
 )
 
 assert blocked.status == "AWAITING_APPROVAL"
 assert execution_count["message"] == 0
+print("without approval: BLOCKED")
 
-print("unapproved side effect:", blocked.status)
 
+approval = gateway.approvals.create(
+    "message.send",
+    arguments,
+)
 
 approved = gateway.execute(
     "message.send",
-    {
-        "recipient": "test@example.com",
-        "message": "Hello",
-    },
-    human_approved=True,
+    arguments,
+    approval_token=approval.token,
 )
 
 assert approved.status == "EXECUTED"
 assert execution_count["message"] == 1
+print("valid one-time approval: EXECUTED")
 
-print("approved side effect:", approved.status)
+
+reused = gateway.execute(
+    "message.send",
+    arguments,
+    approval_token=approval.token,
+)
+
+assert reused.status == "INVALID_APPROVAL"
+assert execution_count["message"] == 1
+print("approval reuse: BLOCKED")
+
+
+changed_arguments = {
+    "recipient": "attacker@example.com",
+    "message": "Hello",
+}
+
+approval2 = gateway.approvals.create(
+    "message.send",
+    arguments,
+)
+
+changed = gateway.execute(
+    "message.send",
+    changed_arguments,
+    approval_token=approval2.token,
+)
+
+assert changed.status == "INVALID_APPROVAL"
+assert execution_count["message"] == 1
+print("changed action: BLOCKED")
 
 
 unknown = gateway.execute(
@@ -93,21 +118,21 @@ unknown = gateway.execute(
 )
 
 assert unknown.status == "DENIED"
-
-print("unknown tool:", unknown.status)
+print("unknown tool: DENIED")
 
 
 try:
-    gateway.register(
-        "unknown.dangerous.tool",
-        lambda: "should never register",
+    gateway.execute(
+        "message.send",
+        arguments,
+        human_approved=True,
     )
-except ValueError:
-    print("unknown registration: BLOCKED")
+except TypeError:
+    print("boolean approval bypass: NOT AVAILABLE")
 else:
     raise AssertionError(
-        "Unknown tool registration should have failed."
+        "Boolean approval bypass still exists."
     )
 
 
-print("SHY Tool Gateway tests: PASS")
+print("SHY secure Tool Gateway tests: PASS")

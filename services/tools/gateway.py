@@ -4,22 +4,29 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-policy_path = (
-    Path(__file__).resolve().parents[1]
-    / "permissions"
-    / "policy.py"
-)
+services_path = Path(__file__).resolve().parents[1]
 
-spec = importlib.util.spec_from_file_location(
+
+def load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+policy_module = load_module(
     "shy_permissions",
-    policy_path,
+    services_path / "permissions" / "policy.py",
 )
 
-policy_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(policy_module)
+approval_module = load_module(
+    "shy_approvals",
+    services_path / "permissions" / "approvals.py",
+)
 
 Decision = policy_module.Decision
 evaluate_tool = policy_module.evaluate_tool
+ApprovalStore = approval_module.ApprovalStore
 
 
 @dataclass
@@ -37,14 +44,21 @@ class ToolGateway:
     SHY Tool Gateway.
 
     Security invariants:
-    - Every tool request passes through policy evaluation.
+    - Every request passes through policy evaluation.
     - Unknown tools fail closed.
-    - Approval-required tools do not execute automatically.
-    - The model cannot approve its own actions.
+    - Approval-required tools need a valid one-time approval.
+    - Approval is bound to the exact tool and arguments.
+    - Approval tokens are single-use and expire.
+    - There is no boolean approval bypass.
     """
 
-    def __init__(self):
+    def __init__(self, approval_store=None):
         self._tools: dict[str, Callable[..., Any]] = {}
+        self._approvals = approval_store or ApprovalStore()
+
+    @property
+    def approvals(self):
+        return self._approvals
 
     def register(
         self,
@@ -64,7 +78,7 @@ class ToolGateway:
         self,
         tool_name: str,
         arguments: dict | None = None,
-        human_approved: bool = False,
+        approval_token: str | None = None,
     ) -> ToolResult:
 
         arguments = arguments or {}
@@ -79,17 +93,30 @@ class ToolGateway:
                 reason=policy.reason,
             )
 
-        if (
-            policy.decision == Decision.APPROVAL_REQUIRED
-            and not human_approved
-        ):
-            return ToolResult(
-                tool_name=tool_name,
-                status="AWAITING_APPROVAL",
-                decision=policy.decision.value,
-                risk=policy.risk.value,
-                reason=policy.reason,
+        if policy.decision == Decision.APPROVAL_REQUIRED:
+            if approval_token is None:
+                return ToolResult(
+                    tool_name=tool_name,
+                    status="AWAITING_APPROVAL",
+                    decision=policy.decision.value,
+                    risk=policy.risk.value,
+                    reason=policy.reason,
+                )
+
+            approved = self._approvals.consume(
+                approval_token,
+                tool_name,
+                arguments,
             )
+
+            if not approved:
+                return ToolResult(
+                    tool_name=tool_name,
+                    status="INVALID_APPROVAL",
+                    decision=policy.decision.value,
+                    risk=policy.risk.value,
+                    reason="Approval is invalid, expired, already used, or does not match this exact action.",
+                )
 
         handler = self._tools.get(tool_name)
 
