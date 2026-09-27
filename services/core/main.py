@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from model_router.router import ModelRouter
 from tools.gateway import ToolGateway
+from agent_runtime.runtime import AgentRuntime
 
 from memory import (
     conversation_exists,
@@ -18,7 +19,7 @@ from memory import (
 
 app = FastAPI(
     title="SHY AI",
-    version="0.6.0",
+    version="0.7.0",
     description="SHY AI Core"
 )
 
@@ -40,7 +41,7 @@ tool_gateway = ToolGateway()
 def system_health_tool():
     return {
         "system": "SHY",
-        "core_version": "0.6.0",
+        "core_version": "0.7.0",
         "status": "healthy",
     }
 
@@ -48,6 +49,10 @@ def system_health_tool():
 tool_gateway.register(
     "system.health",
     system_health_tool,
+)
+
+agent_runtime = AgentRuntime(
+    gateway=tool_gateway,
 )
 
 SYSTEM_PROMPT = """
@@ -73,6 +78,10 @@ You are currently running through SHY's local intelligence layer.
 class ChatRequest(BaseModel):
     message: str
     conversation_id: uuid.UUID | None = None
+
+
+class AgentRequest(BaseModel):
+    message: str
 
 
 @app.on_event("startup")
@@ -106,7 +115,7 @@ async def health():
     return {
         "status": "ok",
         "system": "SHY",
-        "version": "0.6.0",
+        "version": "0.7.0",
         "local_model": LOCAL_MODEL,
         "ollama_connected": ollama_connected,
         "database_connected": database_connected,
@@ -123,6 +132,19 @@ async def tool_system_health():
         "decision": result.decision,
         "risk": result.risk,
         "reason": result.reason,
+        "output": result.output,
+    }
+
+@app.post("/agent")
+async def agent(request: AgentRequest):
+    result = agent_runtime.run(request.message)
+
+    return {
+        "assistant": "SHY",
+        "status": result.status,
+        "reason": result.reason,
+        "tool_name": result.tool_name,
+        "tool_status": result.tool_status,
         "output": result.output,
     }
 

@@ -1,10 +1,11 @@
-﻿import importlib.util
+import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
 services_path = Path(__file__).resolve().parents[1]
+agent_runtime_path = Path(__file__).resolve().parent
 
 
 def load_module(name: str, path: Path):
@@ -16,7 +17,7 @@ def load_module(name: str, path: Path):
 
 planner_module = load_module(
     "shy_agent_planner",
-    services_path / "agent-runtime" / "planner.py",
+    agent_runtime_path / "planner.py",
 )
 
 gateway_module = load_module(

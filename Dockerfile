@@ -13,9 +13,13 @@ COPY services/permissions/policy.py ./permissions/policy.py
 COPY services/permissions/approvals.py ./permissions/approvals.py
 COPY services/tools/gateway.py ./tools/gateway.py
 
+COPY services/agent-runtime/planner.py ./agent_runtime/planner.py
+COPY services/agent-runtime/runtime.py ./agent_runtime/runtime.py
+
 RUN touch ./model_router/__init__.py
 RUN touch ./permissions/__init__.py
 RUN touch ./tools/__init__.py
+RUN touch ./agent_runtime/__init__.py
 
 EXPOSE 8000
 
