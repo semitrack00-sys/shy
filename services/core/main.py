@@ -99,3 +99,4 @@ async def chat(request: ChatRequest):
         "provider": "ollama-local"
     }
 
+
