@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -42,6 +42,29 @@ class AgentPlanner:
                 tool_name="system.health",
                 arguments={},
             )
+
+        research_prefixes = (
+            "research ",
+            "search the web ",
+            "search online ",
+            "look up ",
+            "find online ",
+        )
+
+        for prefix in research_prefixes:
+            if text.startswith(prefix):
+                query = message.strip()[len(prefix):].strip()
+
+                if query:
+                    return AgentStep(
+                        step_type=StepType.TOOL,
+                        reason="The request requires current public web research.",
+                        tool_name="web.search",
+                        arguments={
+                            "query": query,
+                            "max_results": 5,
+                        },
+                    )
 
         return AgentStep(
             step_type=StepType.RESPOND,

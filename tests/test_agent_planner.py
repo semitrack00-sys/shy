@@ -1,4 +1,4 @@
-﻿import importlib.util
+import importlib.util
 from pathlib import Path
 
 
@@ -50,3 +50,33 @@ print("unknown tool request: NOT PLANNED")
 
 
 print("SHY Agent Planner tests: PASS")
+
+research = planner.plan(
+    "Research NVIDIA Blackwell"
+)
+
+assert research.step_type == module.StepType.TOOL
+assert research.tool_name == "web.search"
+assert research.arguments == {
+    "query": "NVIDIA Blackwell",
+    "max_results": 5,
+}
+
+web_search = planner.plan(
+    "Search the web latest AI research"
+)
+
+assert web_search.step_type == module.StepType.TOOL
+assert web_search.tool_name == "web.search"
+assert web_search.arguments["query"] == "latest AI research"
+
+ordinary = planner.plan(
+    "Explain how rain forms"
+)
+
+assert ordinary.step_type == module.StepType.RESPOND
+
+print("web research planning: PASS")
+print("research query extraction: PASS")
+print("ordinary request isolation: PASS")
+print("SHY v0.9 planner research tests: PASS")
