@@ -3,10 +3,11 @@
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from model_router.router import ModelRouter
 
 app = FastAPI(
     title="SHY AI",
-    version="0.2.0",
+    version="0.4.0",
     description="SHY AI Core"
 )
 
@@ -18,6 +19,8 @@ LOCAL_MODEL = os.getenv(
     "SHY_LOCAL_MODEL",
     "qwen3.5:4b"
 )
+
+router = ModelRouter(LOCAL_MODEL)
 
 SYSTEM_PROMPT = """
 You are SHY, a high-capability AI system.
@@ -55,15 +58,17 @@ async def health():
     return {
         "status": "ok",
         "system": "SHY",
-        "version": "0.2.0",
+        "version": "0.4.0",
         "local_model": LOCAL_MODEL,
         "ollama_connected": ollama_connected
     }
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    route = router.route(request.message)
+
     payload = {
-        "model": LOCAL_MODEL,
+        "model": route.model,
         "messages": [
             {
                 "role": "system",
@@ -95,9 +100,13 @@ async def chat(request: ChatRequest):
     return {
         "assistant": "SHY",
         "message": result["message"]["content"],
-        "model": LOCAL_MODEL,
-        "provider": "ollama-local"
+        "model": route.model,
+        "provider": route.provider,
+        "task_type": route.task_type,
+        "routing_reason": route.reason
     }
+
+
 
 
 
