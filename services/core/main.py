@@ -19,7 +19,7 @@ from memory import (
 
 app = FastAPI(
     title="SHY AI",
-    version="0.7.0",
+    version="0.8.0",
     description="SHY AI Core"
 )
 
@@ -41,7 +41,7 @@ tool_gateway = ToolGateway()
 def system_health_tool():
     return {
         "system": "SHY",
-        "core_version": "0.7.0",
+        "core_version": "0.8.0",
         "status": "healthy",
     }
 
@@ -75,6 +75,53 @@ You are currently running through SHY's local intelligence layer.
 """
 
 
+async def generate_intelligence_response(message: str, history: list, route):
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        }
+    ]
+
+    for item in history:
+        messages.append(
+            {
+                "role": item["role"],
+                "content": item["content"],
+            }
+        )
+
+    messages.append(
+        {
+            "role": "user",
+            "content": message,
+        }
+    )
+
+    payload = {
+        "model": route.model,
+        "messages": messages,
+        "stream": False,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(
+                f"{OLLAMA_URL}/api/chat",
+                json=payload,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Local intelligence unavailable: {exc}"
+        )
+
+    return result["message"]["content"]
+
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: uuid.UUID | None = None
@@ -82,6 +129,7 @@ class ChatRequest(BaseModel):
 
 class AgentRequest(BaseModel):
     message: str
+    conversation_id: uuid.UUID | None = None
 
 
 @app.on_event("startup")
@@ -115,7 +163,7 @@ async def health():
     return {
         "status": "ok",
         "system": "SHY",
-        "version": "0.7.0",
+        "version": "0.8.0",
         "local_model": LOCAL_MODEL,
         "ollama_connected": ollama_connected,
         "database_connected": database_connected,
@@ -139,13 +187,96 @@ async def tool_system_health():
 async def agent(request: AgentRequest):
     result = agent_runtime.run(request.message)
 
+    if result.status == "TOOL_RESULT":
+        return {
+            "assistant": "SHY",
+            "status": result.status,
+            "reason": result.reason,
+            "tool_name": result.tool_name,
+            "tool_status": result.tool_status,
+            "output": result.output,
+        }
+
+    if result.status != "RESPOND":
+        return {
+            "assistant": "SHY",
+            "status": result.status,
+            "reason": result.reason,
+            "tool_name": result.tool_name,
+            "tool_status": result.tool_status,
+            "output": result.output,
+        }
+
+    try:
+        if request.conversation_id is None:
+            conversation_id = create_conversation()
+        else:
+            conversation_id = request.conversation_id
+
+            if not conversation_exists(conversation_id):
+                raise HTTPException(
+                    status_code=404,
+                    detail="Conversation not found."
+                )
+
+        history = load_messages(conversation_id)
+
+    except HTTPException:
+        raise
+
+    except psycopg.Error as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"SHY memory unavailable: {exc}"
+        )
+
+    route = router.route(request.message)
+
+    try:
+        save_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=request.message,
+        )
+
+    except psycopg.Error as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"SHY memory unavailable: {exc}"
+        )
+
+    assistant_message = await generate_intelligence_response(
+        message=request.message,
+        history=history,
+        route=route,
+    )
+
+    try:
+        save_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=assistant_message,
+            model=route.model,
+            provider=route.provider,
+            task_type=route.task_type,
+        )
+
+    except psycopg.Error as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"SHY response generated but memory save failed: {exc}"
+        )
+
     return {
         "assistant": "SHY",
-        "status": result.status,
+        "status": "RESPOND",
         "reason": result.reason,
-        "tool_name": result.tool_name,
-        "tool_status": result.tool_status,
-        "output": result.output,
+        "message": assistant_message,
+        "conversation_id": str(conversation_id),
+        "model": route.model,
+        "provider": route.provider,
+        "task_type": route.task_type,
+        "routing_reason": route.reason,
     }
 
 @app.post("/chat")
@@ -175,28 +306,6 @@ async def chat(request: ChatRequest):
 
     route = router.route(request.message)
 
-    messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT,
-        }
-    ]
-
-    for item in history:
-        messages.append(
-            {
-                "role": item["role"],
-                "content": item["content"],
-            }
-        )
-
-    messages.append(
-        {
-            "role": "user",
-            "content": request.message,
-        }
-    )
-
     try:
         save_message(
             conversation_id=conversation_id,
@@ -210,28 +319,11 @@ async def chat(request: ChatRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
-    payload = {
-        "model": route.model,
-        "messages": messages,
-        "stream": False,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(
-                f"{OLLAMA_URL}/api/chat",
-                json=payload,
-            )
-            response.raise_for_status()
-            result = response.json()
-
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Local intelligence unavailable: {exc}"
-        )
-
-    assistant_message = result["message"]["content"]
+    assistant_message = await generate_intelligence_response(
+        message=request.message,
+        history=history,
+        route=route,
+    )
 
     try:
         save_message(
