@@ -1,0 +1,12 @@
+.next/
+node_modules/
+tsconfig.tsbuildinfo
+coverage/
+.env
+.env.local
+.env.development
+.env.production
+
+# Generated acceptance artifacts (keep reusable *.cjs scripts tracked)
+acceptance-artifacts/*.png
+acceptance-artifacts/*-report.json
