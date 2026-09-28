@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from model_router.router import ModelRouter
 from tools.gateway import ToolGateway
 from agent_runtime.runtime import AgentRuntime
+from research.web_search import WebSearchService
+from research.tavily import TavilySearchProvider
 
 from memory import (
     conversation_exists,
@@ -50,6 +52,19 @@ tool_gateway.register(
     "system.health",
     system_health_tool,
 )
+
+research_service = None
+
+if os.getenv("TAVILY_API_KEY", "").strip():
+    research_service = WebSearchService(
+        TavilySearchProvider()
+    )
+
+    tool_gateway.register(
+        "web.search",
+        research_service.search,
+    )
+
 
 agent_runtime = AgentRuntime(
     gateway=tool_gateway,
