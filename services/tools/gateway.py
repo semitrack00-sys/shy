@@ -1,4 +1,4 @@
-﻿import importlib.util
+import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -129,7 +129,16 @@ class ToolGateway:
                 reason="Tool is authorized by policy but has no registered implementation.",
             )
 
-        output = handler(**arguments)
+        try:
+            output = handler(**arguments)
+        except Exception:
+            return ToolResult(
+                tool_name=tool_name,
+                status="FAILED",
+                decision=policy.decision.value,
+                risk=policy.risk.value,
+                reason="Tool execution failed.",
+            )
 
         return ToolResult(
             tool_name=tool_name,

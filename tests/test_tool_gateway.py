@@ -1,4 +1,4 @@
-﻿import importlib.util
+import importlib.util
 from pathlib import Path
 
 
@@ -134,5 +134,31 @@ else:
         "Boolean approval bypass still exists."
     )
 
+
+
+failure_gateway = module.ToolGateway()
+
+
+def failing_search_tool(query, max_results=5):
+    raise RuntimeError("simulated provider failure")
+
+
+failure_gateway.register(
+    "web.search",
+    failing_search_tool,
+)
+
+failed = failure_gateway.execute(
+    "web.search",
+    {
+        "query": "test",
+        "max_results": 5,
+    },
+)
+
+assert failed.status == "FAILED"
+assert failed.output is None
+assert failed.reason == "Tool execution failed."
+print("failing tool: FAILED safely")
 
 print("SHY secure Tool Gateway tests: PASS")
