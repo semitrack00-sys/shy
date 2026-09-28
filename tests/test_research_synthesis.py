@@ -150,6 +150,78 @@ core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 
 
+captured_payloads = []
+
+
+class FakeHTTPResponse:
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {
+            "message": {
+                "content": "payload capture ok"
+            }
+        }
+
+
+class FakeAsyncClient:
+    def __init__(self, timeout=None):
+        self.timeout = timeout
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def post(self, url, json):
+        captured_payloads.append(json)
+        return FakeHTTPResponse()
+
+
+original_async_client = core.httpx.AsyncClient
+core.httpx.AsyncClient = FakeAsyncClient
+
+
+class ResearchRouteForPayloadTest:
+    model = "qwen3.5:4b"
+    provider = "local"
+    task_type = "research_synthesis"
+
+
+class NormalRouteForPayloadTest:
+    model = "qwen3.5:4b"
+    provider = "local"
+    task_type = "chat"
+
+
+asyncio.run(
+    core.generate_intelligence_response(
+        message="research payload",
+        history=[],
+        route=ResearchRouteForPayloadTest(),
+        generation_options=core.RESEARCH_GENERATION_OPTIONS,
+    )
+)
+
+asyncio.run(
+    core.generate_intelligence_response(
+        message="normal payload",
+        history=[],
+        route=NormalRouteForPayloadTest(),
+    )
+)
+
+core.httpx.AsyncClient = original_async_client
+
+assert captured_payloads[0].get("think") is False
+assert "think" not in captured_payloads[1]
+
+print("research synthesis think=false payload: PASS")
+print("normal intelligence payload unchanged: PASS")
+
+
 class FakeRuntime:
     def __init__(self, result):
         self.result = result

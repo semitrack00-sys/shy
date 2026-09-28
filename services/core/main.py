@@ -177,6 +177,9 @@ async def generate_intelligence_response(
         "stream": False,
     }
 
+    if getattr(route, "task_type", None) == "research_synthesis":
+        payload["think"] = False
+
     if generation_options:
         payload["options"] = generation_options
 
