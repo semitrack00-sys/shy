@@ -23,10 +23,10 @@ class FakeProvider(WebSearchProvider):
     def search(self, query, max_results=5):
         return [
             SearchResult(
-                title="SHY Test Source",
-                url="https://example.com/source",
-                snippet="Structured research evidence.",
-                source="example.com",
+                title="  SHY   Test Source  ",
+                url=" https://example.com/source ",
+                snippet="Structured\nresearch\tevidence.",
+                source=" example.com ",
             ),
             SearchResult(
                 title="Unsafe URL",
@@ -50,6 +50,8 @@ assert result["result_count"] == 1
 assert len(result["results"]) == 1
 assert result["results"][0]["title"] == "SHY Test Source"
 assert result["results"][0]["url"] == "https://example.com/source"
+assert result["results"][0]["source"] == "example.com"
+assert result["results"][0]["snippet"] == "Structured research evidence."
 
 try:
     service.search("")
@@ -64,6 +66,7 @@ except ValueError:
     pass
 
 print("structured results: PASS")
+print("field normalization: PASS")
 print("unsafe URL filtering: PASS")
 print("empty query rejection: PASS")
 print("result limit enforcement: PASS")

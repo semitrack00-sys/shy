@@ -2,6 +2,10 @@
 from typing import Any
 
 
+def _normalize_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
 @dataclass(frozen=True)
 class SearchResult:
     title: str
@@ -65,12 +69,25 @@ class WebSearchService:
         normalized = []
 
         for result in results[:max_results]:
-            if not result.url.startswith(
+            clean_url = _normalize_text(result.url)
+
+            if not clean_url.startswith(
                 ("http://", "https://")
             ):
                 continue
 
-            normalized.append(asdict(result))
+            clean_title = _normalize_text(result.title)
+            clean_source = _normalize_text(result.source)
+            clean_snippet = _normalize_text(result.snippet)
+
+            normalized_result = SearchResult(
+                title=clean_title or clean_url,
+                url=clean_url,
+                snippet=clean_snippet,
+                source=clean_source or "unknown",
+            )
+
+            normalized.append(asdict(normalized_result))
 
         return {
             "provider": self.provider.name,

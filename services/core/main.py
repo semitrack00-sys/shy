@@ -1,5 +1,6 @@
 import os
 import uuid
+from typing import Any
 
 import httpx
 import psycopg
@@ -89,8 +90,65 @@ unless you actually did so through an available tool.
 You are currently running through SHY's local intelligence layer.
 """
 
+RESEARCH_EVIDENCE_SNIPPET_MAX_CHARS = 800
+RESEARCH_GENERATION_OPTIONS = {
+    "num_ctx": 4096,
+    "num_predict": 384,
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "repeat_penalty": 1.1,
+}
 
-async def generate_intelligence_response(message: str, history: list, route):
+
+class ResearchSynthesisError(RuntimeError):
+    """Raised when SHY cannot safely produce a research synthesis response."""
+
+
+def _normalize_research_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _bounded_snippet(value: Any) -> str:
+    normalized = _normalize_research_text(value)
+
+    if len(normalized) <= RESEARCH_EVIDENCE_SNIPPET_MAX_CHARS:
+        return normalized
+
+    return normalized[: RESEARCH_EVIDENCE_SNIPPET_MAX_CHARS - 3].rstrip() + "..."
+
+
+def _extract_model_content(result: Any) -> str:
+    if not isinstance(result, dict):
+        raise HTTPException(
+            status_code=503,
+            detail="Local intelligence returned an invalid response.",
+        )
+
+    message = result.get("message")
+
+    if not isinstance(message, dict):
+        raise HTTPException(
+            status_code=503,
+            detail="Local intelligence returned an invalid response.",
+        )
+
+    content = message.get("content")
+
+    if not isinstance(content, str):
+        raise HTTPException(
+            status_code=503,
+            detail="Local intelligence returned an invalid response.",
+        )
+
+    return content
+
+
+async def generate_intelligence_response(
+    message: str,
+    history: list,
+    route,
+    generation_options: dict[str, Any] | None = None,
+):
     messages = [
         {
             "role": "system",
@@ -119,6 +177,9 @@ async def generate_intelligence_response(message: str, history: list, route):
         "stream": False,
     }
 
+    if generation_options:
+        payload["options"] = generation_options
+
     try:
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
@@ -128,13 +189,13 @@ async def generate_intelligence_response(message: str, history: list, route):
             response.raise_for_status()
             result = response.json()
 
-    except httpx.HTTPError as exc:
+    except httpx.HTTPError:
         raise HTTPException(
             status_code=503,
-            detail=f"Local intelligence unavailable: {exc}"
+            detail="Local intelligence unavailable."
         )
 
-    return result["message"]["content"]
+    return _extract_model_content(result)
 
 
 async def generate_research_response(message: str, research_output: dict):
@@ -143,10 +204,10 @@ async def generate_research_response(message: str, research_output: dict):
     evidence_parts = []
 
     for index, item in enumerate(results, start=1):
-        title = str(item.get("title", "")).strip()
-        url = str(item.get("url", "")).strip()
-        snippet = str(item.get("snippet", "")).strip()
-        source = str(item.get("source", "")).strip()
+        title = _normalize_research_text(item.get("title"))
+        url = _normalize_research_text(item.get("url"))
+        source = _normalize_research_text(item.get("source"))
+        snippet = _bounded_snippet(item.get("snippet"))
 
         evidence_parts.append(
             f"[{index}] TITLE: {title}\n"
@@ -184,11 +245,19 @@ Answer the user's original question clearly and concisely.
         provider = "local"
         task_type = "research_synthesis"
 
-    return await generate_intelligence_response(
+    synthesis = await generate_intelligence_response(
         message=research_prompt,
         history=[],
         route=ResearchRoute(),
+        generation_options=RESEARCH_GENERATION_OPTIONS,
     )
+
+    if not synthesis.strip():
+        raise ResearchSynthesisError(
+            "Research synthesis returned empty content."
+        )
+
+    return synthesis
 
 class ChatRequest(BaseModel):
     message: str
@@ -260,10 +329,7 @@ async def agent(request: AgentRequest):
         and result.tool_name == "web.search"
         and result.tool_status == "EXECUTED"
     ):
-        research_answer = await generate_research_response(
-            message=request.message,
-            research_output=result.output,
-        )
+        research_output = result.output if isinstance(result.output, dict) else {}
 
         sources = [
             {
@@ -273,10 +339,26 @@ async def agent(request: AgentRequest):
                 "source": item.get("source", ""),
             }
             for index, item in enumerate(
-                result.output.get("results", []),
+                research_output.get("results", []),
                 start=1,
             )
         ]
+
+        try:
+            research_answer = await generate_research_response(
+                message=request.message,
+                research_output=research_output,
+            )
+        except (HTTPException, ResearchSynthesisError):
+            return {
+                "assistant": "SHY",
+                "status": "FAILED",
+                "reason": "Research synthesis unavailable.",
+                "tool_name": result.tool_name,
+                "tool_status": result.tool_status,
+                "research_provider": research_output.get("provider"),
+                "sources": sources,
+            }
 
         return {
             "assistant": "SHY",
@@ -285,7 +367,7 @@ async def agent(request: AgentRequest):
             "message": research_answer,
             "tool_name": result.tool_name,
             "tool_status": result.tool_status,
-            "research_provider": result.output.get("provider"),
+            "research_provider": research_output.get("provider"),
             "sources": sources,
         }
 
