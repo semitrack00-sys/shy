@@ -68,7 +68,7 @@ export function ShyShell() {
       setHealth({
         status: 'error',
         system: 'SHY',
-        version: '0.9.0',
+        version: '0.11.0',
         ollama_connected: false,
         database_connected: false,
       });

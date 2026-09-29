@@ -35,7 +35,7 @@ describe('SHY API parsing', () => {
     const health = parseShyHealthResponse({
       status: 'ok',
       system: 'SHY',
-      version: '0.9.0',
+      version: '0.11.0',
       local_model: 'qwen3.5:4b',
       ollama_connected: true,
       database_connected: true,

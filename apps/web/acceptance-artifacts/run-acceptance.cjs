@@ -139,7 +139,7 @@ const outDir = 'C:/SHY/apps/web/acceptance-artifacts';
   await page.waitForTimeout(800);
   const statusPanel = page.locator('.shy-status-panel');
   result.status.shyVisible = (await statusPanel.getByText('SHY').count()) > 0;
-  result.status.versionVisible = (await statusPanel.getByText('0.9.0').count()) > 0;
+  result.status.versionVisible = (await statusPanel.getByText('0.11.0').count()) > 0;
   result.status.modelVisible = (await statusPanel.getByText('qwen3.5:4b').count()) > 0;
   result.status.ollamaConnectedVisible = (await statusPanel.getByText('Connected').count()) > 0;
 

@@ -25,7 +25,7 @@ from memory import (
 
 app = FastAPI(
     title="SHY AI",
-    version="0.9.0",
+    version="0.11.0",
     description="SHY AI Core"
 )
 
@@ -47,7 +47,7 @@ tool_gateway = ToolGateway()
 def system_health_tool():
     return {
         "system": "SHY",
-        "core_version": "0.9.0",
+        "core_version": "0.11.0",
         "status": "healthy",
     }
 
@@ -326,7 +326,7 @@ async def health():
     return {
         "status": "ok",
         "system": "SHY",
-        "version": "0.9.0",
+        "version": "0.11.0",
         "local_model": LOCAL_MODEL,
         "ollama_connected": ollama_connected,
         "database_connected": database_connected,
