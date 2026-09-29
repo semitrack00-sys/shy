@@ -1,0 +1,42 @@
+{
+  "schema_version": "v1",
+  "suite_name": "shy_intelligence_foundation",
+  "baseline_commit": "db9eccc56492318b3a0fa8fa5a9129ef07b33d77",
+  "scenarios": [
+    {
+      "id": "simple_chat",
+      "prompt": "Hello SHY",
+      "expected_primary_capability": "CHAT",
+      "requires_tool": false,
+      "requires_external_evidence": false
+    },
+    {
+      "id": "reasoning",
+      "prompt": "Compare two migration strategies and explain tradeoffs.",
+      "expected_primary_capability": "REASONING",
+      "requires_tool": false,
+      "requires_external_evidence": false
+    },
+    {
+      "id": "research",
+      "prompt": "Research the latest developments in battery technology.",
+      "expected_primary_capability": "RESEARCH",
+      "requires_tool": true,
+      "requires_external_evidence": true
+    },
+    {
+      "id": "tool_selection",
+      "prompt": "Use system health.",
+      "expected_primary_capability": "TOOL",
+      "requires_tool": true,
+      "requires_external_evidence": false
+    },
+    {
+      "id": "multi_step",
+      "prompt": "Compare these five constraints and develop a multi-stage implementation plan.",
+      "expected_primary_capability": "MULTI_STEP",
+      "requires_tool": false,
+      "requires_external_evidence": false
+    }
+  ]
+}
