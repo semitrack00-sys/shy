@@ -195,6 +195,24 @@ def _validate_expected(scenario_id: str, expected: dict[str, Any]):
         if field_name != "required_tool" and value is not None and not isinstance(value, bool):
             raise ValueError(f"{field_name} must be boolean in scenario: {scenario_id}")
 
+    for field_name in (
+        "expected_provider",
+        "expected_model",
+        "expected_selection_reason",
+        "expected_failure_category",
+        "expected_required_capability",
+    ):
+        value = expected.get(field_name)
+        if value is not None and not str(value).strip():
+            raise ValueError(f"{field_name} cannot be empty in scenario: {scenario_id}")
+
+    for field_name in ("max_attempts", "max_escalations"):
+        value = expected.get(field_name)
+        if value is None:
+            continue
+        if not isinstance(value, int) or value < 0 or value > 10:
+            raise ValueError(f"{field_name} must be integer between 0 and 10 in scenario: {scenario_id}")
+
     forbidden_tools = expected.get("forbidden_tools")
     if forbidden_tools is not None:
         if not isinstance(forbidden_tools, list):

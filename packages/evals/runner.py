@@ -163,6 +163,36 @@ def _evaluate_expectations(scenario: Scenario, observed: dict[str, Any]) -> list
         if bool(observed.get("citation_valid")) != bool(expected["expected_citation_validity"]):
             failures.append("expected_citation_validity mismatch")
 
+    if "expected_provider" in expected:
+        if str(observed.get("provider_id", "")) != str(expected["expected_provider"]):
+            failures.append("expected_provider mismatch")
+
+    if "expected_model" in expected:
+        if str(observed.get("model_id", "")) != str(expected["expected_model"]):
+            failures.append("expected_model mismatch")
+
+    if "expected_selection_reason" in expected:
+        if str(observed.get("selection_reason", "")) != str(expected["expected_selection_reason"]):
+            failures.append("expected_selection_reason mismatch")
+
+    if "expected_failure_category" in expected:
+        if str(observed.get("failure_category", "")) != str(expected["expected_failure_category"]):
+            failures.append("expected_failure_category mismatch")
+
+    if "expected_required_capability" in expected:
+        if str(observed.get("required_capability", "")) != str(expected["expected_required_capability"]):
+            failures.append("expected_required_capability mismatch")
+
+    if "max_attempts" in expected:
+        attempts_used = int(observed.get("attempts_used", 0) or 0)
+        if attempts_used > int(expected["max_attempts"]):
+            failures.append("max_attempts exceeded")
+
+    if "max_escalations" in expected:
+        escalations_used = int(observed.get("escalations_used", 0) or 0)
+        if escalations_used > int(expected["max_escalations"]):
+            failures.append("max_escalations exceeded")
+
     return failures
 
 

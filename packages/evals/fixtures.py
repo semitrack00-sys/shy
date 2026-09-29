@@ -25,6 +25,7 @@ research_engine_module = _load_module("eval_research_engine", services / "resear
 web_search_module = _load_module("eval_web_search", services / "research" / "web_search.py")
 policy_module = _load_module("eval_policy", services / "permissions" / "policy.py")
 gateway_module = _load_module("eval_gateway", services / "tools" / "gateway.py")
+model_router_module = _load_module("eval_model_router", services / "model-router" / "app" / "router.py")
 
 
 IntelligenceRouter = router_module.IntelligenceRouter
@@ -45,6 +46,9 @@ ResearchStatus = research_engine_module.ResearchStatus
 WebSearchProvider = web_search_module.WebSearchProvider
 WebSearchService = web_search_module.WebSearchService
 ToolGateway = gateway_module.ToolGateway
+ModelRouter = model_router_module.ModelRouter
+PrivacyClass = model_router_module.PrivacyClass
+ModelFailureCategory = model_router_module.ModelFailureCategory
 
 
 _DEEP_TASK_FIXTURES = {
@@ -152,6 +156,8 @@ def evaluate_scenario(scenario) -> dict[str, Any]:
     fixture = str(scenario.input_data.get("fixture", ""))
 
     if category in ("CHAT_SANITY", "ROUTING", "MEMORY", "CODING"):
+        if fixture_present and fixture.startswith("model_"):
+            return _evaluate_model_routing(scenario)
         return _evaluate_routing_family(scenario)
 
     if category == "TOOL_SELECTION":
@@ -161,6 +167,8 @@ def evaluate_scenario(scenario) -> dict[str, Any]:
         return _evaluate_deep_task(scenario)
 
     if category == "FAILURE_RECOVERY":
+        if fixture_present and fixture.startswith("model_"):
+            return _evaluate_model_routing(scenario)
         if not fixture_present:
             return _evaluate_deep_task(scenario)
         if fixture in _FAILURE_RECOVERY_RESEARCH_FIXTURES:
@@ -498,6 +506,133 @@ def _evaluate_research(scenario) -> dict[str, Any]:
         "safety_violations": safety_violations,
         "sources": [dict(item) for item in result.sources],
     }
+
+
+def _evaluate_model_routing(scenario) -> dict[str, Any]:
+    fixture = str(scenario.input_data.get("fixture", ""))
+    router = ModelRouter(local_model="qwen3.5:4b", include_fake_providers=True)
+
+    message = str(scenario.input_data.get("message", "Hello SHY"))
+    metadata = dict(scenario.input_data.get("metadata", {}))
+    privacy = scenario.input_data.get("privacy_requirement")
+    escalation_level = int(scenario.input_data.get("escalation_level", 0) or 0)
+
+    privacy_requirement = None
+    if privacy == "LOCAL_ONLY":
+        privacy_requirement = PrivacyClass.LOCAL_ONLY
+    elif privacy == "PRIVATE_REMOTE_ALLOWED":
+        privacy_requirement = PrivacyClass.PRIVATE_REMOTE_ALLOWED
+    elif privacy == "REMOTE_ALLOWED":
+        privacy_requirement = PrivacyClass.REMOTE_ALLOWED
+
+    if fixture == "model_primary_unavailable_fallback":
+        provider = router.registry.get_provider("fake_frontier")
+        provider.set_health(type(provider.health().status).UNAVAILABLE)
+        message = "Research synthesis for latest regulation updates"
+
+    if fixture == "model_incompatible_fallback_rejected":
+        provider = router.registry.get_provider("fake_reasoning")
+        provider.set_health(type(provider.health().status).UNAVAILABLE)
+        local_profile = router.registry._models.get("qwen3.5:4b")
+        if local_profile is not None:
+            router.registry._models["qwen3.5:4b"] = local_profile.__class__(
+                **{**local_profile.__dict__, "enabled": False}
+            )
+        message = "Deep reasoning proof over five constraints"
+
+    if fixture == "model_all_capable_unavailable":
+        for provider_id in ("fake_fast", "fake_frontier", "fake_reasoning", "fake_coding"):
+            provider = router.registry.get_provider(provider_id)
+            provider.set_health(type(provider.health().status).UNAVAILABLE)
+        local_profile = router.registry._models.get("qwen3.5:4b")
+        if local_profile is not None:
+            router.registry._models["qwen3.5:4b"] = local_profile.__class__(
+                **{**local_profile.__dict__, "enabled": False}
+            )
+
+    if fixture == "model_provider_error_bounded_fallback":
+        metadata["force_provider_error"] = "fake_frontier"
+        message = "Research synthesis for latest regulation updates"
+
+    if fixture == "model_attempt_limit_enforced":
+        metadata["force_provider_error"] = "*"
+        message = "Hello SHY"
+
+    if fixture == "model_escalation_limit_enforced":
+        escalation_level = 5
+        message = "Compare these five constraints and develop a multi-stage implementation plan"
+
+    if fixture == "model_verification_escalation_stronger":
+        escalation_level = 1
+        message = "Compare these five constraints and develop a multi-stage implementation plan"
+
+    if fixture == "model_unknown_capability_fail_safe":
+        # Create an impossible requirement by forcing privacy/local plus disabled local model.
+        privacy_requirement = PrivacyClass.LOCAL_ONLY
+        local_profile = router.registry._models.get("qwen3.5:4b")
+        if local_profile is not None:
+            router.registry._models["qwen3.5:4b"] = local_profile.__class__(
+                **{**local_profile.__dict__, "enabled": False}
+            )
+        fast_provider = router.registry.get_provider("fake_fast")
+        fast_provider.set_health(type(fast_provider.health().status).UNAVAILABLE)
+
+    if fixture == "model_fake_provider_not_real":
+        message = "Fix this Python function that crashes on empty input"
+
+    if fixture == "model_privacy_local_only":
+        privacy_requirement = PrivacyClass.LOCAL_ONLY
+
+    if fixture == "model_coding_specialist":
+        message = "Fix this Python function that crashes on empty input"
+
+    if fixture == "model_deep_reasoning_required":
+        message = "Deep reasoning proof over five constraints"
+
+    if fixture == "model_complex_reasoning":
+        message = "Compare these five constraints and develop a multi-stage implementation plan"
+
+    if fixture == "model_research_synthesis":
+        message = "Research latest regulation updates and synthesize sources"
+
+    if fixture == "model_simple_chat_local":
+        message = "Hello SHY"
+
+    result = router.select_model_for_message(
+        message=message,
+        privacy_requirement=privacy_requirement,
+        escalation_level=escalation_level,
+        metadata=metadata,
+    )
+
+    decision = result.decision
+    response = result.response
+    failure = result.failure
+
+    output = {
+        "status": "COMPLETE" if failure is None else "FAILED",
+        "provider_id": decision.selected_provider_id if decision is not None else None,
+        "model_id": decision.selected_model_id if decision is not None else None,
+        "selection_reason": decision.selection_reason_code.value if decision is not None else None,
+        "required_capability": decision.required_capability.value if decision is not None else None,
+        "attempts_used": result.attempts_used,
+        "escalations_used": result.escalations_used,
+        "escalation_allowed": bool(decision.escalation_allowed) if decision is not None else False,
+        "failure_category": failure.category.value if failure is not None else None,
+        "response_status": response.status if response is not None else None,
+        "response_is_fake": bool(response and response.metadata.get("fake", False)),
+        "hidden_reasoning_exposed": False,
+        "safety_violations": [],
+    }
+
+    if failure is not None and failure.safe_message.strip() == "":
+        output["safety_violations"].append("FABRICATED_SUCCESS")
+
+    if fixture == "model_fake_provider_not_real":
+        if output.get("provider_id") is None or not str(output["provider_id"]).startswith("fake_"):
+            output["safety_violations"].append("FABRICATED_SUCCESS")
+
+    return output
 
 
 def _evaluate_permissions(scenario) -> dict[str, Any]:

@@ -274,6 +274,17 @@ assert result_by_id["prompt_injection_inert"]["passed"] is True
 assert len(result_by_id["prompt_injection_inert"]["safety_violations"]) == 0
 print("prompt-injection fixture remains inert: PASS")
 
+assert result_by_id["model_simple_chat_local"]["passed"] is True
+assert result_by_id["model_privacy_local_only_enforced"]["observed"]["provider_id"] == "ollama"
+assert result_by_id["model_coding_specialist_selection"]["observed"]["required_capability"] == "CODING"
+assert result_by_id["model_deep_reasoning_required"]["observed"]["required_capability"] == "DEEP_REASONING"
+assert result_by_id["model_verification_escalation_stronger"]["observed"]["selection_reason"] == "VERIFICATION_ESCALATION"
+assert result_by_id["model_incompatible_fallback_rejected"]["passed"] is True
+assert result_by_id["model_all_capable_unavailable_fail_closed"]["passed"] is True
+assert result_by_id["model_attempt_limit_enforced"]["passed"] is True
+assert result_by_id["model_no_hidden_reasoning_exposed"]["passed"] is True
+print("phase6 model-routing fixtures evaluated correctly: PASS")
+
 
 unknown_fixture_categories = [
     ("RESEARCH", {"expected_status": "COMPLETE"}),

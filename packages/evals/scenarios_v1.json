@@ -315,6 +315,260 @@
         "critical": true
       },
       "tags": ["security", "prompt-injection"]
+    },
+    {
+      "id": "model_simple_chat_local",
+      "category": "ROUTING",
+      "description": "Simple chat can choose a compatible fast/local model.",
+      "input": {
+        "fixture": "model_simple_chat_local",
+        "message": "Hello SHY"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_required_capability": "CHAT"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "model-routing"]
+    },
+    {
+      "id": "model_complex_reasoning_selects_reasoning",
+      "category": "ROUTING",
+      "description": "Complex reasoning maps to reasoning-capable model selection.",
+      "input": {
+        "fixture": "model_complex_reasoning",
+        "message": "Compare five constraints and develop a multi-stage implementation plan"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_required_capability": "DEEP_REASONING"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "reasoning"]
+    },
+    {
+      "id": "model_deep_reasoning_required",
+      "category": "ROUTING",
+      "description": "Deep reasoning tasks require deep reasoning capability.",
+      "input": {
+        "fixture": "model_deep_reasoning_required",
+        "message": "Deep reasoning proof over five constraints"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_required_capability": "DEEP_REASONING"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "deep-reasoning"]
+    },
+    {
+      "id": "model_coding_specialist_selection",
+      "category": "ROUTING",
+      "description": "Coding tasks choose coding-capable model.",
+      "input": {
+        "fixture": "model_coding_specialist",
+        "message": "Fix this Python function that crashes on empty input"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_required_capability": "CODING"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "coding"]
+    },
+    {
+      "id": "model_research_synthesis_selection",
+      "category": "ROUTING",
+      "description": "Research synthesis selects compatible research model.",
+      "input": {
+        "fixture": "model_research_synthesis",
+        "message": "Research latest regulation updates and synthesize sources"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_required_capability": "RESEARCH_SYNTHESIS"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "research"]
+    },
+    {
+      "id": "model_privacy_local_only_enforced",
+      "category": "ROUTING",
+      "description": "LOCAL_ONLY privacy requirement keeps selection local.",
+      "input": {
+        "fixture": "model_privacy_local_only",
+        "privacy_requirement": "LOCAL_ONLY",
+        "message": "private local only: summarize this"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_provider": "ollama",
+        "expected_selection_reason": "PRIVACY_LOCAL_REQUIRED"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "privacy"]
+    },
+    {
+      "id": "model_unavailable_primary_uses_fallback",
+      "category": "FAILURE_RECOVERY",
+      "description": "Unavailable primary model uses compatible fallback.",
+      "input": {
+        "fixture": "model_primary_unavailable_fallback"
+      },
+      "expected": {
+        "expected_status": "COMPLETE"
+      },
+      "constraints": {},
+      "tags": ["phase6", "fallback"]
+    },
+    {
+      "id": "model_incompatible_fallback_rejected",
+      "category": "FAILURE_RECOVERY",
+      "description": "Incompatible fallback is rejected and fails closed.",
+      "input": {
+        "fixture": "model_incompatible_fallback_rejected"
+      },
+      "expected": {
+        "expected_status": "FAILED",
+        "expected_failure_category": "NO_CAPABLE_MODEL"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "fallback", "fail-closed"]
+    },
+    {
+      "id": "model_all_capable_unavailable_fail_closed",
+      "category": "FAILURE_RECOVERY",
+      "description": "All capable models unavailable fails closed.",
+      "input": {
+        "fixture": "model_all_capable_unavailable"
+      },
+      "expected": {
+        "expected_status": "FAILED",
+        "expected_failure_category": "NO_CAPABLE_MODEL"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "availability", "fail-closed"]
+    },
+    {
+      "id": "model_provider_error_bounded_fallback",
+      "category": "FAILURE_RECOVERY",
+      "description": "Provider error triggers bounded fallback behavior.",
+      "input": {
+        "fixture": "model_provider_error_bounded_fallback"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "max_attempts": 3
+      },
+      "constraints": {},
+      "tags": ["phase6", "provider-error"]
+    },
+    {
+      "id": "model_attempt_limit_enforced",
+      "category": "FAILURE_RECOVERY",
+      "description": "Attempt limit is enforced under repeated provider failures.",
+      "input": {
+        "fixture": "model_attempt_limit_enforced"
+      },
+      "expected": {
+        "expected_status": "FAILED",
+        "expected_failure_category": "ATTEMPT_LIMIT_REACHED",
+        "max_attempts": 3
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "limits"]
+    },
+    {
+      "id": "model_escalation_limit_enforced",
+      "category": "FAILURE_RECOVERY",
+      "description": "Escalation limit remains bounded and explicit.",
+      "input": {
+        "fixture": "model_escalation_limit_enforced"
+      },
+      "expected": {
+        "expected_status": "FAILED",
+        "expected_failure_category": "ESCALATION_LIMIT_REACHED",
+        "max_escalations": 2
+      },
+      "constraints": {},
+      "tags": ["phase6", "escalation"]
+    },
+    {
+      "id": "model_verification_escalation_stronger",
+      "category": "ROUTING",
+      "description": "Verification escalation requests stronger compatible model path.",
+      "input": {
+        "fixture": "model_verification_escalation_stronger",
+        "escalation_level": 1
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_selection_reason": "VERIFICATION_ESCALATION"
+      },
+      "constraints": {},
+      "tags": ["phase6", "verification-escalation"]
+    },
+    {
+      "id": "model_unknown_capability_fail_safe",
+      "category": "FAILURE_RECOVERY",
+      "description": "Unknown/unsupported capability path fails safely.",
+      "input": {
+        "fixture": "model_unknown_capability_fail_safe"
+      },
+      "expected": {
+        "expected_status": "FAILED"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "fail-closed"]
+    },
+    {
+      "id": "model_fake_provider_cannot_masquerade",
+      "category": "ROUTING",
+      "description": "Fake providers are explicit test providers and cannot masquerade as real vendors.",
+      "input": {
+        "fixture": "model_fake_provider_not_real"
+      },
+      "expected": {
+        "expected_status": "COMPLETE"
+      },
+      "constraints": {},
+      "tags": ["phase6", "fake-provider"]
+    },
+    {
+      "id": "model_no_hidden_reasoning_exposed",
+      "category": "ROUTING",
+      "description": "Model selection output must not expose hidden reasoning.",
+      "input": {
+        "fixture": "model_simple_chat_local",
+        "message": "Hello SHY"
+      },
+      "expected": {
+        "expected_status": "COMPLETE"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6", "safety"]
     }
   ]
 }
