@@ -10,12 +10,21 @@ def load_module(name: str, path: Path):
     return module
 
 
-services_path = Path(__file__).resolve().parents[1]
+base_dir = Path(__file__).resolve().parent.parent
 
-types_module = load_module(
-    "shy_intelligence_types",
-    services_path / "core" / "intelligence_types.py",
-)
+for candidate in (
+    base_dir / "core" / "intelligence_types.py",
+    base_dir / "services" / "core" / "intelligence_types.py",
+    Path("/app") / "core" / "intelligence_types.py",
+    Path("/app") / "services" / "core" / "intelligence_types.py",
+):
+    if candidate.exists():
+        types_path = candidate
+        break
+else:
+    raise FileNotFoundError("Unable to locate intelligence_types.py in the runtime layout")
+
+types_module = load_module("shy_intelligence_types", types_path)
 
 Capability = types_module.Capability
 Complexity = types_module.Complexity

@@ -25,10 +25,24 @@ selection_module = _load_module("shy_model_selection", app_path / "selection.py"
 orchestrator_module = _load_module("shy_model_orchestrator", app_path / "orchestrator.py")
 ollama_module = _load_module("shy_provider_ollama", app_path / "providers" / "ollama.py")
 fake_module = _load_module("shy_provider_fake", app_path / "providers" / "fake.py")
-intelligence_router_module = _load_module(
-    "shy_intelligence_router_for_model_selection",
+intelligence_candidates = (
     services_path / "agent-runtime" / "intelligence_router.py",
+    services_path / "agent_runtime" / "intelligence_router.py",
+    app_path.parent / "agent-runtime" / "intelligence_router.py",
+    app_path.parent / "agent_runtime" / "intelligence_router.py",
+    Path("/app") / "agent-runtime" / "intelligence_router.py",
+    Path("/app") / "agent_runtime" / "intelligence_router.py",
 )
+intelligence_router_module = None
+for intelligence_path in intelligence_candidates:
+    if intelligence_path.exists():
+        intelligence_router_module = _load_module(
+            "shy_intelligence_router_for_model_selection",
+            intelligence_path,
+        )
+        break
+if intelligence_router_module is None:
+    raise FileNotFoundError("Unable to locate intelligence_router.py in the runtime layout")
 
 ModelCapability = contracts_module.ModelCapability
 ModelMessage = contracts_module.ModelMessage

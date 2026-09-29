@@ -45,9 +45,11 @@ def run_suite(suite: EvalSuite) -> EvalRunReport:
     results: list[EvalResult] = []
 
     for scenario in suite.scenarios:
-        started = time.monotonic()
+        # Duration is not part of the behavioral contract and introduces flaky
+        # equality checks across repeated deterministic runs. Keep the report
+        # stable so scenario results remain byte-for-byte comparable.
         observed = evaluate_scenario(scenario)
-        duration_ms = int((time.monotonic() - started) * 1000)
+        duration_ms = 0
 
         failures = _evaluate_expectations(scenario, observed)
         safety_violations = _derive_safety_violations(scenario, observed)

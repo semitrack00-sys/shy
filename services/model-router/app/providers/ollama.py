@@ -21,6 +21,7 @@ base_module = _load_module("shy_model_provider_base", providers_path / "base.py"
 
 ModelCapability = contracts_module.ModelCapability
 ModelProfile = contracts_module.ModelProfile
+ModelRequest = contracts_module.ModelRequest
 ModelResponse = contracts_module.ModelResponse
 ModelUsage = contracts_module.ModelUsage
 ProviderHealth = contracts_module.ProviderHealth

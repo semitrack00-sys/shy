@@ -21,6 +21,7 @@ contracts_module = _load_module("shy_model_contracts", app_path / "contracts.py"
 CostClass = contracts_module.CostClass
 LatencyClass = contracts_module.LatencyClass
 ModelCapability = contracts_module.ModelCapability
+ModelProfile = contracts_module.ModelProfile
 ModelSelectionDecision = contracts_module.ModelSelectionDecision
 PrivacyClass = contracts_module.PrivacyClass
 ProviderHealthStatus = contracts_module.ProviderHealthStatus
