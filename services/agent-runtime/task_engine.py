@@ -18,6 +18,11 @@ loop_module = load_module(
     agent_runtime_path / "loop_state.py",
 )
 
+verifier_module = load_module(
+    "shy_task_verifier",
+    agent_runtime_path / "verifier.py",
+)
+
 TaskEngineState = loop_module.TaskEngineState
 TaskStepArtifact = loop_module.TaskStepArtifact
 TaskState = loop_module.TaskState
@@ -61,6 +66,7 @@ class TaskEngine:
         plan_builder=None,
         reasoner=None,
         verifier=None,
+        semantic_verifier=None,
         clock=None,
     ):
         self.runtime = runtime
@@ -69,6 +75,7 @@ class TaskEngine:
         self.plan_builder = plan_builder or self._default_plan_builder
         self.reasoner = reasoner or self._default_reasoner
         self.verifier = verifier or self._default_verifier
+        self.semantic_verifier = semantic_verifier
         self.clock = clock or time.monotonic
 
     def create_task(
@@ -256,14 +263,15 @@ class TaskEngine:
 
                 verification = self._verify(task)
                 task.verification_result = verification
+                decision = self._verification_decision(task, verification)
 
-                if verification.outcome == VerificationOutcome.PASS:
+                if decision == "FINISH":
                     task.verification_status = VerificationStatus.PASSED
                     self._mark_remaining_steps_skipped(task)
                     self.advance(task, TaskEngineState.FINISH, label="verify")
                     break
 
-                if verification.outcome == VerificationOutcome.CORRECTABLE:
+                if decision == "REVISE":
                     if not self._enter_revision(task):
                         break
 
@@ -645,9 +653,11 @@ class TaskEngine:
         except Exception:
             return VerificationResult(
                 outcome=VerificationOutcome.FAIL,
-                issues=(VerificationIssue.UNSUPPORTED_OUTPUT,),
+                issues=(VerificationIssue.VERIFICATION_UNAVAILABLE,),
                 summary="Verifier raised an exception.",
             )
+
+        task.verification_report = self._extract_verification_report(result)
 
         coerced = self._coerce_verification_result(result)
 
@@ -659,6 +669,63 @@ class TaskEngine:
             )
 
         return coerced
+
+    @staticmethod
+    def _verification_decision(task: TaskState, verification: VerificationResult) -> str:
+        report = task.verification_report or {}
+        action = str(report.get("recommended_action", "")).upper()
+
+        if verification.outcome == VerificationOutcome.PASS:
+            if action in ("", "FINISH"):
+                return "FINISH"
+            return "FAIL"
+
+        if verification.outcome == VerificationOutcome.CORRECTABLE:
+            if action in ("", "REVISE"):
+                return "REVISE"
+            return "FAIL"
+
+        if verification.outcome == VerificationOutcome.FAIL:
+            return "FAIL"
+
+        return "FAIL"
+
+    @staticmethod
+    def _extract_verification_report(result: Any) -> dict[str, Any] | None:
+        to_public = getattr(result, "to_public_dict", None)
+
+        if callable(to_public):
+            try:
+                return to_public()
+            except Exception:
+                return None
+
+        if isinstance(result, dict):
+            return result
+
+        outcome = getattr(result, "outcome", None)
+
+        if outcome is None:
+            return None
+
+        report = {
+            "outcome": str(getattr(outcome, "value", outcome)),
+            "issues": [
+                str(getattr(item, "value", item))
+                for item in getattr(result, "issues", ())
+            ],
+            "confidence": getattr(result, "confidence", None),
+            "recommended_action": str(
+                getattr(
+                    getattr(result, "recommended_action", None),
+                    "value",
+                    getattr(result, "recommended_action", ""),
+                )
+            ),
+            "summary": str(getattr(result, "summary", "")),
+        }
+
+        return report
 
     @staticmethod
     def _coerce_verification_result(result: Any) -> VerificationResult | None:
@@ -770,58 +837,8 @@ class TaskEngine:
             "evidence": False,
         }
 
-    @staticmethod
-    def _default_verifier(task: TaskState) -> VerificationResult:
-        if not task.plan_steps:
-            return VerificationResult(
-                outcome=VerificationOutcome.FAIL,
-                issues=(VerificationIssue.INCOMPLETE_PLAN,),
-                summary="No plan steps exist.",
-            )
-
-        executed = [
-            step for step in task.plan_steps if step.status == PlanStepStatus.EXECUTED
-        ]
-        failed = [step for step in task.plan_steps if step.status == PlanStepStatus.FAILED]
-        pending = [
-            step for step in task.plan_steps if step.status == PlanStepStatus.PENDING
-        ]
-
-        if failed:
-            issue = VerificationIssue.TOOL_FAILURE
-
-            if any(step.action_type == ActionType.REASON for step in failed):
-                issue = VerificationIssue.UNSUPPORTED_OUTPUT
-
-            return VerificationResult(
-                outcome=VerificationOutcome.FAIL,
-                issues=(issue,),
-                summary="At least one plan step failed.",
-            )
-
-        if pending:
-            return VerificationResult(
-                outcome=VerificationOutcome.CORRECTABLE,
-                issues=(VerificationIssue.INCOMPLETE_PLAN,),
-                summary="Plan has pending work.",
-            )
-
-        if not executed:
-            return VerificationResult(
-                outcome=VerificationOutcome.FAIL,
-                issues=(VerificationIssue.MISSING_RESULT,),
-                summary="No executed results are available.",
-            )
-
-        if any(step.result_summary is None for step in executed):
-            return VerificationResult(
-                outcome=VerificationOutcome.CORRECTABLE,
-                issues=(VerificationIssue.MISSING_RESULT,),
-                summary="Executed steps are missing result summaries.",
-            )
-
-        return VerificationResult(
-            outcome=VerificationOutcome.PASS,
-            issues=(),
-            summary="Plan execution is complete.",
+    def _default_verifier(self, task: TaskState):
+        return verifier_module.verify_task_result(
+            task,
+            semantic_verifier=self.semantic_verifier,
         )

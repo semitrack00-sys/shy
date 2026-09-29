@@ -48,6 +48,14 @@ class VerificationOutcome(str, Enum):
 
 
 class VerificationIssue(str, Enum):
+    UNSUPPORTED_CLAIM = "UNSUPPORTED_CLAIM"
+    MISSING_EVIDENCE = "MISSING_EVIDENCE"
+    CITATION_INVALID = "CITATION_INVALID"
+    CITATION_MISMATCH = "CITATION_MISMATCH"
+    CONTRADICTORY_EVIDENCE = "CONTRADICTORY_EVIDENCE"
+    TOOL_RESULT_MISMATCH = "TOOL_RESULT_MISMATCH"
+    INCOMPLETE_RESULT = "INCOMPLETE_RESULT"
+    VERIFICATION_UNAVAILABLE = "VERIFICATION_UNAVAILABLE"
     MISSING_RESULT = "MISSING_RESULT"
     TOOL_FAILURE = "TOOL_FAILURE"
     INCOMPLETE_PLAN = "INCOMPLETE_PLAN"
@@ -153,6 +161,7 @@ class TaskState:
     status: TaskStatus = TaskStatus.RUNNING
     verification_status: VerificationStatus = VerificationStatus.NOT_REQUIRED
     verification_result: VerificationResult | None = None
+    verification_report: dict[str, Any] | None = None
     failure_reason: str | None = None
 
     @classmethod

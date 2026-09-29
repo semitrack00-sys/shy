@@ -458,6 +458,67 @@ assert verify_fail_task.failure_reason == VERIFICATION_FAILED
 print("verification failure path: PASS")
 
 
+inconsistent_verifier_engine = TaskEngine(
+    runtime=FakeRuntime(SimpleNamespace(status="RESPOND", tool_name=None)),
+    limits=TaskLimits(max_iterations=2, max_steps=4, max_tool_calls=1),
+    plan_builder=lambda _o, _t: [
+        {
+            "step_id": 1,
+            "action_type": "REASON",
+            "objective": "Generate summary",
+        }
+    ],
+    reasoner=lambda s, _t: {
+        "status": "EXECUTED",
+        "summary": f"summary:{s.step_id}",
+        "evidence": False,
+    },
+    verifier=lambda _t: {
+        "outcome": "FAIL",
+        "issues": ["VERIFICATION_UNAVAILABLE"],
+        "recommended_action": "FINISH",
+        "summary": "Inconsistent verifier result.",
+    },
+)
+inconsistent_task, _ = inconsistent_verifier_engine.run(
+    "inconsistent verifier",
+    deep_mode=True,
+)
+assert inconsistent_task.status == TaskStatus.FAILED
+assert inconsistent_task.failure_reason == VERIFICATION_FAILED
+print("inconsistent verifier routing fails safely: PASS")
+
+
+unknown_outcome_engine = TaskEngine(
+    runtime=FakeRuntime(SimpleNamespace(status="RESPOND", tool_name=None)),
+    limits=TaskLimits(max_iterations=2, max_steps=4, max_tool_calls=1),
+    plan_builder=lambda _o, _t: [
+        {
+            "step_id": 1,
+            "action_type": "REASON",
+            "objective": "Generate summary",
+        }
+    ],
+    reasoner=lambda s, _t: {
+        "status": "EXECUTED",
+        "summary": f"summary:{s.step_id}",
+        "evidence": False,
+    },
+    verifier=lambda _t: {
+        "outcome": "UNKNOWN_OUTCOME",
+        "issues": [],
+        "summary": "Unsupported outcome.",
+    },
+)
+unknown_outcome_task, _ = unknown_outcome_engine.run(
+    "unknown outcome verifier",
+    deep_mode=True,
+)
+assert unknown_outcome_task.status == TaskStatus.FAILED
+assert unknown_outcome_task.failure_reason == VERIFICATION_FAILED
+print("unknown verifier outcome fails safely: PASS")
+
+
 compat_runtime = FakeRuntime(SimpleNamespace(status="RESPOND", tool_name=None))
 compatibility_engine = TaskEngine(
     runtime=compat_runtime,
@@ -512,6 +573,7 @@ forbidden_fields = (
     "scratchpad",
     "internal_monologue",
     "reasoning_trace",
+    "hidden_reasoning",
 )
 
 task_dict = vars(det1)

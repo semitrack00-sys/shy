@@ -37,6 +37,48 @@
       "expected_primary_capability": "MULTI_STEP",
       "requires_tool": false,
       "requires_external_evidence": false
+    },
+    {
+      "id": "unsupported_claim",
+      "prompt": "Provide the latest market share figures with certainty.",
+      "expected_verification_outcome": "CORRECTABLE",
+      "expected_defects": [
+        "UNSUPPORTED_CLAIM",
+        "MISSING_EVIDENCE"
+      ]
+    },
+    {
+      "id": "missing_evidence",
+      "prompt": "Summarize current facts without using evidence.",
+      "expected_verification_outcome": "CORRECTABLE",
+      "expected_defects": [
+        "MISSING_EVIDENCE",
+        "INSUFFICIENT_EVIDENCE"
+      ]
+    },
+    {
+      "id": "invalid_citation",
+      "prompt": "Return a sourced answer with citation [9].",
+      "expected_verification_outcome": "CORRECTABLE",
+      "expected_defects": [
+        "CITATION_INVALID"
+      ]
+    },
+    {
+      "id": "contradictory_evidence",
+      "prompt": "Summarize conflicting sources and resolve certainty.",
+      "expected_verification_outcome": "FAIL",
+      "expected_defects": [
+        "CONTRADICTORY_EVIDENCE"
+      ]
+    },
+    {
+      "id": "tool_result_mismatch",
+      "prompt": "Validate a tool step whose reported tool does not match expected tool.",
+      "expected_verification_outcome": "FAIL",
+      "expected_defects": [
+        "TOOL_RESULT_MISMATCH"
+      ]
     }
   ]
 }
