@@ -84,6 +84,21 @@ def map_intelligence_to_capability(intelligence_decision) -> ModelCapability:
     return ModelCapability.CHAT
 
 
+def map_intelligence_to_task_type(intelligence_decision) -> TaskType:
+    primary = str(getattr(intelligence_decision.primary_capability, "value", "CHAT"))
+    complexity = str(getattr(intelligence_decision.complexity, "value", "SIMPLE"))
+
+    if primary == "CODING":
+        return "coding"
+    if primary == "RESEARCH":
+        return "research"
+    if primary == "MULTI_STEP" and complexity == "COMPLEX":
+        return "deep_reasoning"
+    if primary in ("REASONING", "MULTI_STEP"):
+        return "reasoning"
+    return "general"
+
+
 class ModelRouter:
     """
     SHY model-independent router.
@@ -136,47 +151,16 @@ class ModelRouter:
 
         return registry
 
-    def classify(self, message: str) -> TaskType:
+    def classify(self, message: str, intelligence_decision=None) -> TaskType:
+        decision = intelligence_decision or self.intelligence_router.analyze(message)
+        task_type = map_intelligence_to_task_type(decision)
+
+        if task_type != "general":
+            return task_type
+
         text = message.lower()
-
-        coding_terms = (
-            "code", "python", "javascript", "typescript",
-            "react", "debug", "function", "api", "program",
-        )
-
-        deep_reasoning_terms = (
-            "deep reasoning", "prove", "formal", "multi-stage",
-            "five constraints", "long context", "complex strategy",
-        )
-
-        vision_terms = (
-            "image", "photo", "picture", "screenshot", "vision",
-        )
-
-        research_terms = (
-            "research", "sources", "latest", "search the web",
-            "look up", "find online",
-        )
-
-        reasoning_terms = (
-            "analyze", "reason", "compare", "strategy",
-            "plan", "solve", "explain why",
-        )
-
-        if any(term in text for term in coding_terms):
-            return "coding"
-
-        if any(term in text for term in deep_reasoning_terms):
-            return "deep_reasoning"
-
-        if any(term in text for term in vision_terms):
+        if any(term in text for term in ("image", "photo", "picture", "screenshot", "vision")):
             return "vision"
-
-        if any(term in text for term in research_terms):
-            return "research"
-
-        if any(term in text for term in reasoning_terms):
-            return "reasoning"
 
         return "general"
 
@@ -186,8 +170,9 @@ class ModelRouter:
         privacy_requirement: PrivacyClass | None = None,
         escalation_level: int = 0,
         metadata: dict | None = None,
+        intelligence_decision=None,
     ):
-        intelligence_decision = self.intelligence_router.analyze(message)
+        intelligence_decision = intelligence_decision or self.intelligence_router.analyze(message)
         required_capability = map_intelligence_to_capability(intelligence_decision)
 
         complexity = TaskComplexity.SIMPLE
@@ -199,8 +184,12 @@ class ModelRouter:
             complexity = TaskComplexity.MODERATE
 
         if required_capability == ModelCapability.CODING:
-            cost_preference = CostClass.MEDIUM
-            latency_preference = LatencyClass.NORMAL
+            if complexity == TaskComplexity.COMPLEX:
+                cost_preference = CostClass.HIGH
+                latency_preference = LatencyClass.SLOW
+            else:
+                cost_preference = CostClass.MEDIUM
+                latency_preference = LatencyClass.NORMAL
         elif required_capability == ModelCapability.DEEP_REASONING:
             cost_preference = CostClass.HIGH
             latency_preference = LatencyClass.SLOW
@@ -223,14 +212,35 @@ class ModelRouter:
         request = ModelRequest(
             messages=(ModelMessage(role="user", content=message),),
             capability=required_capability,
-            metadata=dict(metadata or {}),
+            metadata={
+                **dict(metadata or {}),
+                "repository_context_required": bool(
+                    getattr(intelligence_decision, "repository_context_required", False)
+                ),
+                "coding_verification_required": bool(
+                    getattr(intelligence_decision, "verification_required", False)
+                ),
+            },
         )
 
         return self.orchestrator.run(request=request, selection_input=selection_input)
 
-    def route(self, message: str) -> ModelRoute:
-        task_type = self.classify(message)
-        result = self.select_model_for_message(message)
+    def route(
+        self,
+        message: str,
+        privacy_requirement: PrivacyClass | None = None,
+        escalation_level: int = 0,
+        metadata: dict | None = None,
+    ) -> ModelRoute:
+        intelligence_decision = self.intelligence_router.analyze(message)
+        task_type = self.classify(message, intelligence_decision=intelligence_decision)
+        result = self.select_model_for_message(
+            message,
+            privacy_requirement=privacy_requirement,
+            escalation_level=escalation_level,
+            metadata=metadata,
+            intelligence_decision=intelligence_decision,
+        )
 
         if result.decision is not None:
             reason = result.decision.selection_reason_code.value

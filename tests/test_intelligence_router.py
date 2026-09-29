@@ -19,6 +19,7 @@ types_module = load_module("shy_intelligence_types_test", types_path)
 
 IntelligenceRouter = router_module.IntelligenceRouter
 Capability = types_module.Capability
+CodingTaskType = types_module.CodingTaskType
 ReasonCode = types_module.ReasonCode
 
 router = IntelligenceRouter()
@@ -55,7 +56,16 @@ print("explicit tool classification: PASS")
 
 coding = router.analyze("Fix this Python function that crashes on empty input")
 assert coding.primary_capability == Capability.CODING
+assert coding.coding_profile is not None
+assert coding.coding_profile.task_type in (CodingTaskType.DEBUG_EXCEPTION, CodingTaskType.UNKNOWN)
+assert coding.verification_required is True
 print("coding classification: PASS")
+
+false_positive = router.analyze("What is the dress code for this event?")
+assert false_positive.primary_capability != Capability.CODING
+medical_false_positive = router.analyze("Explain this medical billing code")
+assert medical_false_positive.primary_capability == Capability.CHAT
+print("coding false-positive protection: PASS")
 
 first = router.analyze("Research hybrid battery chemistry")
 second = router.analyze("Research hybrid battery chemistry")

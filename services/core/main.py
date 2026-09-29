@@ -6,17 +6,20 @@ import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from model_router.router import ModelRouter
+from model_router.router import ModelRouter, PrivacyClass
 from tools.gateway import ToolGateway
 from agent_runtime.runtime import AgentRuntime
 from research.web_search import WebSearchService
 from research.tavily import TavilySearchProvider
 
 from memory import (
+    DEFAULT_USER_ID,
+    build_memory_query,
     conversation_exists,
     create_conversation,
     ensure_default_user,
     load_messages,
+    retrieve_memory_context,
     save_message,
 )
 
@@ -102,6 +105,26 @@ RESEARCH_GENERATION_OPTIONS = {
 
 class ResearchSynthesisError(RuntimeError):
     """Raised when SHY cannot safely produce a research synthesis response."""
+
+
+def _load_memory_history_for_message(message: str, conversation_id: uuid.UUID) -> tuple[list, bool]:
+    decision = router.intelligence_router.analyze(message)
+    query = build_memory_query(
+        query_text=message,
+        conversation_id=conversation_id,
+        user_id=DEFAULT_USER_ID,
+        include_cross_conversation=bool(decision.requires_memory),
+        max_results=10,
+        max_context_chars=3200,
+        max_candidates=120,
+    )
+
+    selection = retrieve_memory_context(query)
+    if selection.selected_messages:
+        return [dict(item) for item in selection.selected_messages], True
+
+    history = load_messages(conversation_id)
+    return history, len(history) > 0
 
 
 def _normalize_research_text(value: Any) -> str:
@@ -406,7 +429,10 @@ async def agent(request: AgentRequest):
                     detail="Conversation not found."
                 )
 
-        history = load_messages(conversation_id)
+        history, local_memory_context_used = _load_memory_history_for_message(
+            request.message,
+            conversation_id,
+        )
 
     except HTTPException:
         raise
@@ -417,7 +443,8 @@ async def agent(request: AgentRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
-    route = router.route(request.message)
+    privacy_requirement = PrivacyClass.LOCAL_ONLY if local_memory_context_used else None
+    route = router.route(request.message, privacy_requirement=privacy_requirement)
 
     try:
         save_message(
@@ -480,7 +507,10 @@ async def chat(request: ChatRequest):
                     detail="Conversation not found."
                 )
 
-        history = load_messages(conversation_id)
+        history, local_memory_context_used = _load_memory_history_for_message(
+            request.message,
+            conversation_id,
+        )
 
     except HTTPException:
         raise
@@ -491,7 +521,8 @@ async def chat(request: ChatRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
-    route = router.route(request.message)
+    privacy_requirement = PrivacyClass.LOCAL_ONLY if local_memory_context_used else None
+    route = router.route(request.message, privacy_requirement=privacy_requirement)
 
     try:
         save_message(

@@ -569,6 +569,536 @@
         "critical": true
       },
       "tags": ["phase6", "safety"]
+    },
+    {
+      "id": "memory_relevance_older_beats_irrelevant_recent",
+      "category": "MEMORY",
+      "description": "Older relevant memory outranks newer irrelevant memory.",
+      "input": {
+        "fixture": "memory_relevance_rank",
+        "message": "payment reconciliation bug fix"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_top_content": "Payment reconciliation bug fix requires ledger rollback guard and idempotency key.",
+        "expected_excludes_content": ["Lunch options and weather notes from today."],
+        "expected_cross_user_leakage": false,
+        "expected_query_valid": true
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "memory", "relevance"]
+    },
+    {
+      "id": "memory_relevant_recent_selected",
+      "category": "MEMORY",
+      "description": "Relevant recent memory is selected when query matches.",
+      "input": {
+        "fixture": "memory_relevant_recent",
+        "message": "react build failed tsconfig",
+        "include_cross_conversation": true
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_contains_content": ["React build failed due to missing tsconfig path alias in repository."],
+        "expected_cross_conversation_used": true,
+        "expected_cross_user_leakage": false
+      },
+      "constraints": {},
+      "tags": ["phase6b", "memory", "recent"]
+    },
+    {
+      "id": "memory_irrelevant_memory_excluded",
+      "category": "MEMORY",
+      "description": "Irrelevant memory is excluded from selected context.",
+      "input": {
+        "fixture": "memory_irrelevant_excluded",
+        "message": "payment reconciliation bug"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_excludes_content": ["Lunch options and weather notes from today."],
+        "expected_cross_user_leakage": false
+      },
+      "constraints": {},
+      "tags": ["phase6b", "memory", "precision"]
+    },
+    {
+      "id": "memory_result_limit_enforced",
+      "category": "MEMORY",
+      "description": "Memory selection obeys result count limits.",
+      "input": {
+        "fixture": "memory_limit",
+        "message": "policy",
+        "max_results": 1
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_result_limit": 1,
+        "expected_cross_user_leakage": false
+      },
+      "constraints": {},
+      "tags": ["phase6b", "memory", "limits"]
+    },
+    {
+      "id": "memory_context_budget_enforced",
+      "category": "MEMORY",
+      "description": "Memory context respects context-size budget.",
+      "input": {
+        "fixture": "memory_budget",
+        "message": "payment bug policy",
+        "max_context_chars": 120
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_context_max_chars": 200,
+        "expected_cross_user_leakage": false
+      },
+      "constraints": {},
+      "tags": ["phase6b", "memory", "budget"]
+    },
+    {
+      "id": "memory_deterministic_ranking",
+      "category": "MEMORY",
+      "description": "Memory ranking remains deterministic and stable.",
+      "input": {
+        "fixture": "memory_relevance_rank",
+        "message": "payment reconciliation bug fix"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_top_content": "Payment reconciliation bug fix requires ledger rollback guard and idempotency key."
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "memory", "determinism"]
+    },
+    {
+      "id": "memory_duplicates_conservative_dedup",
+      "category": "MEMORY",
+      "description": "Exact duplicate memories are conservatively deduplicated.",
+      "input": {
+        "fixture": "memory_dedup",
+        "message": "payment reconciliation bug"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_selected_count": 1,
+        "expected_contains_content": ["Payment reconciliation bug fix requires ledger rollback guard and idempotency key."]
+      },
+      "constraints": {},
+      "tags": ["phase6b", "memory", "dedup"]
+    },
+    {
+      "id": "memory_conflicting_memories_preserved",
+      "category": "MEMORY",
+      "description": "Conflicting memories are preserved and not collapsed.",
+      "input": {
+        "fixture": "memory_conflicts",
+        "message": "feature flag rollout policy"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_contains_content": ["enable feature flag globally", "do NOT enable feature flag globally"],
+        "expected_cross_user_leakage": false
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "memory", "conflict"]
+    },
+    {
+      "id": "memory_empty_safe",
+      "category": "MEMORY",
+      "description": "Empty memory source returns safe empty context.",
+      "input": {
+        "fixture": "memory_empty",
+        "message": "payment"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_selected_count": 0,
+        "expected_cross_user_leakage": false
+      },
+      "constraints": {},
+      "tags": ["phase6b", "memory", "empty"]
+    },
+    {
+      "id": "memory_retrieval_failure_safe",
+      "category": "MEMORY",
+      "description": "Retrieval failure fails safely without fabricated context.",
+      "input": {
+        "fixture": "memory_retrieval_failure",
+        "message": "payment"
+      },
+      "expected": {
+        "expected_status": "FAILED",
+        "expected_failure_reason": "MEMORY_RETRIEVAL_FAILED",
+        "expected_selected_count": 0
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "memory", "failure"]
+    },
+    {
+      "id": "memory_strict_user_isolation",
+      "category": "MEMORY",
+      "description": "Cross-user memory retrieval is blocked by strict user isolation.",
+      "input": {
+        "fixture": "memory_user_isolation",
+        "message": "payroll details",
+        "include_cross_conversation": true
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_cross_user_leakage": false
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "memory", "privacy"]
+    },
+    {
+      "id": "memory_conversation_isolation",
+      "category": "MEMORY",
+      "description": "Conversation isolation is preserved when cross-conversation retrieval is disabled.",
+      "input": {
+        "fixture": "memory_conversation_isolation",
+        "message": "react build failed",
+        "include_cross_conversation": false
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_cross_conversation_used": false
+      },
+      "constraints": {},
+      "tags": ["phase6b", "memory", "conversation"]
+    },
+    {
+      "id": "memory_cross_conversation_same_user_policy",
+      "category": "MEMORY",
+      "description": "Controlled same-user cross-conversation retrieval can be enabled.",
+      "input": {
+        "fixture": "memory_cross_conversation",
+        "message": "react build failed tsconfig",
+        "include_cross_conversation": true
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_cross_conversation_used": true,
+        "expected_cross_user_leakage": false
+      },
+      "constraints": {},
+      "tags": ["phase6b", "memory", "policy"]
+    },
+    {
+      "id": "memory_invalid_query_fails_safe",
+      "category": "MEMORY",
+      "description": "Invalid memory query is rejected safely.",
+      "input": {
+        "fixture": "memory_invalid_query",
+        "message": ""
+      },
+      "expected": {
+        "expected_status": "FAILED",
+        "expected_query_valid": false,
+        "expected_failure_reason": "INVALID_QUERY"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "memory", "validation"]
+    },
+    {
+      "id": "coding_python_exception_profile",
+      "category": "CODING",
+      "description": "Python exception debugging is classified as coding with verification.",
+      "input": {
+        "fixture": "coding_python_exception",
+        "message": "Debug this Python exception and stack trace"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_task_type": "DEBUG_EXCEPTION",
+        "expected_languages": ["python"],
+        "expected_verification_required": true,
+        "expected_required_capability": "CODING"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "classification"]
+    },
+    {
+      "id": "coding_stack_trace_analysis_profile",
+      "category": "CODING",
+      "description": "Stack-trace analysis is explicitly recognized as a coding task.",
+      "input": {
+        "fixture": "coding_stack_trace",
+        "message": "Please analyze this stack trace from production"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_task_type": "STACK_TRACE_ANALYSIS",
+        "expected_verification_required": true
+      },
+      "constraints": {},
+      "tags": ["phase6b", "coding", "stack-trace"]
+    },
+    {
+      "id": "coding_react_build_failure_profile",
+      "category": "CODING",
+      "description": "React build failures request coding capability with repository context.",
+      "input": {
+        "fixture": "coding_react_build",
+        "message": "React build failure in vite after dependency update"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_task_type": "REACT_BUILD_FAILURE",
+        "expected_frameworks": ["react"],
+        "expected_repository_context_required": true,
+        "expected_execution_required": true,
+        "expected_complexity": "COMPLEX",
+        "expected_required_capability": "CODING"
+      },
+      "constraints": {},
+      "tags": ["phase6b", "coding", "build"]
+    },
+    {
+      "id": "coding_api_implementation_profile",
+      "category": "CODING",
+      "description": "API implementation requests coding classification.",
+      "input": {
+        "fixture": "coding_api_implementation",
+        "message": "Implement an API endpoint for order status"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_task_type": "API_IMPLEMENTATION",
+        "expected_repository_context_required": true,
+        "expected_required_capability": "CODING"
+      },
+      "constraints": {},
+      "tags": ["phase6b", "coding", "api"]
+    },
+    {
+      "id": "coding_unit_test_generation_profile",
+      "category": "CODING",
+      "description": "Unit test generation classification is structured and deterministic.",
+      "input": {
+        "fixture": "coding_unit_tests",
+        "message": "Generate pytest unit tests for this serializer"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_task_type": "UNIT_TEST_GENERATION",
+        "expected_frameworks": ["pytest"],
+        "expected_execution_required": true
+      },
+      "constraints": {},
+      "tags": ["phase6b", "coding", "tests"]
+    },
+    {
+      "id": "coding_git_diff_review_profile",
+      "category": "CODING",
+      "description": "Git diff review requests repository-context coding analysis.",
+      "input": {
+        "fixture": "coding_git_diff_review",
+        "message": "Review this git diff and identify regressions"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_task_type": "GIT_DIFF_REVIEW",
+        "expected_repository_context_required": true,
+        "expected_complexity": "COMPLEX"
+      },
+      "constraints": {},
+      "tags": ["phase6b", "coding", "review"]
+    },
+    {
+      "id": "coding_repository_debug_profile",
+      "category": "CODING",
+      "description": "Repository debugging requests coding capability.",
+      "input": {
+        "fixture": "coding_repository_debug",
+        "message": "Analyze this repository and debug build failures"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_repository_context_required": true,
+        "expected_verification_required": true
+      },
+      "constraints": {},
+      "tags": ["phase6b", "coding", "repository"]
+    },
+    {
+      "id": "coding_complex_tasks_require_verification",
+      "category": "CODING",
+      "description": "Complex coding/debug tasks retain verification requirements.",
+      "input": {
+        "fixture": "coding_complex_verification",
+        "message": "Gradle build failure stack trace analysis across modules"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_verification_required": true,
+        "expected_complexity": "COMPLEX"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "verification"]
+    },
+    {
+      "id": "coding_false_positive_dress_code",
+      "category": "CODING",
+      "description": "Dress code phrase does not trigger coding classification.",
+      "input": {
+        "fixture": "coding_false_positive_dress",
+        "message": "What is the dress code for this event?"
+      },
+      "expected": {
+        "expected_capability": "CHAT"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "false-positive"]
+    },
+    {
+      "id": "coding_false_positive_zip_code",
+      "category": "CODING",
+      "description": "ZIP code phrase does not trigger coding classification.",
+      "input": {
+        "fixture": "coding_false_positive_zip",
+        "message": "Find the ZIP code for this address"
+      },
+      "expected": {
+        "expected_capability": "CHAT"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "false-positive"]
+    },
+    {
+      "id": "coding_false_positive_airport_code",
+      "category": "CODING",
+      "description": "Airport code phrase does not trigger coding classification.",
+      "input": {
+        "fixture": "coding_false_positive_airport",
+        "message": "What is the airport code for Tokyo?"
+      },
+      "expected": {
+        "expected_capability": "CHAT"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "false-positive"]
+    },
+    {
+      "id": "coding_false_positive_medical_billing_code",
+      "category": "CODING",
+      "description": "Medical billing code phrase does not trigger coding classification.",
+      "input": {
+        "fixture": "coding_false_positive_medical",
+        "message": "Explain this medical billing code"
+      },
+      "expected": {
+        "expected_capability": "CHAT"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "false-positive"]
+    },
+    {
+      "id": "coding_ambiguous_task_safety",
+      "category": "CODING",
+      "description": "Ambiguous requests avoid unsupported coding inferences.",
+      "input": {
+        "fixture": "coding_ambiguous",
+        "message": "Can you help with this issue?"
+      },
+      "expected": {
+        "expected_capability": "CHAT"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "safety"]
+    },
+    {
+      "id": "coding_capability_model_routing",
+      "category": "CODING",
+      "description": "Software coding tasks request CODING model capability.",
+      "input": {
+        "fixture": "coding_python_exception",
+        "message": "Debug this Python exception and write unit tests"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_required_capability": "CODING"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "routing"]
+    },
+    {
+      "id": "coding_classification_grants_no_tool_authority",
+      "category": "CODING",
+      "description": "Coding classification does not grant tool execution authority.",
+      "input": {
+        "fixture": "coding_authority_not_granted",
+        "message": "Debug this Python exception"
+      },
+      "expected": {
+        "expected_capability": "CODING",
+        "expected_tool_authority_granted": false
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "authority"]
+    },
+    {
+      "id": "coding_incompatible_fallback_rejected",
+      "category": "CODING",
+      "description": "Incompatible coding fallback remains fail-closed.",
+      "input": {
+        "fixture": "model_incompatible_fallback_rejected",
+        "message": "Deep reasoning proof over five constraints"
+      },
+      "expected": {
+        "expected_status": "FAILED",
+        "expected_failure_category": "NO_CAPABLE_MODEL"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "coding", "fallback", "fail-closed"]
+    },
+    {
+      "id": "privacy_local_only_memory_context_cannot_route_remote",
+      "category": "ROUTING",
+      "description": "LOCAL_ONLY memory context cannot route to remote providers.",
+      "input": {
+        "fixture": "model_local_only_context_no_remote"
+      },
+      "expected": {
+        "expected_status": "COMPLETE",
+        "expected_provider": "ollama"
+      },
+      "constraints": {
+        "critical": true
+      },
+      "tags": ["phase6b", "privacy", "routing"]
     }
   ]
 }

@@ -261,6 +261,9 @@ assert research_route.task_type == "research"
 coding_route = router.route("Debug this API handler")
 assert coding_route.task_type == "coding"
 
+non_coding_route = router.route("What is the airport code for Tokyo?")
+assert non_coding_route.task_type != "coding"
+
 reasoning_route = router.route("Compare three migration strategies")
 assert reasoning_route.task_type in ("reasoning", "deep_reasoning")
 print("router task-type mapping: PASS")

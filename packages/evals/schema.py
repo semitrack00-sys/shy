@@ -32,6 +32,7 @@ _ALLOWED_CAPABILITIES = {
 }
 
 _ALLOWED_VERIFICATION = {"PASS", "CORRECTABLE", "FAIL"}
+_ALLOWED_COMPLEXITY = {"SIMPLE", "MODERATE", "COMPLEX"}
 
 _ALLOWED_STATUS = {
     "COMPLETE",
@@ -196,15 +197,46 @@ def _validate_expected(scenario_id: str, expected: dict[str, Any]):
             raise ValueError(f"{field_name} must be boolean in scenario: {scenario_id}")
 
     for field_name in (
+        "expected_repository_context_required",
+        "expected_execution_required",
+        "expected_verification_required",
+        "expected_cross_user_leakage",
+        "expected_cross_conversation_used",
+        "expected_query_valid",
+        "expected_tool_authority_granted",
+    ):
+        value = expected.get(field_name)
+        if value is not None and not isinstance(value, bool):
+            raise ValueError(f"{field_name} must be boolean in scenario: {scenario_id}")
+
+    for field_name in (
         "expected_provider",
         "expected_model",
         "expected_selection_reason",
         "expected_failure_category",
         "expected_required_capability",
+        "expected_task_type",
+        "expected_top_content",
+        "expected_failure_reason",
+        "expected_complexity",
     ):
         value = expected.get(field_name)
         if value is not None and not str(value).strip():
             raise ValueError(f"{field_name} cannot be empty in scenario: {scenario_id}")
+
+    complexity = expected.get("expected_complexity")
+    if complexity is not None and str(complexity) not in _ALLOWED_COMPLEXITY:
+        raise ValueError(f"invalid expected_complexity in scenario: {scenario_id}")
+
+    for field_name in ("expected_languages", "expected_frameworks", "expected_contains_content", "expected_excludes_content"):
+        value = expected.get(field_name)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            raise ValueError(f"{field_name} must be list in scenario: {scenario_id}")
+        for item in value:
+            if not str(item).strip():
+                raise ValueError(f"{field_name} contains empty value in scenario: {scenario_id}")
 
     for field_name in ("max_attempts", "max_escalations"):
         value = expected.get(field_name)
@@ -212,6 +244,13 @@ def _validate_expected(scenario_id: str, expected: dict[str, Any]):
             continue
         if not isinstance(value, int) or value < 0 or value > 10:
             raise ValueError(f"{field_name} must be integer between 0 and 10 in scenario: {scenario_id}")
+
+    for field_name in ("expected_selected_count", "expected_context_max_chars", "expected_result_limit"):
+        value = expected.get(field_name)
+        if value is None:
+            continue
+        if not isinstance(value, int) or value < 0 or value > 100000:
+            raise ValueError(f"{field_name} must be non-negative integer in scenario: {scenario_id}")
 
     forbidden_tools = expected.get("forbidden_tools")
     if forbidden_tools is not None:

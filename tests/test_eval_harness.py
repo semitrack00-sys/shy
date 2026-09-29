@@ -285,6 +285,17 @@ assert result_by_id["model_attempt_limit_enforced"]["passed"] is True
 assert result_by_id["model_no_hidden_reasoning_exposed"]["passed"] is True
 print("phase6 model-routing fixtures evaluated correctly: PASS")
 
+assert result_by_id["memory_relevance_older_beats_irrelevant_recent"]["passed"] is True
+assert result_by_id["memory_strict_user_isolation"]["passed"] is True
+assert result_by_id["memory_invalid_query_fails_safe"]["passed"] is True
+print("phase6b memory fixtures evaluated correctly: PASS")
+
+assert result_by_id["coding_python_exception_profile"]["passed"] is True
+assert result_by_id["coding_false_positive_dress_code"]["passed"] is True
+assert result_by_id["coding_classification_grants_no_tool_authority"]["passed"] is True
+assert result_by_id["privacy_local_only_memory_context_cannot_route_remote"]["passed"] is True
+print("phase6b coding/privacy fixtures evaluated correctly: PASS")
+
 
 unknown_fixture_categories = [
     ("RESEARCH", {"expected_status": "COMPLETE"}),
