@@ -2,6 +2,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class TaskEngineState(str, Enum):
@@ -28,9 +29,46 @@ class VerificationStatus(str, Enum):
     FAILED = "FAILED"
 
 
+class ActionType(str, Enum):
+    REASON = "REASON"
+    TOOL = "TOOL"
+
+
+class PlanStepStatus(str, Enum):
+    PENDING = "PENDING"
+    EXECUTED = "EXECUTED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+
+
+class VerificationOutcome(str, Enum):
+    PASS = "PASS"
+    CORRECTABLE = "CORRECTABLE"
+    FAIL = "FAIL"
+
+
+class VerificationIssue(str, Enum):
+    MISSING_RESULT = "MISSING_RESULT"
+    TOOL_FAILURE = "TOOL_FAILURE"
+    INCOMPLETE_PLAN = "INCOMPLETE_PLAN"
+    UNSUPPORTED_OUTPUT = "UNSUPPORTED_OUTPUT"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    LIMIT_REACHED = "LIMIT_REACHED"
+
+
 ITERATION_LIMIT_REACHED = "ITERATION_LIMIT_REACHED"
 STEP_LIMIT_REACHED = "STEP_LIMIT_REACHED"
 TOOL_CALL_LIMIT_REACHED = "TOOL_CALL_LIMIT_REACHED"
+TIME_LIMIT_REACHED = "TIME_LIMIT_REACHED"
+
+INVALID_PLAN = "INVALID_PLAN"
+PLANNER_FAILURE = "PLANNER_FAILURE"
+RUNTIME_UNAVAILABLE = "RUNTIME_UNAVAILABLE"
+APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+TOOL_DENIED = "TOOL_DENIED"
+TOOL_EXECUTION_FAILED = "TOOL_EXECUTION_FAILED"
+REASONING_OPERATION_FAILED = "REASONING_OPERATION_FAILED"
+VERIFICATION_FAILED = "VERIFICATION_FAILED"
 
 
 @dataclass(frozen=True)
@@ -60,17 +98,61 @@ class TaskStepArtifact:
 
 
 @dataclass
+class PlanStep:
+    step_id: int
+    action_type: ActionType
+    objective: str
+    status: PlanStepStatus = PlanStepStatus.PENDING
+    tool_name: str | None = None
+    tool_args: dict[str, Any] | None = None
+    result_summary: str | None = None
+    error: str | None = None
+
+    def __post_init__(self):
+        if self.step_id < 1:
+            raise ValueError("step_id must be at least 1")
+
+        if not self.objective.strip():
+            raise ValueError("objective cannot be empty")
+
+        if self.action_type == ActionType.TOOL and not self.tool_name:
+            raise ValueError("tool steps must provide tool_name")
+
+
+@dataclass
+class StepObservation:
+    step_id: int
+    status: str
+    result_available: bool
+    evidence_available: bool
+    error_code: str | None = None
+    requires_revision: bool = False
+
+
+@dataclass(frozen=True)
+class VerificationResult:
+    outcome: VerificationOutcome
+    issues: tuple[VerificationIssue, ...] = ()
+    summary: str = ""
+
+
+@dataclass
 class TaskState:
     task_id: str
     objective: str
     state: TaskEngineState = TaskEngineState.UNDERSTAND
     steps: list[TaskStepArtifact] = field(default_factory=list)
+    plan_steps: list[PlanStep] = field(default_factory=list)
+    observations: list[StepObservation] = field(default_factory=list)
+    capabilities: tuple[str, ...] = ()
     current_step: int | None = None
     iteration_count: int = 0
     tool_call_count: int = 0
     started_at: float = field(default_factory=time.time)
+    started_monotonic: float = field(default_factory=time.monotonic)
     status: TaskStatus = TaskStatus.RUNNING
     verification_status: VerificationStatus = VerificationStatus.NOT_REQUIRED
+    verification_result: VerificationResult | None = None
     failure_reason: str | None = None
 
     @classmethod
@@ -113,6 +195,7 @@ class TaskState:
 
         if new_state == TaskEngineState.FAILED:
             self.status = TaskStatus.FAILED
+            self.verification_status = VerificationStatus.FAILED
             self.failure_reason = failure_reason or "TASK_FAILED"
 
 
