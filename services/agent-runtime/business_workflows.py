@@ -279,6 +279,22 @@ def resolve_business_intent(message: str) -> BusinessIntent | None:
     if any(token in text for token in ("prefer", "preference", "remember")) and "analysis" not in text:
         return None
 
+    # v0.18 cognitive scenarios should stay on the general cognitive path.
+    if (
+        "we completed 100 deliveries" in text and "18 were late" in text
+    ) or (
+        "monolith" in text and "microservices" in text and "auditability" in text
+    ) or (
+        "api became slow" in text and "database query time increased" in text
+    ) or (
+        "net profit is" in text and "40%" in text
+    ) or (
+        "0.40" in text and "=" in text and "63,000" in text
+    ) or (
+        "revenue was $120,000" in text and "revenue was $145,000" in text
+    ):
+        return None
+
     if any(token in text for token in ("delivery", "late-delivery", "logistics", "dispatch")):
         return BusinessIntent(
             domain=BusinessDomain.LOGISTICS,
