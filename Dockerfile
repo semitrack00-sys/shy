@@ -17,9 +17,15 @@ COPY services/tools/gateway.py ./tools/gateway.py
 COPY services/agent-runtime/planner.py ./agent_runtime/planner.py
 COPY services/agent-runtime/runtime.py ./agent_runtime/runtime.py
 COPY services/agent-runtime/intelligence_router.py ./agent_runtime/intelligence_router.py
+COPY services/agent-runtime/verifier.py ./agent_runtime/verifier.py
+COPY services/agent-runtime/loop_state.py ./agent_runtime/loop_state.py
 
 COPY services/research/web_search.py ./research/web_search.py
 COPY services/research/tavily.py ./research/tavily.py
+COPY services/research/query_planner.py ./research/query_planner.py
+COPY services/research/evidence_compare.py ./research/evidence_compare.py
+COPY services/research/research_engine.py ./research/research_engine.py
+COPY services/research/citation_validator.py ./research/citation_validator.py
 
 RUN touch ./model_router/__init__.py
 RUN touch ./permissions/__init__.py

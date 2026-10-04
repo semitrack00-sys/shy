@@ -651,7 +651,7 @@ health_result = SimpleNamespace(
     tool_status="EXECUTED",
     output={
         "system": "SHY",
-        "core_version": "0.11.0",
+        "core_version": "0.12.0",
         "status": "healthy",
     },
 )

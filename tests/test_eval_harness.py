@@ -7,6 +7,9 @@ from pathlib import Path
 
 
 root = Path(__file__).resolve().parents[1]
+workspace_temp = root / ".tmp"
+workspace_temp.mkdir(exist_ok=True)
+tempfile.tempdir = str(workspace_temp)
 sys.path.insert(0, str(root))
 
 from packages.evals.compare import compare_reports
