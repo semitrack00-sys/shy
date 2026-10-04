@@ -684,6 +684,11 @@ LOCAL_MODEL = os.getenv(
     "SHY_LOCAL_MODEL",
     "qwen3.5:4b"
 )
+LOCAL_MODEL_ENABLED = os.getenv("SHY_ENABLE_LOCAL_MODEL", "1").strip() == "1"
+REMOTE_MODEL_ID = os.getenv("SHY_REMOTE_MODEL_ID", "").strip()
+REMOTE_MODEL_BASE_URL = os.getenv("SHY_REMOTE_MODEL_BASE_URL", "").strip()
+PRIVATE_REMOTE_MEMORY_ALLOWED = os.getenv("SHY_PRIVATE_REMOTE_MEMORY_ALLOWED", "0").strip() == "1"
+PRIVATE_REMOTE_REASONING_ALLOWED = os.getenv("SHY_PRIVATE_REMOTE_REASONING_ALLOWED", "0").strip() == "1"
 
 router = ModelRouter(LOCAL_MODEL)
 
@@ -692,18 +697,60 @@ ENABLE_SYNTHETIC_TASK_TOOLS = os.getenv("SHY_ENABLE_SYNTHETIC_TASK_TOOLS", "0").
 ENABLE_MODEL_ROUTING_TEST_HOOKS = os.getenv("SHY_ENABLE_MODEL_ROUTING_TEST_HOOKS", "0").strip() == "1"
 
 
+def _privacy_requirement_for_request(local_memory_context_used: bool, local_only: bool) -> PrivacyClass | None:
+    if local_only:
+        return PrivacyClass.LOCAL_ONLY
+    if local_memory_context_used:
+        return (
+            PrivacyClass.PRIVATE_REMOTE_ALLOWED
+            if PRIVATE_REMOTE_MEMORY_ALLOWED
+            else PrivacyClass.LOCAL_ONLY
+        )
+    return None
+
+
 def _collect_runtime_health_snapshot() -> dict[str, Any]:
     ollama_connected = False
+    remote_inference_connected = False
     database_connected = False
     local_model_available = False
+    remote_model_available = False
 
-    try:
-        async_client = httpx.Client(timeout=5.0)
-        with async_client as client:
-            response = client.get(f"{OLLAMA_URL}/api/tags")
-            ollama_connected = response.is_success
-    except httpx.HTTPError:
-        ollama_connected = False
+    if LOCAL_MODEL_ENABLED:
+        try:
+            async_client = httpx.Client(timeout=5.0)
+            with async_client as client:
+                response = client.get(f"{OLLAMA_URL}/api/tags")
+                ollama_connected = response.is_success
+        except httpx.HTTPError:
+            ollama_connected = False
+
+    if REMOTE_MODEL_ID and REMOTE_MODEL_BASE_URL:
+        try:
+            remote_provider = router.registry.get_provider("qwen_remote")
+            remote_inference_connected = bool(remote_provider.probe()) if hasattr(remote_provider, "probe") else False
+            remote_profile = router.registry.get_model(REMOTE_MODEL_ID)
+            provider_health = router.registry.provider_health(remote_profile.provider_id)
+            remote_model_available = bool(remote_profile.enabled) and str(provider_health.status.value) in {
+                "HEALTHY",
+                "DEGRADED",
+                "UNKNOWN",
+            }
+        except Exception:
+            remote_inference_connected = False
+            remote_model_available = False
+
+    if LOCAL_MODEL_ENABLED:
+        try:
+            local_profile = router.registry.get_model(LOCAL_MODEL)
+            provider_health = router.registry.provider_health(local_profile.provider_id)
+            local_model_available = bool(local_profile.enabled) and str(provider_health.status.value) in {
+                "HEALTHY",
+                "DEGRADED",
+                "UNKNOWN",
+            } and ollama_connected
+        except Exception:
+            local_model_available = False
 
     try:
         with connect() as conn:
@@ -714,18 +761,12 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
     except Exception:
         database_connected = False
 
-    try:
-        local_profile = router.registry.get_model(LOCAL_MODEL)
-        provider_health = router.registry.provider_health(local_profile.provider_id)
-        local_model_available = bool(local_profile.enabled) and str(provider_health.status.value) in {
-            "HEALTHY",
-            "DEGRADED",
-            "UNKNOWN",
-        }
-    except Exception:
-        local_model_available = False
+    inference_connected = remote_inference_connected if REMOTE_MODEL_ID else ollama_connected
+    model_available = remote_model_available if REMOTE_MODEL_ID else local_model_available
+    active_model = REMOTE_MODEL_ID or LOCAL_MODEL
+    inference_provider = "qwen_remote" if REMOTE_MODEL_ID else "ollama"
 
-    application_healthy = database_connected and local_model_available
+    application_healthy = database_connected and inference_connected and model_available
     status = "ok" if application_healthy else "degraded"
 
     return {
@@ -733,10 +774,16 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
         "system": "SHY",
         "version": SHY_VERSION,
         "local_model": LOCAL_MODEL,
+        "active_model": active_model,
+        "inference_provider": inference_provider,
+        "inference_connected": inference_connected,
         "application_healthy": application_healthy,
         "ollama_connected": ollama_connected,
+        "remote_inference_connected": remote_inference_connected,
         "database_connected": database_connected,
         "local_model_available": local_model_available,
+        "remote_model_available": remote_model_available,
+        "model_available": model_available,
         "model_routing": _model_routing_health_snapshot(),
         "durable_memory": _durable_memory_health_snapshot(),
     }
@@ -1276,7 +1323,14 @@ async def _generate_intelligence_response_internal(
             privacy_requirement=(
                 privacy_requirement
                 if privacy_requirement is not None
-                else (PrivacyClass.LOCAL_ONLY if selected_role in {ModelRole.VERIFIER, ModelRole.PLANNER} else None)
+                else (
+                    PrivacyClass.PRIVATE_REMOTE_ALLOWED
+                    if (
+                        selected_role in {ModelRole.VERIFIER, ModelRole.PLANNER}
+                        and PRIVATE_REMOTE_REASONING_ALLOWED
+                    )
+                    else (PrivacyClass.LOCAL_ONLY if selected_role in {ModelRole.VERIFIER, ModelRole.PLANNER} else None)
+                )
             ),
             metadata={},
             task_type=str(getattr(route, "task_type", "general")),
@@ -1286,7 +1340,12 @@ async def _generate_intelligence_response_internal(
         routing_decision = None
 
     if routing_decision is None:
-        # Deterministic local fallback preserves local-first behavior.
+        if privacy_requirement == PrivacyClass.LOCAL_ONLY and not LOCAL_MODEL_ENABLED:
+            raise HTTPException(
+                status_code=503,
+                detail="Local-only intelligence is unavailable in this cloud runtime.",
+            )
+        # Deterministic local fallback preserves local-first behavior when enabled.
         fallback_text = await _execute_ollama_candidate(messages, route.model, generation_options)
         return fallback_text, {
             "selected_model": route.model,
@@ -2398,7 +2457,10 @@ async def agent(request: AgentRequest):
 
     effective_user_id = _effective_user_uuid_from_request(request)
 
-    privacy_requirement = PrivacyClass.LOCAL_ONLY if (local_memory_context_used or bool(request.local_only)) else None
+    privacy_requirement = _privacy_requirement_for_request(
+        local_memory_context_used=bool(local_memory_context_used),
+        local_only=bool(request.local_only),
+    )
     route = router.route(request.message, privacy_requirement=privacy_requirement)
 
     try:
@@ -2560,9 +2622,11 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
         calculator_verified = True
     elif tool_id == "system.health":
         database_connected = bool(sanitized_output.get("database_connected"))
-        ollama_connected = bool(sanitized_output.get("ollama_connected"))
-        local_model_available = bool(sanitized_output.get("local_model_available"))
+        inference_connected = bool(sanitized_output.get("inference_connected"))
+        model_available = bool(sanitized_output.get("model_available"))
         application_healthy = bool(sanitized_output.get("application_healthy"))
+        inference_provider = str(sanitized_output.get("inference_provider") or "unknown")
+        active_model = str(sanitized_output.get("active_model") or LOCAL_MODEL)
 
         if "database" in request.message.lower():
             answer = (
@@ -2578,9 +2642,9 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
             )
 
         health_bits = []
-        health_bits.append(f"Ollama: {'connected' if ollama_connected else 'offline'}")
+        health_bits.append(f"Inference ({inference_provider}): {'connected' if inference_connected else 'offline'}")
         health_bits.append(f"Database: {'connected' if database_connected else 'offline'}")
-        health_bits.append(f"Local model {LOCAL_MODEL}: {'available' if local_model_available else 'unavailable'}")
+        health_bits.append(f"Model {active_model}: {'available' if model_available else 'unavailable'}")
         answer = f"{answer} {' '.join(health_bits)}"
     elif tool_id == "database.read":
         operation = sanitized_output.get("operation")
@@ -2671,7 +2735,10 @@ async def chat(request: ChatRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
-    privacy_requirement = PrivacyClass.LOCAL_ONLY if (local_memory_context_used or bool(request.local_only)) else None
+    privacy_requirement = _privacy_requirement_for_request(
+        local_memory_context_used=bool(local_memory_context_used),
+        local_only=bool(request.local_only),
+    )
     route = router.route(request.message, privacy_requirement=privacy_requirement)
 
     try:
