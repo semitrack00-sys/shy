@@ -67,8 +67,16 @@ export function parseShyHealthResponse(value: unknown): ShyHealthResponse {
     system: value.system,
     version: value.version,
     local_model: toOptionalString(value.local_model),
+    active_model: toOptionalString(value.active_model),
+    inference_provider: toOptionalString(value.inference_provider),
+    inference_connected: typeof value.inference_connected === 'boolean' ? value.inference_connected : undefined,
     ollama_connected: typeof value.ollama_connected === 'boolean' ? value.ollama_connected : undefined,
+    remote_inference_connected: typeof value.remote_inference_connected === 'boolean' ? value.remote_inference_connected : undefined,
     database_connected: typeof value.database_connected === 'boolean' ? value.database_connected : undefined,
+    local_model_available: typeof value.local_model_available === 'boolean' ? value.local_model_available : undefined,
+    remote_model_available: typeof value.remote_model_available === 'boolean' ? value.remote_model_available : undefined,
+    model_available: typeof value.model_available === 'boolean' ? value.model_available : undefined,
+    application_healthy: typeof value.application_healthy === 'boolean' ? value.application_healthy : undefined,
   };
 }
 
