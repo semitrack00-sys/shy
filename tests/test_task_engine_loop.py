@@ -274,8 +274,8 @@ approval_engine = TaskEngine(
     ],
 )
 approval_task, _ = approval_engine.run("Send a message", deep_mode=True)
-assert approval_task.status == TaskStatus.FAILED
-assert approval_task.failure_reason == APPROVAL_REQUIRED
+assert approval_task.status == TaskStatus.AWAITING_APPROVAL
+assert approval_task.execution_context.awaiting_step_id == 1
 print("approval-required handling: PASS")
 
 
@@ -301,7 +301,7 @@ denied_engine = TaskEngine(
     ],
 )
 denied_task, _ = denied_engine.run("Run denied tool", deep_mode=True)
-assert denied_task.status == TaskStatus.FAILED
+assert denied_task.status == TaskStatus.BLOCKED
 assert denied_task.failure_reason == TOOL_DENIED
 print("denied tool handling: PASS")
 

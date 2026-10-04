@@ -5,6 +5,10 @@ from enum import Enum
 from typing import Any
 
 
+DEFAULT_MAX_STEPS = 5
+HARD_MAX_STEPS = 8
+
+
 class TaskEngineState(str, Enum):
     UNDERSTAND = "UNDERSTAND"
     PLAN = "PLAN"
@@ -17,9 +21,14 @@ class TaskEngineState(str, Enum):
 
 
 class TaskStatus(str, Enum):
+    PLANNED = "PLANNED"
     RUNNING = "RUNNING"
-    FINISHED = "FINISHED"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    COMPLETED = "COMPLETED"
+    FINISHED = "COMPLETED"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    BLOCKED = "BLOCKED"
 
 
 class VerificationStatus(str, Enum):
@@ -83,7 +92,7 @@ VERIFICATION_FAILED = "VERIFICATION_FAILED"
 class TaskLimits:
     max_iterations: int = 1
     max_tool_calls: int = 1
-    max_steps: int = 6
+    max_steps: int = DEFAULT_MAX_STEPS
     max_seconds: float | None = None
     max_tokens: int | None = None
 
@@ -94,6 +103,8 @@ class TaskLimits:
             raise ValueError("max_tool_calls cannot be negative")
         if self.max_steps < 1:
             raise ValueError("max_steps must be at least 1")
+        if self.max_steps > HARD_MAX_STEPS:
+            object.__setattr__(self, "max_steps", HARD_MAX_STEPS)
 
 
 @dataclass
@@ -115,6 +126,7 @@ class PlanStep:
     tool_args: dict[str, Any] | None = None
     result_summary: str | None = None
     error: str | None = None
+    retry_count: int = 0
 
     def __post_init__(self):
         if self.step_id < 1:
@@ -144,6 +156,53 @@ class VerificationResult:
     summary: str = ""
 
 
+TaskStep = PlanStep
+
+
+@dataclass
+class StepResult:
+    step_id: int
+    status: str
+    tool_name: str | None = None
+    sanitized_output: Any = None
+    result_summary: str | None = None
+    failure_category: str | None = None
+    retry_count: int = 0
+
+
+@dataclass
+class TaskPlan:
+    goal: str
+    steps: list[TaskStep]
+    maximum_step_count: int = DEFAULT_MAX_STEPS
+    current_step: int = 0
+    completion_criteria: str = ""
+    failure_policy: str = ""
+
+    def __post_init__(self):
+        if not self.goal.strip():
+            raise ValueError("goal cannot be empty")
+        if self.maximum_step_count < 1:
+            raise ValueError("maximum_step_count must be at least 1")
+        if self.maximum_step_count > HARD_MAX_STEPS:
+            self.maximum_step_count = HARD_MAX_STEPS
+
+
+@dataclass
+class TaskExecutionContext:
+    mode: str = "DIRECT"
+    max_steps: int = DEFAULT_MAX_STEPS
+    hard_max_steps: int = HARD_MAX_STEPS
+    completion_criteria: str = ""
+    failure_policy: str = ""
+    retry_budget_per_step: int = 1
+    step_results: list[StepResult] = field(default_factory=list)
+    derived_values: dict[str, Any] = field(default_factory=dict)
+    awaiting_step_id: int | None = None
+    awaiting_tool_name: str | None = None
+    approval_token: str | None = None
+
+
 @dataclass
 class TaskState:
     task_id: str
@@ -163,6 +222,8 @@ class TaskState:
     verification_result: VerificationResult | None = None
     verification_report: dict[str, Any] | None = None
     failure_reason: str | None = None
+    plan: TaskPlan | None = None
+    execution_context: TaskExecutionContext = field(default_factory=TaskExecutionContext)
 
     @classmethod
     def create(
@@ -197,7 +258,7 @@ class TaskState:
         self.state = new_state
 
         if new_state == TaskEngineState.FINISH:
-            self.status = TaskStatus.FINISHED
+            self.status = TaskStatus.COMPLETED
 
             if self.verification_status == VerificationStatus.PENDING:
                 self.verification_status = VerificationStatus.PASSED

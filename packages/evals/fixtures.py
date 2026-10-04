@@ -525,8 +525,12 @@ def _evaluate_deep_task(scenario) -> dict[str, Any]:
     ):
         safety_violations.append("FABRICATED_SUCCESS")
 
+    status_value = task.status.value
+    if status_value == "COMPLETED":
+        status_value = "FINISHED"
+
     return {
-        "status": task.status.value,
+        "status": status_value,
         "state": task.state.value,
         "failure_reason": task.failure_reason,
         "iterations_used": task.iteration_count,

@@ -16,10 +16,11 @@ from model_router.router import ModelRouter, PrivacyClass
 from tools.gateway import ToolGateway
 from tools.contracts import ToolRequest
 from agent_runtime.runtime import AgentRuntime
+from agent_runtime.task_engine import TaskEngine
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
-    from agent_runtime.loop_state import ActionType, PlanStep, PlanStepStatus
+    from agent_runtime.loop_state import ActionType, PlanStep, PlanStepStatus, TaskLimits, TaskStatus
 except ModuleNotFoundError:
     candidate_roots = [
         Path(__file__).resolve().parents[1] / "agent-runtime",
@@ -42,6 +43,7 @@ except ModuleNotFoundError:
     for module_name, module_path in (
         ("agent_runtime.verifier", selected_root / "verifier.py"),
         ("agent_runtime.loop_state", selected_root / "loop_state.py"),
+        ("agent_runtime.task_engine", selected_root / "task_engine.py"),
     ):
         if module_name not in sys.modules:
             spec = importlib.util.spec_from_file_location(module_name, module_path)
@@ -54,6 +56,9 @@ except ModuleNotFoundError:
     ActionType = sys.modules["agent_runtime.loop_state"].ActionType
     PlanStep = sys.modules["agent_runtime.loop_state"].PlanStep
     PlanStepStatus = sys.modules["agent_runtime.loop_state"].PlanStepStatus
+    TaskLimits = sys.modules["agent_runtime.loop_state"].TaskLimits
+    TaskStatus = sys.modules["agent_runtime.loop_state"].TaskStatus
+    TaskEngine = sys.modules["agent_runtime.task_engine"].TaskEngine
 
 from research.web_search import WebSearchService
 from research.tavily import TavilySearchProvider
@@ -70,8 +75,15 @@ from memory import (
     retrieve_memory_context,
     save_message,
 )
+from task_persistence import (
+    PostgresTaskRepository,
+    StaleTaskVersionError,
+    TaskLockError,
+    TaskMalformedStateError,
+    TaskPersistenceError,
+)
 
-SHY_VERSION = "0.13.0"
+SHY_VERSION = "0.14.0"
 
 app = FastAPI(
     title="SHY AI",
@@ -92,6 +104,7 @@ LOCAL_MODEL = os.getenv(
 router = ModelRouter(LOCAL_MODEL)
 
 tool_gateway = ToolGateway()
+ENABLE_SYNTHETIC_TASK_TOOLS = os.getenv("SHY_ENABLE_SYNTHETIC_TASK_TOOLS", "0").strip() == "1"
 
 
 def _collect_runtime_health_snapshot() -> dict[str, Any]:
@@ -151,6 +164,38 @@ tool_gateway.register(
     system_health_tool,
 )
 
+if ENABLE_SYNTHETIC_TASK_TOOLS:
+    synthetic_definition = sys.modules.get("tools.contracts")
+    if synthetic_definition is None:
+        import tools.contracts as synthetic_definition
+
+    tool_gateway.register_tool(
+        synthetic_definition.ToolDefinition(
+            tool_id="approval.tool",
+            name="approval.tool",
+            description="Synthetic approval-gated validation tool.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "recipient": {"type": "string"},
+                    "message": {"type": "string"},
+                },
+                "required": ["recipient", "message"],
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "ok": {"type": "boolean"},
+                    "recipient": {"type": "string"},
+                },
+                "required": ["ok", "recipient"],
+            },
+            permission_level=synthetic_definition.PermissionLevel.APPROVAL_REQUIRED,
+            timeout_seconds=5.0,
+        ),
+        lambda recipient, message: {"ok": True, "recipient": recipient},
+    )
+
 research_service = None
 
 if os.getenv("TAVILY_API_KEY", "").strip():
@@ -167,6 +212,15 @@ if os.getenv("TAVILY_API_KEY", "").strip():
 agent_runtime = AgentRuntime(
     gateway=tool_gateway,
 )
+
+chat_task_engine = TaskEngine(
+    runtime=agent_runtime,
+    limits=TaskLimits(max_iterations=2, max_tool_calls=3, max_steps=5),
+    compatibility_mode=False,
+    plan_builder=lambda objective, _task: agent_runtime.build_task_plan(objective, max_steps=5),
+)
+
+chat_task_repository = PostgresTaskRepository()
 
 SYSTEM_PROMPT = """
 You are SHY, a high-capability AI system.
@@ -703,9 +757,258 @@ def decide_chat_tool_request(message: str) -> dict[str, Any]:
     return {"decision": "NO_TOOL"}
 
 
+def decide_chat_execution_mode(message: str) -> str:
+    intelligence_decision = router.intelligence_router.analyze(message)
+    if getattr(intelligence_decision, "requires_external_evidence", False):
+        return "DIRECT"
+
+    planner_decision = agent_runtime.decide(message)
+    return str(getattr(planner_decision.mode, "value", planner_decision.mode))
+
+
+def _task_answer_from_state(task) -> str:
+    for step in reversed(task.plan_steps):
+        if step.status == PlanStepStatus.EXECUTED and step.result_summary:
+            return str(step.result_summary)
+    return "I couldn't complete the task safely."
+
+
+def _task_step_public_state(task) -> dict[str, Any]:
+    current_step = None
+    for step in task.plan_steps:
+        if step.status == PlanStepStatus.PENDING:
+            current_step = {
+                "step_id": step.step_id,
+                "action_type": step.action_type.value,
+                "objective": step.objective,
+                "tool_name": step.tool_name,
+                "retry_count": step.retry_count,
+            }
+            break
+
+    step_results = list(getattr(task.execution_context, "step_results", []))
+    planned_steps = len(task.plan_steps)
+    steps_executed = sum(1 for step in task.plan_steps if step.status == PlanStepStatus.EXECUTED)
+    tools_used = [item.tool_name for item in step_results if item.tool_name]
+    retry_count = sum(getattr(item, "retry_count", 0) for item in step_results)
+    completion_criteria_met = bool(
+        task.status == TaskStatus.COMPLETED
+        and task.verification_result is not None
+        and getattr(task.verification_result.outcome, "value", "") == "PASS"
+    )
+
+    return {
+        "task_id": task.task_id,
+        "task_status": task.status.value,
+        "current_step": current_step,
+        "max_steps": task.execution_context.max_steps,
+        "planned_steps": planned_steps,
+        "steps_executed": steps_executed,
+        "tools_used": tools_used,
+        "retry_count": retry_count,
+        "completion_criteria_met": completion_criteria_met,
+        "completion_criteria": task.execution_context.completion_criteria,
+        "failure_policy": task.execution_context.failure_policy,
+    }
+
+
+def _find_pending_step(task, pending_step_id: int | None):
+    for step in task.plan_steps:
+        if step.status == PlanStepStatus.PENDING:
+            if pending_step_id is None or step.step_id == pending_step_id:
+                return step
+    return None
+
+
+async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id, route):
+    existing_task = None
+    if request.task_id:
+        try:
+            snapshot = chat_task_repository.load_task(str(request.task_id))
+        except TaskMalformedStateError:
+            raise HTTPException(status_code=409, detail="Persisted task state is malformed.")
+        except TaskPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=f"SHY task persistence unavailable: {exc}")
+
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="Task not found.")
+        if str(snapshot.conversation_id) != str(conversation_id):
+            raise HTTPException(status_code=404, detail="Task not found.")
+        existing_task = snapshot.task
+
+    if request.cancel_task:
+        if existing_task is None:
+            raise HTTPException(status_code=400, detail="Task cancellation requires an existing task_id.")
+        try:
+            with chat_task_repository.task_lock(existing_task.task_id):
+                latest = chat_task_repository.load_task(existing_task.task_id)
+                if latest is None:
+                    raise HTTPException(status_code=404, detail="Task not found.")
+                if str(latest.conversation_id) != str(conversation_id):
+                    raise HTTPException(status_code=404, detail="Task not found.")
+                latest_task = latest.task
+                chat_task_engine.cancel_task(latest_task)
+                chat_task_repository.cancel_task(
+                    latest_task,
+                    conversation_id=str(conversation_id),
+                    expected_revision=latest.revision,
+                )
+                existing_task = latest_task
+        except TaskLockError:
+            raise HTTPException(status_code=409, detail="Task is currently processing another request.")
+        except StaleTaskVersionError:
+            raise HTTPException(status_code=409, detail="Task was updated concurrently. Retry the request.")
+        except TaskPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=f"SHY task persistence unavailable: {exc}")
+        return {
+            "assistant": "SHY",
+            "status": TaskStatus.CANCELLED.value,
+            "message": "Task cancelled.",
+            "conversation_id": str(conversation_id),
+            "model": route.model,
+            "provider": route.provider,
+            "task_type": route.task_type,
+            "routing_reason": route.reason,
+            "adaptive_mode": "MULTI_STEP",
+            "execution_mode": "MULTI_STEP",
+            "tool_decision": {"decision": "NO_TOOL"},
+            "approval_required": False,
+            "tool_selected": None,
+            "permission": None,
+            "execution_status": "CANCELLED",
+            "verifier_invoked": False,
+            "research_invoked": False,
+            "hidden_reasoning_exposed": False,
+            **_task_step_public_state(existing_task),
+        }
+
+    if existing_task is not None:
+        try:
+            with chat_task_repository.task_lock(existing_task.task_id):
+                latest = chat_task_repository.load_task(existing_task.task_id)
+                if latest is None:
+                    raise HTTPException(status_code=404, detail="Task not found.")
+                if str(latest.conversation_id) != str(conversation_id):
+                    raise HTTPException(status_code=404, detail="Task not found.")
+                latest_task = latest.task
+
+                if latest_task.status != TaskStatus.AWAITING_APPROVAL:
+                    raise HTTPException(status_code=409, detail="Task is not awaiting approval.")
+                if not request.approval_token:
+                    raise HTTPException(status_code=400, detail="Resuming a paused task requires approval_token.")
+                if request.pending_step_id is None:
+                    raise HTTPException(status_code=400, detail="Resuming a paused task requires pending_step_id.")
+                if latest_task.execution_context.awaiting_step_id != request.pending_step_id:
+                    raise HTTPException(status_code=409, detail="Pending step does not match the awaiting approval state.")
+
+                task, payload = chat_task_engine.resume_task(latest_task, request.approval_token)
+                chat_task_repository.save_task(
+                    task=task,
+                    conversation_id=str(conversation_id),
+                    execution_mode="MULTI_STEP",
+                    expected_revision=latest.revision,
+                )
+        except TaskLockError:
+            raise HTTPException(status_code=409, detail="Task is currently processing another request.")
+        except StaleTaskVersionError:
+            raise HTTPException(status_code=409, detail="Task was updated concurrently. Retry the request.")
+        except TaskPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=f"SHY task persistence unavailable: {exc}")
+    else:
+        task, payload = chat_task_engine.run(request.message, deep_mode=True)
+        try:
+            chat_task_repository.create_task(
+                task=task,
+                conversation_id=str(conversation_id),
+                execution_mode="MULTI_STEP",
+            )
+        except StaleTaskVersionError:
+            raise HTTPException(status_code=409, detail="Task ID collision detected. Retry the request.")
+        except TaskPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=f"SHY task persistence unavailable: {exc}")
+
+    if task.status == TaskStatus.AWAITING_APPROVAL:
+        return {
+            "assistant": "SHY",
+            "status": TaskStatus.AWAITING_APPROVAL.value,
+            "message": "Approval is required before SHY can continue this multi-step task.",
+            "conversation_id": str(conversation_id),
+            "model": route.model,
+            "provider": route.provider,
+            "task_type": route.task_type,
+            "routing_reason": route.reason,
+            "adaptive_mode": "MULTI_STEP",
+            "execution_mode": "MULTI_STEP",
+            "tool_decision": {"decision": "NO_TOOL"},
+            "approval_required": True,
+            "tool_selected": task.execution_context.awaiting_tool_name,
+            "permission": "APPROVAL_REQUIRED",
+            "execution_status": TaskStatus.AWAITING_APPROVAL.value,
+            "verifier_invoked": False,
+            "research_invoked": False,
+            "hidden_reasoning_exposed": False,
+            **_task_step_public_state(task),
+        }
+
+    if task.status in {TaskStatus.FAILED, TaskStatus.BLOCKED, TaskStatus.CANCELLED}:
+        return {
+            "assistant": "SHY",
+            "status": task.status.value,
+            "message": "I couldn't complete that multi-step task safely.",
+            "conversation_id": str(conversation_id),
+            "model": route.model,
+            "provider": route.provider,
+            "task_type": route.task_type,
+            "routing_reason": route.reason,
+            "adaptive_mode": "MULTI_STEP",
+            "execution_mode": "MULTI_STEP",
+            "tool_decision": {"decision": "NO_TOOL"},
+            "approval_required": False,
+            "tool_selected": None,
+            "permission": None,
+            "execution_status": task.status.value,
+            "verifier_invoked": task.verification_result is not None,
+            "research_invoked": False,
+            "hidden_reasoning_exposed": False,
+            **_task_step_public_state(task),
+        }
+
+    answer = _task_answer_from_state(task)
+    return {
+        "assistant": "SHY",
+        "status": "RESPOND",
+        "message": answer,
+        "conversation_id": str(conversation_id),
+        "model": route.model,
+        "provider": route.provider,
+        "task_type": route.task_type,
+        "routing_reason": route.reason,
+        "adaptive_mode": "MULTI_STEP",
+        "execution_mode": "MULTI_STEP",
+        "tool_decision": {"decision": "NO_TOOL"},
+        "approval_required": False,
+        "tool_selected": None,
+        "permission": None,
+        "execution_status": payload.get("task_status") if isinstance(payload, dict) else TaskStatus.COMPLETED.value,
+        "verifier_invoked": task.verification_result is not None,
+        "research_invoked": False,
+        "hidden_reasoning_exposed": False,
+        **_task_step_public_state(task),
+    }
+
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: uuid.UUID | None = None
+    task_id: str | None = None
+    approval_token: str | None = None
+    pending_step_id: int | None = None
+    cancel_task: bool = False
+
+
+class SyntheticApprovalRequest(BaseModel):
+    task_id: str
+    pending_step_id: int
 
 
 class AgentRequest(BaseModel):
@@ -717,6 +1020,7 @@ class AgentRequest(BaseModel):
 def startup():
     try:
         ensure_default_user()
+        chat_task_repository.ensure_schema()
     except psycopg.Error as exc:
         raise RuntimeError(
             f"SHY database initialization failed: {exc}"
@@ -739,6 +1043,45 @@ async def tool_system_health():
         "risk": result.risk,
         "reason": result.reason,
         "output": result.output,
+    }
+
+
+@app.post("/testing/task-approval")
+async def testing_task_approval(request: SyntheticApprovalRequest):
+    if not ENABLE_SYNTHETIC_TASK_TOOLS:
+        raise HTTPException(status_code=404, detail="Synthetic task helpers are unavailable.")
+
+    try:
+        snapshot = chat_task_repository.load_task(str(request.task_id))
+    except TaskMalformedStateError:
+        raise HTTPException(status_code=409, detail="Persisted task state is malformed.")
+    except TaskPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=f"SHY task persistence unavailable: {exc}")
+
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    task = snapshot.task
+
+    if task.status != TaskStatus.AWAITING_APPROVAL:
+        raise HTTPException(status_code=409, detail="Task is not awaiting approval.")
+
+    if task.execution_context.awaiting_step_id != request.pending_step_id:
+        raise HTTPException(status_code=409, detail="Pending step does not match the awaiting approval state.")
+
+    pending_step = _find_pending_step(task, request.pending_step_id)
+    if pending_step is None or pending_step.tool_name != task.execution_context.awaiting_tool_name:
+        raise HTTPException(status_code=409, detail="Pending step is unavailable for approval.")
+
+    approval = tool_gateway.approvals.create(
+        pending_step.tool_name,
+        pending_step.tool_args or {},
+        scope=f"{task.task_id}:{pending_step.step_id}",
+    )
+
+    return {
+        "task_id": task.task_id,
+        "pending_step_id": pending_step.step_id,
+        "approval_token": approval.token,
     }
 
 @app.post("/agent")
@@ -913,6 +1256,7 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
             "task_type": route.task_type,
             "routing_reason": route.reason,
             "adaptive_mode": "tool",
+            "execution_mode": "SINGLE_TOOL",
             "tool_decision": {
                 "decision": "USE_TOOL",
                 "tool_id": tool_id,
@@ -940,6 +1284,7 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
             "task_type": route.task_type,
             "routing_reason": route.reason,
             "adaptive_mode": "tool",
+            "execution_mode": "SINGLE_TOOL",
             "tool_decision": {
                 "decision": "USE_TOOL",
                 "tool_id": tool_id,
@@ -1005,6 +1350,7 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
         "task_type": route.task_type,
         "routing_reason": route.reason,
         "adaptive_mode": "tool",
+        "execution_mode": "SINGLE_TOOL",
         "tool_decision": {
             "decision": "USE_TOOL",
             "tool_id": tool_id,
@@ -1065,7 +1411,11 @@ async def chat(request: ChatRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
+    execution_mode = decide_chat_execution_mode(request.message)
     tool_decision = decide_chat_tool_request(request.message)
+    if execution_mode == "MULTI_STEP":
+        return await _handle_multistep_chat_request(request, conversation_id, route)
+
     if tool_decision.get("decision") == "USE_TOOL":
         return await _handle_chat_tool_request(request, conversation_id, route, tool_decision)
 
@@ -1089,6 +1439,7 @@ async def chat(request: ChatRequest):
                 "task_type": route.task_type,
                 "routing_reason": route.reason,
                 "adaptive_mode": "research",
+                "execution_mode": "RESEARCH",
                 "tool_decision": {"decision": "NO_TOOL"},
                 "approval_required": False,
                 "tool_selected": None,
@@ -1142,6 +1493,7 @@ async def chat(request: ChatRequest):
         "task_type": route.task_type,
         "routing_reason": route.reason,
         "adaptive_mode": response_mode,
+        "execution_mode": "RESEARCH" if response_mode == "research" else "DIRECT",
         "tool_decision": {"decision": "NO_TOOL"},
         "approval_required": False,
         "tool_selected": None,

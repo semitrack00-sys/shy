@@ -126,7 +126,7 @@ agent_runtime_package = types.ModuleType("agent_runtime")
 agent_runtime_package.__path__ = []
 sys.modules["agent_runtime"] = agent_runtime_package
 
-for module_name in ("planner", "runtime"):
+for module_name in ("planner", "runtime", "task_engine"):
     module_path = services / "agent-runtime" / f"{module_name}.py"
     module_spec = importlib.util.spec_from_file_location(
         f"agent_runtime.{module_name}",

@@ -28,6 +28,9 @@ TaskStepArtifact = loop_module.TaskStepArtifact
 TaskState = loop_module.TaskState
 TaskLimits = loop_module.TaskLimits
 TaskStatus = loop_module.TaskStatus
+TaskPlan = loop_module.TaskPlan
+TaskExecutionContext = loop_module.TaskExecutionContext
+StepResult = loop_module.StepResult
 VerificationStatus = loop_module.VerificationStatus
 ActionType = loop_module.ActionType
 PlanStep = loop_module.PlanStep
@@ -82,11 +85,39 @@ class TaskEngine:
         self,
         objective: str,
         verification_required: bool = False,
+        execution_mode: str = "DIRECT",
+        completion_criteria: str = "",
+        failure_policy: str = "",
     ) -> TaskState:
-        return TaskState.create(
+        task = TaskState.create(
             objective=objective,
             verification_required=verification_required,
         )
+        task.execution_context = TaskExecutionContext(
+            mode=execution_mode,
+            max_steps=self.limits.max_steps,
+            completion_criteria=completion_criteria,
+            failure_policy=failure_policy,
+        )
+        return task
+
+    def resume_task(
+        self,
+        task: TaskState,
+        approval_token: str,
+    ) -> tuple[TaskState, dict[str, Any] | None]:
+        if task.status != TaskStatus.AWAITING_APPROVAL:
+            raise ValueError("Task is not awaiting approval.")
+
+        task.status = TaskStatus.RUNNING
+        task.execution_context.approval_token = approval_token
+        return self._drive_task(task)
+
+    @staticmethod
+    def cancel_task(task: TaskState, reason: str = "CANCELLED") -> TaskState:
+        task.status = TaskStatus.CANCELLED
+        task.failure_reason = reason
+        return task
 
     def run(
         self,
@@ -156,7 +187,8 @@ class TaskEngine:
 
         if task.state in (TaskEngineState.UNDERSTAND, TaskEngineState.REVISE):
             if new_state in (TaskEngineState.PLAN, TaskEngineState.EXECUTE):
-                task.iteration_count += 1
+                if not (task.state == TaskEngineState.REVISE and label == "continue-plan"):
+                    task.iteration_count += 1
 
                 if task.iteration_count > self.limits.max_iterations:
                     task.transition_to(
@@ -231,6 +263,7 @@ class TaskEngine:
         task = self.create_task(
             objective=objective,
             verification_required=True,
+            execution_mode="MULTI_STEP",
         )
 
         if not self.advance(task, TaskEngineState.PLAN, label="understand"):
@@ -241,7 +274,14 @@ class TaskEngine:
         if plan is None:
             return task, None
 
-        task.plan_steps = plan
+        task.plan_steps = plan.steps
+        task.plan = plan
+
+        return self._drive_task(task)
+
+    def _drive_task(self, task: TaskState) -> tuple[TaskState, dict[str, Any] | None]:
+        if task.plan is not None:
+            task.plan_steps = task.plan.steps
 
         while task.status == TaskStatus.RUNNING:
             if not self._check_limits(task):
@@ -305,7 +345,19 @@ class TaskEngine:
             )
             task.observations.append(observation)
 
-            if observation.error_code in (APPROVAL_REQUIRED, TOOL_DENIED):
+            if observation.error_code == APPROVAL_REQUIRED:
+                task.status = TaskStatus.AWAITING_APPROVAL
+                task.state = TaskEngineState.PLAN
+                task.execution_context.awaiting_step_id = pending_step.step_id
+                task.execution_context.awaiting_tool_name = pending_step.tool_name
+                break
+
+            if observation.error_code == TOOL_DENIED:
+                task.status = TaskStatus.BLOCKED
+                task.failure_reason = TOOL_DENIED
+                break
+
+            if observation.error_code and not observation.requires_revision:
                 task.transition_to(
                     TaskEngineState.FAILED,
                     failure_reason=observation.error_code,
@@ -328,12 +380,10 @@ class TaskEngine:
                 continue
 
             if self._next_pending_step(task) is not None:
-                if not self._enter_revision(task):
+                if not self.advance(task, TaskEngineState.REVISE, label="continue-plan"):
                     break
 
-                self._revise_plan(task, reason="CONTINUE_PLAN")
-
-                if not self.advance(task, TaskEngineState.PLAN, label="revise"):
+                if not self.advance(task, TaskEngineState.PLAN, label="continue-plan"):
                     break
 
                 continue
@@ -346,11 +396,12 @@ class TaskEngine:
                 if task.verification_result is not None
                 else None
             ),
+            "task_status": task.status.value,
         }
 
         return task, payload
 
-    def _build_plan(self, task: TaskState) -> list[PlanStep] | None:
+    def _build_plan(self, task: TaskState) -> TaskPlan | None:
         try:
             raw_plan = self.plan_builder(task.objective, task)
         except Exception:
@@ -360,14 +411,30 @@ class TaskEngine:
             )
             return None
 
-        if not isinstance(raw_plan, list) or not raw_plan:
+        if isinstance(raw_plan, dict) and "steps" in raw_plan:
+            raw_steps = raw_plan.get("steps") or []
+            goal = str(raw_plan.get("goal", task.objective)).strip() or task.objective
+            completion_criteria = str(raw_plan.get("completion_criteria", "")).strip()
+            failure_policy = str(raw_plan.get("failure_policy", "")).strip()
+            maximum_step_count = min(
+                int(raw_plan.get("maximum_step_count", self.limits.max_steps)),
+                self.limits.max_steps,
+            )
+        else:
+            raw_steps = raw_plan
+            goal = task.objective
+            completion_criteria = ""
+            failure_policy = ""
+            maximum_step_count = self.limits.max_steps
+
+        if not isinstance(raw_steps, list) or not raw_steps:
             task.transition_to(
                 TaskEngineState.FAILED,
                 failure_reason=INVALID_PLAN,
             )
             return None
 
-        if len(raw_plan) > self.limits.max_steps:
+        if len(raw_steps) > self.limits.max_steps:
             task.transition_to(
                 TaskEngineState.FAILED,
                 failure_reason=STEP_LIMIT_REACHED,
@@ -376,7 +443,7 @@ class TaskEngine:
 
         plan_steps: list[PlanStep] = []
 
-        for index, raw_step in enumerate(raw_plan, start=1):
+        for index, raw_step in enumerate(raw_steps, start=1):
             try:
                 plan_steps.append(self._coerce_plan_step(raw_step, index))
             except Exception:
@@ -386,7 +453,23 @@ class TaskEngine:
                 )
                 return None
 
-        return plan_steps
+        if self._has_duplicate_plan_steps(plan_steps):
+            task.transition_to(
+                TaskEngineState.FAILED,
+                failure_reason=INVALID_PLAN,
+            )
+            return None
+
+        task.execution_context.completion_criteria = completion_criteria
+        task.execution_context.failure_policy = failure_policy
+
+        return TaskPlan(
+            goal=goal,
+            steps=plan_steps,
+            maximum_step_count=maximum_step_count,
+            completion_criteria=completion_criteria,
+            failure_policy=failure_policy,
+        )
 
     @staticmethod
     def _coerce_plan_step(raw_step: Any, index: int) -> PlanStep:
@@ -427,6 +510,20 @@ class TaskEngine:
                 return step
         return None
 
+    @staticmethod
+    def _has_duplicate_plan_steps(plan_steps: list[PlanStep]) -> bool:
+        seen_ids: set[int] = set()
+        seen_signatures: set[tuple[str, str, str | None]] = set()
+
+        for step in plan_steps:
+            signature = (step.action_type.value, step.objective.strip().lower(), step.tool_name)
+            if step.step_id in seen_ids or signature in seen_signatures:
+                return True
+            seen_ids.add(step.step_id)
+            seen_signatures.add(signature)
+
+        return False
+
     def _execute_plan_step(self, task: TaskState, step: PlanStep) -> dict[str, Any]:
         if step.action_type == ActionType.TOOL:
             return self._execute_tool_step(task, step)
@@ -443,6 +540,20 @@ class TaskEngine:
                 "result_available": False,
                 "evidence_available": False,
                 "error_code": RUNTIME_UNAVAILABLE,
+                "recoverable": False,
+            }
+
+        resolved_args = self._resolve_tool_args(task, step)
+
+        if resolved_args is None:
+            step.status = PlanStepStatus.FAILED
+            step.error = TOOL_EXECUTION_FAILED
+
+            return {
+                "status": "FAILED",
+                "result_available": False,
+                "evidence_available": False,
+                "error_code": TOOL_EXECUTION_FAILED,
                 "recoverable": False,
             }
 
@@ -465,10 +576,22 @@ class TaskEngine:
                 "recoverable": False,
             }
 
-        runtime_result = self.runtime.run(step.objective)
+        if hasattr(self.runtime, "execute_tool_step"):
+            runtime_result = self.runtime.execute_tool_step(
+                step.tool_name,
+                resolved_args,
+                conversation_id=task.task_id,
+                request_id=f"{task.task_id}:{step.step_id}:{step.retry_count}",
+                approval_token=task.execution_context.approval_token,
+                approval_scope=f"{task.task_id}:{step.step_id}",
+                reason=f"Execute planned step {step.step_id}.",
+            )
+        else:
+            runtime_result = self.runtime.run(step.objective)
         tool_status = getattr(runtime_result, "tool_status", None)
         result_status = getattr(runtime_result, "status", None)
         tool_name = getattr(runtime_result, "tool_name", step.tool_name)
+        output = getattr(runtime_result, "output", None)
 
         step.result_summary = (
             f"status={result_status};"
@@ -476,7 +599,7 @@ class TaskEngine:
             f"tool_status={tool_status}"
         )
 
-        if result_status != "TOOL_RESULT":
+        if result_status != "TOOL_RESULT" or tool_name != step.tool_name:
             step.status = PlanStepStatus.FAILED
             step.error = "UNSUPPORTED_OUTPUT"
 
@@ -489,24 +612,47 @@ class TaskEngine:
             }
 
         if tool_status == "EXECUTED":
-            step.status = PlanStepStatus.EXECUTED
+            if output is None or not isinstance(output, dict):
+                step.status = PlanStepStatus.FAILED
+                step.error = "MALFORMED_TOOL_RESULT"
 
-            output = getattr(runtime_result, "output", None)
+                return {
+                    "status": "FAILED",
+                    "result_available": False,
+                    "evidence_available": False,
+                    "error_code": "MALFORMED_TOOL_RESULT",
+                    "recoverable": False,
+                }
+
+            step.status = PlanStepStatus.EXECUTED
+            sanitized_output = self._sanitize_step_output(output)
+            self._record_step_result(
+                task,
+                StepResult(
+                    step_id=step.step_id,
+                    status="EXECUTED",
+                    tool_name=tool_name,
+                    sanitized_output=sanitized_output,
+                    result_summary=step.result_summary,
+                    retry_count=step.retry_count,
+                ),
+            )
+            task.execution_context.approval_token = None
 
             return {
                 "status": "EXECUTED",
-                "result_available": output is not None,
-                "evidence_available": output is not None,
+                "result_available": True,
+                "evidence_available": True,
                 "error_code": None,
                 "recoverable": False,
             }
 
         if tool_status == "AWAITING_APPROVAL":
-            step.status = PlanStepStatus.FAILED
-            step.error = APPROVAL_REQUIRED
+            step.status = PlanStepStatus.PENDING
+            step.error = None
 
             return {
-                "status": "FAILED",
+                "status": "AWAITING_APPROVAL",
                 "result_available": False,
                 "evidence_available": False,
                 "error_code": APPROVAL_REQUIRED,
@@ -527,6 +673,17 @@ class TaskEngine:
 
         step.status = PlanStepStatus.FAILED
         step.error = TOOL_EXECUTION_FAILED
+        self._record_step_result(
+            task,
+            StepResult(
+                step_id=step.step_id,
+                status="FAILED",
+                tool_name=tool_name,
+                result_summary=step.result_summary,
+                failure_category=TOOL_EXECUTION_FAILED,
+                retry_count=step.retry_count,
+            ),
+        )
 
         return {
             "status": "FAILED",
@@ -570,6 +727,15 @@ class TaskEngine:
         if status == "EXECUTED" and summary:
             step.status = PlanStepStatus.EXECUTED
             step.result_summary = summary
+            self._record_step_result(
+                task,
+                StepResult(
+                    step_id=step.step_id,
+                    status="EXECUTED",
+                    result_summary=summary,
+                    retry_count=step.retry_count,
+                ),
+            )
 
             return {
                 "status": "EXECUTED",
@@ -581,6 +747,16 @@ class TaskEngine:
 
         step.status = PlanStepStatus.FAILED
         step.error = result.get("error_code", REASONING_OPERATION_FAILED)
+        self._record_step_result(
+            task,
+            StepResult(
+                step_id=step.step_id,
+                status="FAILED",
+                result_summary=summary or None,
+                failure_category=step.error,
+                retry_count=step.retry_count,
+            ),
+        )
 
         return {
             "status": "FAILED",
@@ -618,6 +794,14 @@ class TaskEngine:
         reason: str | None = None,
     ):
         if failed_step is not None and failed_step.status == PlanStepStatus.FAILED:
+            if failed_step.retry_count >= task.execution_context.retry_budget_per_step:
+                task.transition_to(
+                    TaskEngineState.FAILED,
+                    failure_reason=failed_step.error or reason or REASONING_OPERATION_FAILED,
+                )
+                return
+
+            failed_step.retry_count += 1
             failed_step.status = PlanStepStatus.PENDING
             failed_step.error = None
 
@@ -831,11 +1015,96 @@ class TaskEngine:
 
     @staticmethod
     def _default_reasoner(step: PlanStep, task: TaskState) -> dict[str, Any]:
+        lowered = step.objective.lower().strip()
+
+        if "prepare a calculator expression" in lowered:
+            health_result = TaskEngine._latest_step_output(task, "system.health") or {}
+            connection_keys = ("ollama_connected", "database_connected", "local_model_available")
+            total = len(connection_keys)
+            connected = sum(1 for key in connection_keys if bool(health_result.get(key)))
+            task.execution_context.derived_values["service_connection_expression"] = f"({connected} / {total}) * 100"
+            task.execution_context.derived_values["service_connection_connected"] = connected
+            task.execution_context.derived_values["service_connection_total"] = total
+
+            return {
+                "status": "EXECUTED",
+                "summary": f"Prepared calculator expression using {connected} connected services out of {total}.",
+                "evidence": True,
+            }
+
+        if "compose the final answer" in lowered:
+            health_result = TaskEngine._latest_step_output(task, "system.health") or {}
+            calculator_result = TaskEngine._latest_step_output(task, "calculator") or {}
+            percentage = calculator_result.get("result")
+            if percentage is None:
+                return {
+                    "status": "FAILED",
+                    "summary": "",
+                    "error_code": "MISSING_RESULT",
+                    "recoverable": False,
+                }
+
+            connected = task.execution_context.derived_values.get("service_connection_connected", 0)
+            total = task.execution_context.derived_values.get("service_connection_total", 0)
+
+            return {
+                "status": "EXECUTED",
+                "summary": (
+                    f"SHY has {connected} of {total} required services connected "
+                    f"({float(percentage):g}%). Database connected={bool(health_result.get('database_connected'))}; "
+                    f"Ollama connected={bool(health_result.get('ollama_connected'))}; "
+                    f"Local model available={bool(health_result.get('local_model_available'))}."
+                ),
+                "evidence": True,
+            }
+
         return {
             "status": "EXECUTED",
             "summary": f"Completed reasoning step {step.step_id}: {step.objective}",
             "evidence": False,
         }
+
+    @staticmethod
+    def _sanitize_step_output(output: dict[str, Any]) -> dict[str, Any]:
+        sanitized: dict[str, Any] = {}
+        for key, value in output.items():
+            lowered = str(key).lower()
+            if any(token in lowered for token in ("password", "secret", "token", "key", "reasoning", "chain", "debug")):
+                continue
+            sanitized[str(key)] = value
+        return sanitized
+
+    @staticmethod
+    def _record_step_result(task: TaskState, step_result: StepResult):
+        task.execution_context.step_results = [
+            item for item in task.execution_context.step_results if item.step_id != step_result.step_id
+        ]
+        task.execution_context.step_results.append(step_result)
+
+    @staticmethod
+    def _latest_step_output(task: TaskState, tool_name: str) -> dict[str, Any] | None:
+        for result in reversed(task.execution_context.step_results):
+            if result.tool_name == tool_name and isinstance(result.sanitized_output, dict):
+                return result.sanitized_output
+        return None
+
+    @staticmethod
+    def _resolve_tool_args(task: TaskState, step: PlanStep) -> dict[str, Any] | None:
+        if not step.tool_args:
+            return {}
+
+        resolved: dict[str, Any] = {}
+        for key, value in step.tool_args.items():
+            if key.endswith("_context_key"):
+                target_key = key[: -len("_context_key")]
+                context_value = task.execution_context.derived_values.get(str(value))
+                if context_value is None:
+                    return None
+                resolved[target_key] = context_value
+                continue
+            resolved[key] = value
+
+        return resolved
 
     def _default_verifier(self, task: TaskState):
         return verifier_module.verify_task_result(

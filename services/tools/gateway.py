@@ -367,6 +367,7 @@ class ToolGateway:
     def execute_request(self, request: ToolRequest) -> ToolResult:
         tool_id = request.tool_id
         arguments = request.arguments or {}
+        approval_scope = request.metadata.get("approval_scope") if isinstance(request.metadata, dict) else None
         start = _now_iso()
         definition = self.registry.get(tool_id)
         policy = _effective_policy_for_tool(tool_id, definition)
@@ -428,7 +429,12 @@ class ToolGateway:
                 ))
                 return result
 
-            approved = self._approvals.consume(request.approval_token, tool_id, arguments)
+            approved = self._approvals.consume(
+                request.approval_token,
+                tool_id,
+                arguments,
+                scope=approval_scope,
+            )
             if not approved:
                 result = ToolResult(
                     tool_name=tool_id,
