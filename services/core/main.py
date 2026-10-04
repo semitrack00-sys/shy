@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import re
 import sys
 import types
 import uuid
@@ -13,6 +14,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from model_router.router import ModelRouter, PrivacyClass
 from tools.gateway import ToolGateway
+from tools.contracts import ToolRequest
 from agent_runtime.runtime import AgentRuntime
 
 try:
@@ -60,6 +62,7 @@ from research.research_engine import ResearchEngine, ResearchStatus
 from memory import (
     DEFAULT_USER_ID,
     build_memory_query,
+    connect,
     conversation_exists,
     create_conversation,
     ensure_default_user,
@@ -68,7 +71,7 @@ from memory import (
     save_message,
 )
 
-SHY_VERSION = "0.12.0"
+SHY_VERSION = "0.13.0"
 
 app = FastAPI(
     title="SHY AI",
@@ -91,12 +94,56 @@ router = ModelRouter(LOCAL_MODEL)
 tool_gateway = ToolGateway()
 
 
-def system_health_tool():
+def _collect_runtime_health_snapshot() -> dict[str, Any]:
+    ollama_connected = False
+    database_connected = False
+    local_model_available = False
+
+    try:
+        async_client = httpx.Client(timeout=5.0)
+        with async_client as client:
+            response = client.get(f"{OLLAMA_URL}/api/tags")
+            ollama_connected = response.is_success
+    except httpx.HTTPError:
+        ollama_connected = False
+
+    try:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+        database_connected = True
+    except Exception:
+        database_connected = False
+
+    try:
+        local_profile = router.registry.get_model(LOCAL_MODEL)
+        provider_health = router.registry.provider_health(local_profile.provider_id)
+        local_model_available = bool(local_profile.enabled) and str(provider_health.status.value) in {
+            "HEALTHY",
+            "DEGRADED",
+            "UNKNOWN",
+        }
+    except Exception:
+        local_model_available = False
+
+    application_healthy = database_connected and local_model_available
+    status = "ok" if application_healthy else "degraded"
+
     return {
+        "status": status,
         "system": "SHY",
-        "core_version": SHY_VERSION,
-        "status": "healthy",
+        "version": SHY_VERSION,
+        "local_model": LOCAL_MODEL,
+        "application_healthy": application_healthy,
+        "ollama_connected": ollama_connected,
+        "database_connected": database_connected,
+        "local_model_available": local_model_available,
     }
+
+
+def system_health_tool():
+    return _collect_runtime_health_snapshot()
 
 
 tool_gateway.register(
@@ -231,14 +278,68 @@ def decide_chat_response_mode(message: str, route=None) -> str:
             return "research"
 
     intelligence_decision = router.intelligence_router.analyze(message)
-    complexity = str(getattr(intelligence_decision.complexity, "value", "SIMPLE")).upper()
-    if complexity == "COMPLEX":
-        return "verify"
-
     if getattr(intelligence_decision, "requires_external_evidence", False):
         return "research"
 
+    if _requires_bounded_verification(
+        message,
+        route=route,
+        intelligence_decision=intelligence_decision,
+    ):
+        return "verify"
+
     return "direct"
+
+
+def _reasoning_complexity_signal_count(message: str) -> int:
+    text = " ".join(str(message or "").lower().split())
+    if not text:
+        return 0
+
+    markers = (
+        "design",
+        "architecture",
+        "architect",
+        "tradeoff",
+        "tradeoffs",
+        "trade-off",
+        "trade-offs",
+        "fault-tolerant",
+        "fault tolerant",
+        "distributed",
+        "reliability",
+        "failure mode",
+        "high availability",
+        "constraints",
+        "major tradeoffs",
+    )
+    score = sum(1 for marker in markers if marker in text)
+    if len(text.split()) >= 10:
+        score += 1
+    return score
+
+
+def _requires_bounded_verification(message: str, route=None, intelligence_decision=None) -> bool:
+    route_type = str(getattr(route, "task_type", "")).lower()
+    if route_type == "research":
+        return False
+
+    if route_type in {"deep_reasoning", "coding"}:
+        return True
+
+    decision = intelligence_decision or router.intelligence_router.analyze(message)
+    complexity = str(getattr(decision.complexity, "value", "SIMPLE")).upper()
+    if complexity == "COMPLEX":
+        return True
+
+    if not getattr(decision, "verification_required", False):
+        return False
+
+    primary = str(getattr(getattr(decision, "primary_capability", None), "value", "CHAT")).upper()
+    if primary not in {"REASONING", "MULTI_STEP", "CODING"}:
+        return False
+
+    return _reasoning_complexity_signal_count(message) >= 3
 
 
 def apply_adaptive_response_policy(route, message: str) -> str:
@@ -246,7 +347,7 @@ def apply_adaptive_response_policy(route, message: str) -> str:
     if route_type == "research":
         return "research"
 
-    if route_type in {"deep_reasoning", "coding"}:
+    if _requires_bounded_verification(message, route=route):
         return "verify"
 
     return decide_chat_response_mode(message, route=route)
@@ -257,8 +358,7 @@ async def _run_bounded_verification(message: str, response_text: str) -> str:
         return response_text
 
     decision = router.intelligence_router.analyze(message)
-    complexity = str(getattr(decision.complexity, "value", "SIMPLE")).upper()
-    if complexity != "COMPLEX":
+    if not _requires_bounded_verification(message, intelligence_decision=decision):
         return response_text
 
     plan_step = PlanStep(
@@ -492,6 +592,117 @@ Answer the user's original question clearly and concisely.
 
     return synthesis
 
+def _sanitize_tool_payload(value: Any, max_chars: int = 4000) -> Any:
+    if value is None:
+        return None
+
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if any(token in lowered for token in ("password", "secret", "token", "key", "reasoning", "thought", "chain", "debug")):
+                continue
+            cleaned[str(key)] = _sanitize_tool_payload(item, max_chars=max_chars)
+        return cleaned
+
+    if isinstance(value, list):
+        return [_sanitize_tool_payload(item, max_chars=max_chars) for item in value[:20]]
+
+    if isinstance(value, str):
+        text = " ".join(value.split())
+        if len(text) > max_chars:
+            return text[: max_chars - 3].rstrip() + "..."
+        return text
+
+    return value
+
+
+def _extract_explicit_file_path(message: str) -> str | None:
+    normalized = message.replace("\\", "/")
+    candidates = re.findall(r"(?:[A-Za-z]:)?/?(?:services|apps|docs|tests)/[A-Za-z0-9_./\-]+", normalized, flags=re.IGNORECASE)
+
+    if not candidates:
+        return None
+
+    candidate = candidates[0].replace("\\", "/")
+    resolved = Path(candidate)
+    if not str(resolved).startswith(("services/", "apps/", "docs/", "tests/")):
+        return None
+
+    return str(candidate)
+
+
+def _extract_database_operation(message: str) -> str | None:
+    lowered = message.lower()
+    if any(token in lowered for token in ("list tables", "tables", "table list")):
+        return "tables"
+    if any(token in lowered for token in ("schema", "table schema")):
+        return "schema"
+    if any(token in lowered for token in ("health", "status", "connected", "database connected")):
+        return "health"
+    return None
+
+
+def decide_chat_tool_request(message: str) -> dict[str, Any]:
+    if not message or not str(message).strip():
+        return {"decision": "NO_TOOL"}
+
+    text = str(message).strip()
+    lowered = text.lower()
+
+    if "what is" in lowered or "calculate" in lowered or "compute" in lowered or "%" in text:
+        if re.search(r"\d", text):
+            expression = text
+            if re.search(r"%\s*of\s*", text, flags=re.IGNORECASE):
+                expression = re.search(r"([0-9]*\.?[0-9]+\s*%\s*of\s*[0-9]*\.?[0-9]+)", text, flags=re.IGNORECASE)
+                if expression:
+                    expression = expression.group(1)
+            elif "what is" in lowered:
+                expression = text
+            if expression:
+                tool_id = tool_gateway.registry.route_tool(text)
+                if tool_id == "calculator":
+                    return {
+                        "decision": "USE_TOOL",
+                        "tool_id": "calculator",
+                        "permission": "READ_ONLY",
+                        "validated_arguments": {"expression": expression},
+                    }
+
+    if any(marker in lowered for marker in ("database connected", "shy database", "system health", "health status", "is shy\'s database connected", "database status")):
+        tool_id = tool_gateway.registry.route_tool(text)
+        if tool_id == "system.health":
+            return {
+                "decision": "USE_TOOL",
+                "tool_id": "system.health",
+                "permission": "READ_ONLY",
+                "validated_arguments": {},
+            }
+
+    if any(marker in lowered for marker in ("read file", "open file", "view file", "show file", "inspect file")):
+        explicit_path = _extract_explicit_file_path(text)
+        if explicit_path:
+            if explicit_path.lower().startswith(("services/", "apps/", "docs/", "tests/")):
+                return {
+                    "decision": "USE_TOOL",
+                    "tool_id": "file.read",
+                    "permission": "READ_ONLY",
+                    "validated_arguments": {"path": explicit_path},
+                }
+
+    if any(marker in lowered for marker in ("database read", "db read", "read database", "query database", "list tables", "database status", "database health", "schema")):
+        operation = _extract_database_operation(text)
+        if operation:
+            return {
+                "decision": "USE_TOOL",
+                "tool_id": "database.read",
+                "permission": "READ_ONLY",
+                "validated_arguments": {"operation": operation},
+            }
+
+    return {"decision": "NO_TOOL"}
+
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: uuid.UUID | None = None
@@ -514,30 +725,7 @@ def startup():
 
 @app.get("/health")
 async def health():
-    ollama_connected = False
-    database_connected = False
-
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{OLLAMA_URL}/api/tags")
-            ollama_connected = response.is_success
-    except httpx.HTTPError:
-        pass
-
-    try:
-        ensure_default_user()
-        database_connected = True
-    except psycopg.Error:
-        pass
-
-    return {
-        "status": "ok",
-        "system": "SHY",
-        "version": SHY_VERSION,
-        "local_model": LOCAL_MODEL,
-        "ollama_connected": ollama_connected,
-        "database_connected": database_connected,
-    }
+    return _collect_runtime_health_snapshot()
 
 
 @app.get("/tools/system-health")
@@ -700,6 +888,139 @@ async def agent(request: AgentRequest):
         "routing_reason": route.reason,
     }
 
+async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route, tool_decision: dict[str, Any]):
+    tool_id = tool_decision["tool_id"]
+    validated_arguments = tool_decision.get("validated_arguments", {})
+    permission = tool_decision.get("permission", "READ_ONLY")
+
+    tool_request = ToolRequest(
+        tool_id=tool_id,
+        arguments=validated_arguments,
+        conversation_id=str(conversation_id),
+        request_id=str(uuid.uuid4()),
+    )
+    tool_result = tool_gateway.execute_request(tool_request)
+
+    if tool_result.status == "AWAITING_APPROVAL":
+        return {
+            "assistant": "SHY",
+            "status": tool_result.status,
+            "reason": tool_result.reason,
+            "message": "Approval is required before I can perform that action.",
+            "conversation_id": str(conversation_id),
+            "model": route.model,
+            "provider": route.provider,
+            "task_type": route.task_type,
+            "routing_reason": route.reason,
+            "adaptive_mode": "tool",
+            "tool_decision": {
+                "decision": "USE_TOOL",
+                "tool_id": tool_id,
+                "permission": permission,
+                "status": tool_result.status,
+            },
+            "approval_required": True,
+            "tool_selected": tool_id,
+            "permission": permission,
+            "execution_status": tool_result.status,
+            "verifier_invoked": False,
+            "research_invoked": False,
+            "hidden_reasoning_exposed": False,
+        }
+
+    if tool_result.status in {"DENIED", "INVALID_TOOL", "INVALID_ARGUMENTS", "FAILED", "TIMED_OUT", "INVALID_APPROVAL"}:
+        return {
+            "assistant": "SHY",
+            "status": tool_result.status,
+            "reason": tool_result.reason,
+            "message": "I couldn't complete that tool request safely.",
+            "conversation_id": str(conversation_id),
+            "model": route.model,
+            "provider": route.provider,
+            "task_type": route.task_type,
+            "routing_reason": route.reason,
+            "adaptive_mode": "tool",
+            "tool_decision": {
+                "decision": "USE_TOOL",
+                "tool_id": tool_id,
+                "permission": permission,
+                "status": tool_result.status,
+            },
+            "approval_required": False,
+            "tool_selected": tool_id,
+            "permission": permission,
+            "execution_status": tool_result.status,
+            "verifier_invoked": False,
+            "research_invoked": False,
+            "hidden_reasoning_exposed": False,
+        }
+
+    sanitized_output = _sanitize_tool_payload(tool_result.output)
+
+    if tool_id == "calculator":
+        numeric_value = float(sanitized_output["result"])
+        answer = f"The result is {numeric_value:g}."
+    elif tool_id == "system.health":
+        database_connected = bool(sanitized_output.get("database_connected"))
+        ollama_connected = bool(sanitized_output.get("ollama_connected"))
+        local_model_available = bool(sanitized_output.get("local_model_available"))
+        application_healthy = bool(sanitized_output.get("application_healthy"))
+
+        if "database" in request.message.lower():
+            answer = (
+                "Yes. SHY's database is connected."
+                if database_connected
+                else "No. SHY's database is not connected."
+            )
+        else:
+            answer = (
+                "SHY's system health is healthy."
+                if application_healthy
+                else "SHY's system health check reported a problem."
+            )
+
+        health_bits = []
+        health_bits.append(f"Ollama: {'connected' if ollama_connected else 'offline'}")
+        health_bits.append(f"Database: {'connected' if database_connected else 'offline'}")
+        health_bits.append(f"Local model {LOCAL_MODEL}: {'available' if local_model_available else 'unavailable'}")
+        answer = f"{answer} {' '.join(health_bits)}"
+    elif tool_id == "database.read":
+        operation = sanitized_output.get("operation")
+        answer = f"The database {operation} check completed successfully."
+    elif tool_id == "file.read":
+        content = sanitized_output.get("content", "")
+        preview = content[:200].strip()
+        answer = f"I inspected the requested SHY file and the content begins with: {preview}"
+    else:
+        answer = "I completed the requested tool action successfully."
+
+    return {
+        "assistant": "SHY",
+        "status": "RESPOND",
+        "reason": tool_result.reason,
+        "message": answer,
+        "conversation_id": str(conversation_id),
+        "model": route.model,
+        "provider": route.provider,
+        "task_type": route.task_type,
+        "routing_reason": route.reason,
+        "adaptive_mode": "tool",
+        "tool_decision": {
+            "decision": "USE_TOOL",
+            "tool_id": tool_id,
+            "permission": permission,
+            "status": tool_result.status,
+        },
+        "approval_required": False,
+        "tool_selected": tool_id,
+        "permission": permission,
+        "execution_status": tool_result.status,
+        "verifier_invoked": False,
+        "research_invoked": False,
+        "hidden_reasoning_exposed": False,
+    }
+
+
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
@@ -744,6 +1065,10 @@ async def chat(request: ChatRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
+    tool_decision = decide_chat_tool_request(request.message)
+    if tool_decision.get("decision") == "USE_TOOL":
+        return await _handle_chat_tool_request(request, conversation_id, route, tool_decision)
+
     response_mode = apply_adaptive_response_policy(route, request.message)
 
     if response_mode == "research":
@@ -756,12 +1081,22 @@ async def chat(request: ChatRequest):
         except HTTPException:
             return {
                 "assistant": "SHY",
+                "status": "FAILED",
                 "message": "I couldn’t complete this research request because the research provider is unavailable.",
                 "conversation_id": str(conversation_id),
                 "model": route.model,
                 "provider": route.provider,
                 "task_type": route.task_type,
                 "routing_reason": route.reason,
+                "adaptive_mode": "research",
+                "tool_decision": {"decision": "NO_TOOL"},
+                "approval_required": False,
+                "tool_selected": None,
+                "permission": None,
+                "execution_status": "NOT_REQUESTED",
+                "verifier_invoked": False,
+                "research_invoked": True,
+                "hidden_reasoning_exposed": False,
                 "safe_failure": "research_unavailable",
             }
     elif response_mode == "verify":
@@ -799,10 +1134,20 @@ async def chat(request: ChatRequest):
 
     return {
         "assistant": "SHY",
+        "status": "RESPOND",
         "message": assistant_message,
         "conversation_id": str(conversation_id),
         "model": route.model,
         "provider": route.provider,
         "task_type": route.task_type,
         "routing_reason": route.reason,
+        "adaptive_mode": response_mode,
+        "tool_decision": {"decision": "NO_TOOL"},
+        "approval_required": False,
+        "tool_selected": None,
+        "permission": None,
+        "execution_status": "NOT_REQUESTED",
+        "verifier_invoked": response_mode == "verify",
+        "research_invoked": response_mode == "research",
+        "hidden_reasoning_exposed": False,
     }

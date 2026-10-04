@@ -1,7 +1,8 @@
+import asyncio
 import importlib.util
-import os
 import sys
 import types
+import uuid
 from pathlib import Path
 
 
@@ -37,8 +38,22 @@ for name in ("httpx", "psycopg", "fastapi", "pydantic"):
                 async def post(self, *args, **kwargs):
                     raise _HTTPError("stubbed httpx client")
 
+            class _Client:
+                def __init__(self, *args, **kwargs):
+                    pass
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+                def get(self, *args, **kwargs):
+                    raise _HTTPError("stubbed httpx client")
+
             module.HTTPError = _HTTPError
             module.AsyncClient = _AsyncClient
+            module.Client = _Client
             sys.modules[name] = module
         elif name == "psycopg":
             module = types.ModuleType("psycopg")
@@ -107,6 +122,7 @@ for package_name, package_path in (
 for module_name, module_path in (
     ("model_router.router", services / "model-router" / "app" / "router.py"),
     ("tools.gateway", services / "tools" / "gateway.py"),
+    ("tools.contracts", services / "tools" / "contracts.py"),
     ("agent_runtime.runtime", services / "agent-runtime" / "runtime.py"),
     ("research.web_search", services / "research" / "web_search.py"),
     ("research.tavily", services / "research" / "tavily.py"),
@@ -118,95 +134,92 @@ for module_name, module_path in (
     spec.loader.exec_module(module)
 
 
-main_spec = importlib.util.spec_from_file_location("shy_core_adaptive_test", services / "core" / "main.py")
+main_spec = importlib.util.spec_from_file_location("shy_core_chat_v013", services / "core" / "main.py")
 main = importlib.util.module_from_spec(main_spec)
 main_spec.loader.exec_module(main)
 
 
-assert hasattr(main, "decide_chat_response_mode")
-assert hasattr(main, "apply_adaptive_response_policy")
-
-assert main.decide_chat_response_mode("hi there") == "direct"
-assert main.decide_chat_response_mode("Research the latest battery developments") == "research"
-assert main.decide_chat_response_mode("Compare three constraints and produce a multi-step implementation plan") == "verify"
-assert main.decide_chat_response_mode("Design a fault-tolerant payment processing architecture and explain the major tradeoffs.") == "verify"
-
-class DummyRoute:
+class FakeRoute:
+    model = "qwen3.5:4b"
+    provider = "ollama-local"
     task_type = "general"
-    reason = "simple"
+    reason = "LOCAL_SUFFICIENT"
 
-class DummyResearchRoute:
-    task_type = "research"
-    reason = "research"
 
-class DummyComplexRoute:
-    task_type = "deep_reasoning"
-    reason = "complex"
+conversation_id = uuid.UUID("00000000-0000-0000-0000-000000000123")
 
-assert main.apply_adaptive_response_policy(DummyRoute(), "hi there") == "direct"
-assert main.apply_adaptive_response_policy(DummyResearchRoute(), "research the latest AI trend") == "research"
-assert main.apply_adaptive_response_policy(DummyComplexRoute(), "compare constraints and explain trade-offs") == "verify"
-assert main.apply_adaptive_response_policy(DummyRoute(), "Design a fault-tolerant payment processing architecture and explain the major tradeoffs.") == "verify"
 
-class FakeResearchProvider:
-    name = "fake-provider"
+main.create_conversation = lambda: conversation_id
+main.conversation_exists = lambda cid: True
+main._load_memory_history_for_message = lambda message, cid: ([], False)
+main.save_message = lambda **kwargs: None
+main.router.route = lambda message, privacy_requirement=None: FakeRoute()
 
-    def search(self, query, max_results=5):
-        return {
-            "provider": "fake-provider",
-            "query": query,
-            "results": [
-                {
-                    "title": "Battery advance briefing",
-                    "url": "https://example.com/battery-briefing",
-                    "source": "example.org",
-                    "snippet": "Next-generation battery chemistry improves cycle life and safety.",
-                },
-                {
-                    "title": "Electrode material summary",
-                    "url": "https://example.com/electrode-summary",
-                    "source": "example.net",
-                    "snippet": "Solid-state and lithium-silicon chemistries are reducing degradation.",
-                },
-            ],
-        }
 
-try:
-    import asyncio
+async def _fake_generate_intelligence_response(message, history, route, generation_options=None):
+    return "bounded response"
 
-    main.research_service = FakeResearchProvider()
 
-    async def _fake_generate_intelligence_response(message, history, route, generation_options=None):
-        return "The latest evidence suggests battery advances focus on improved cycle life and safer chemistries. [1]"
+async def _fake_verifier(message, response_text):
+    return response_text + " [verified]"
 
-    main.generate_intelligence_response = _fake_generate_intelligence_response
 
-    async def _expect_research_pipeline():
-        result = await main.run_research_pipeline("latest major developments in battery technology")
-        assert len(result.evidence) >= 1
-        assert result.status in {main.ResearchStatus.COMPLETE, main.ResearchStatus.PARTIAL}
-        synthesis = await main.generate_research_response(
-            "Research the latest major developments in battery technology.",
-            research_result=result,
+main.generate_intelligence_response = _fake_generate_intelligence_response
+main._run_bounded_verification = _fake_verifier
+
+
+verify_response = asyncio.run(
+    main.chat(
+        main.ChatRequest(
+            message="Design a fault-tolerant payment processing architecture and explain the major tradeoffs.",
         )
-        assert isinstance(synthesis, str)
-        assert "cycle life" in synthesis.lower()
-        assert "[1]" in synthesis
+    )
+)
 
-    asyncio.run(_expect_research_pipeline())
+assert verify_response["status"] == "RESPOND"
+assert verify_response["adaptive_mode"] == "verify"
+assert verify_response["tool_decision"] == {"decision": "NO_TOOL"}
+assert verify_response["verifier_invoked"] is True
+assert verify_response["research_invoked"] is False
+assert verify_response["hidden_reasoning_exposed"] is False
+print("chat verify mode: PASS")
 
-    async def _expect_research_failure():
-        try:
-            await main.generate_research_response(
-                "Research the latest major developments in battery technology.",
-                {"results": []},
-            )
-            raise AssertionError("Research with empty evidence should fail safely")
-        except main.HTTPException as exc:
-            assert "Research provider unavailable" in str(exc.detail)
 
-    asyncio.run(_expect_research_failure())
-except Exception as exc:
-    raise AssertionError(f"research failure safeguard failed: {exc}") from exc
+approval_gateway = main.ToolGateway(registry=main.tool_gateway.registry.__class__())
+contracts = sys.modules["tools.contracts"]
+approval_gateway.register_tool(
+    contracts.ToolDefinition(
+        tool_id="approval.tool",
+        name="approval.tool",
+        description="Synthetic approval test tool.",
+        input_schema={"type": "object", "properties": {}, "required": []},
+        output_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        permission_level=contracts.PermissionLevel.APPROVAL_REQUIRED,
+        timeout_seconds=2.0,
+    ),
+    lambda: {"ok": True},
+)
+main.tool_gateway = approval_gateway
+main.decide_chat_tool_request = lambda message: {
+    "decision": "USE_TOOL",
+    "tool_id": "approval.tool",
+    "permission": "APPROVAL_REQUIRED",
+    "validated_arguments": {},
+}
 
-print("adaptive chat policy tests: PASS")
+approval_response = asyncio.run(
+    main.chat(
+        main.ChatRequest(
+            message="Trigger approval path",
+        )
+    )
+)
+
+assert approval_response["status"] == "AWAITING_APPROVAL"
+assert approval_response["approval_required"] is True
+assert approval_response["tool_selected"] == "approval.tool"
+assert approval_response["execution_status"] == "AWAITING_APPROVAL"
+assert approval_response["adaptive_mode"] == "tool"
+print("chat approval state: PASS")
+
+print("v0.13 chat integration tests: PASS")

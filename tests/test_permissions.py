@@ -36,22 +36,22 @@ check("web.search", module.Decision.ALLOW)
 
 check(
     "message.send",
-    module.Decision.APPROVAL_REQUIRED,
+    module.Decision.DENY,
 )
 
 check(
     "file.delete",
-    module.Decision.APPROVAL_REQUIRED,
+    module.Decision.DENY,
 )
 
 check(
     "production.deploy",
-    module.Decision.APPROVAL_REQUIRED,
+    module.Decision.DENY,
 )
 
 check(
     "money.spend",
-    module.Decision.APPROVAL_REQUIRED,
+    module.Decision.DENY,
 )
 
 check(

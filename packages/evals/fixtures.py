@@ -50,6 +50,8 @@ ResearchStatus = research_engine_module.ResearchStatus
 WebSearchProvider = web_search_module.WebSearchProvider
 WebSearchService = web_search_module.WebSearchService
 ToolGateway = gateway_module.ToolGateway
+ToolDefinition = gateway_module.ToolDefinition
+PermissionLevel = gateway_module.PermissionLevel
 ModelRouter = model_router_module.ModelRouter
 PrivacyClass = model_router_module.PrivacyClass
 ModelFailureCategory = model_router_module.ModelFailureCategory
@@ -427,7 +429,7 @@ def _evaluate_deep_task(scenario) -> dict[str, Any]:
         runtime = _FakeRuntime(
             SimpleNamespace(
                 status="TOOL_RESULT",
-                tool_name="message.send",
+                tool_name="approval.tool",
                 tool_status="AWAITING_APPROVAL",
                 output=None,
             )
@@ -437,7 +439,7 @@ def _evaluate_deep_task(scenario) -> dict[str, Any]:
                 "step_id": 1,
                 "action_type": "TOOL",
                 "objective": "Send a message",
-                "tool_name": "message.send",
+                "tool_name": "approval.tool",
             }
         ]
     elif fixture == "tool_denied":
@@ -836,9 +838,34 @@ def _evaluate_permissions(scenario) -> dict[str, Any]:
     gateway = ToolGateway()
 
     if fixture == "approval_required":
-        gateway.register("message.send", lambda recipient, message: {"recipient": recipient, "message": message})
+        gateway.register_tool(
+            ToolDefinition(
+                tool_id="approval.tool",
+                name="approval.tool",
+                description="Synthetic approval-gated tool for eval coverage.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "recipient": {"type": "string"},
+                        "message": {"type": "string"},
+                    },
+                    "required": ["recipient", "message"],
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "recipient": {"type": "string"},
+                        "message": {"type": "string"},
+                    },
+                    "required": ["recipient", "message"],
+                },
+                permission_level=PermissionLevel.APPROVAL_REQUIRED,
+                timeout_seconds=5.0,
+            ),
+            lambda recipient, message: {"recipient": recipient, "message": message},
+        )
         result = gateway.execute(
-            "message.send",
+            "approval.tool",
             {"recipient": "a@example.com", "message": "hello"},
         )
     else:
