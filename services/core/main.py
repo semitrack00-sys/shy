@@ -4,6 +4,7 @@ import re
 import sys
 import types
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -66,14 +67,20 @@ from research.research_engine import ResearchEngine, ResearchStatus
 
 from memory import (
     DEFAULT_USER_ID,
+    DurableMemoryCandidate,
+    MemoryCategory,
     build_memory_query,
     connect,
     conversation_exists,
     create_conversation,
     ensure_default_user,
+    ensure_memory_schema,
     load_messages,
+    retrieve_durable_memory_context,
     retrieve_memory_context,
     save_message,
+    promote_memory_candidate,
+    try_promote_message_to_memory,
 )
 from task_persistence import (
     PostgresTaskRepository,
@@ -83,7 +90,37 @@ from task_persistence import (
     TaskPersistenceError,
 )
 
-SHY_VERSION = "0.14.0"
+SHY_VERSION = "0.15.0"
+
+
+_durable_memory_diagnostics: dict[str, Any] = {
+    "retrieval_failures": 0,
+    "promotion_failures": 0,
+    "last_failure_stage": None,
+    "last_failure_type": None,
+    "last_failure_at": None,
+}
+
+
+def _record_durable_memory_failure(stage: str, exc: Exception) -> None:
+    counter_key = "retrieval_failures" if stage == "retrieval" else "promotion_failures"
+    _durable_memory_diagnostics[counter_key] = int(_durable_memory_diagnostics.get(counter_key, 0)) + 1
+    _durable_memory_diagnostics["last_failure_stage"] = stage
+    _durable_memory_diagnostics["last_failure_type"] = type(exc).__name__
+    _durable_memory_diagnostics["last_failure_at"] = datetime.now(timezone.utc).isoformat()
+
+
+def _durable_memory_health_snapshot() -> dict[str, Any]:
+    retrieval_failures = int(_durable_memory_diagnostics.get("retrieval_failures", 0))
+    promotion_failures = int(_durable_memory_diagnostics.get("promotion_failures", 0))
+    return {
+        "retrieval_failures": retrieval_failures,
+        "promotion_failures": promotion_failures,
+        "degraded": (retrieval_failures + promotion_failures) > 0,
+        "last_failure_stage": _durable_memory_diagnostics.get("last_failure_stage"),
+        "last_failure_type": _durable_memory_diagnostics.get("last_failure_type"),
+        "last_failure_at": _durable_memory_diagnostics.get("last_failure_at"),
+    }
 
 app = FastAPI(
     title="SHY AI",
@@ -152,6 +189,7 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
         "ollama_connected": ollama_connected,
         "database_connected": database_connected,
         "local_model_available": local_model_available,
+        "durable_memory": _durable_memory_health_snapshot(),
     }
 
 
@@ -269,11 +307,29 @@ def _load_memory_history_for_message(message: str, conversation_id: uuid.UUID) -
     )
 
     selection = retrieve_memory_context(query)
+    durable_messages: list[dict[str, str]] = []
+    try:
+        durable_selection = retrieve_durable_memory_context(
+            query_text=message,
+            conversation_id=conversation_id,
+            user_id=DEFAULT_USER_ID,
+            max_results=4,
+            max_context_chars=1200,
+        )
+        durable_messages = [dict(item) for item in durable_selection.selected_messages]
+    except Exception as exc:
+        _record_durable_memory_failure("retrieval", exc)
+        durable_messages = []
+
     if selection.selected_messages:
-        return [dict(item) for item in selection.selected_messages], True
+        history = [dict(item) for item in selection.selected_messages]
+        return durable_messages + history, True
 
     history = load_messages(conversation_id)
-    return history, len(history) > 0
+    memory_used = bool(durable_messages)
+    if history:
+        return durable_messages + history, True
+    return durable_messages, memory_used
 
 
 def _normalize_research_text(value: Any) -> str:
@@ -915,7 +971,24 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
         except TaskPersistenceError as exc:
             raise HTTPException(status_code=503, detail=f"SHY task persistence unavailable: {exc}")
     else:
-        task, payload = chat_task_engine.run(request.message, deep_mode=True)
+        durable_context = None
+        try:
+            durable_context = retrieve_durable_memory_context(
+                query_text=request.message,
+                conversation_id=conversation_id,
+                user_id=DEFAULT_USER_ID,
+                max_results=3,
+                max_context_chars=800,
+            )
+        except Exception as exc:
+            _record_durable_memory_failure("retrieval", exc)
+            durable_context = None
+        objective = request.message
+        if durable_context and durable_context.selected_records:
+            memory_lines = [f"- [{item.category.value}] {item.subject_key}: {item.content}" for item in durable_context.selected_records]
+            objective = request.message + "\n\nRelevant memory context:\n" + "\n".join(memory_lines)
+
+        task, payload = chat_task_engine.run(objective, deep_mode=True)
         try:
             chat_task_repository.create_task(
                 task=task,
@@ -974,6 +1047,24 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
         }
 
     answer = _task_answer_from_state(task)
+    try:
+        promote_memory_candidate(
+            DurableMemoryCandidate(
+                category=MemoryCategory.TASK_OUTCOME,
+                subject_key="task.outcome.multi_step",
+                content=f"Final task outcome: {answer}",
+                confidence=0.72,
+                is_correction=False,
+            ),
+            conversation_id=conversation_id,
+            user_id=DEFAULT_USER_ID,
+            source_task_id=task.task_id,
+        )
+    except Exception as exc:
+        _record_durable_memory_failure("promotion", exc)
+        # Memory persistence should not block response generation.
+        pass
+
     return {
         "assistant": "SHY",
         "status": "RESPOND",
@@ -1020,6 +1111,7 @@ class AgentRequest(BaseModel):
 def startup():
     try:
         ensure_default_user()
+        ensure_memory_schema()
         chat_task_repository.ensure_schema()
     except psycopg.Error as exc:
         raise RuntimeError(
@@ -1190,6 +1282,15 @@ async def agent(request: AgentRequest):
             role="user",
             content=request.message,
         )
+        try:
+            try_promote_message_to_memory(
+                message=request.message,
+                conversation_id=conversation_id,
+                user_id=DEFAULT_USER_ID,
+            )
+        except Exception as exc:
+            _record_durable_memory_failure("promotion", exc)
+            pass
 
     except psycopg.Error as exc:
         raise HTTPException(
@@ -1404,6 +1505,14 @@ async def chat(request: ChatRequest):
             role="user",
             content=request.message,
         )
+        try:
+            try_promote_message_to_memory(
+                message=request.message,
+                conversation_id=conversation_id,
+                user_id=DEFAULT_USER_ID,
+            )
+        except Exception as exc:
+            _record_durable_memory_failure("promotion", exc)
 
     except psycopg.Error as exc:
         raise HTTPException(
