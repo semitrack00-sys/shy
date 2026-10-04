@@ -22,12 +22,12 @@ export function ShyStatus({ health, loading }: ShyStatusProps) {
         </div>
         <div className="shy-status-row">
           <span>Model</span>
-          <strong>{health?.local_model ?? '—'}</strong>
+          <strong>{health?.active_model ?? health?.local_model ?? '—'}</strong>
         </div>
         <div className="shy-status-row">
-          <span>Ollama</span>
-          <strong className={health?.ollama_connected ? 'shy-status-good' : 'shy-status-bad'}>
-            {health?.ollama_connected ? 'Connected' : loading ? 'Loading…' : 'Offline'}
+          <span>Inference</span>
+          <strong className={health?.inference_connected ? 'shy-status-good' : 'shy-status-bad'}>
+            {health?.inference_connected ? 'Connected' : loading ? 'Loading…' : 'Offline'}
           </strong>
         </div>
         <div className="shy-status-row">
