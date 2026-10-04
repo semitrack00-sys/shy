@@ -101,6 +101,7 @@ RESEARCH_GENERATION_OPTIONS = {
     "top_p": 0.9,
     "repeat_penalty": 1.1,
 }
+MAX_EMPTY_RESPONSE_RETRIES = 1
 
 
 class ResearchSynthesisError(RuntimeError):
@@ -140,6 +141,23 @@ def _bounded_snippet(value: Any) -> str:
     return normalized[: RESEARCH_EVIDENCE_SNIPPET_MAX_CHARS - 3].rstrip() + "..."
 
 
+def _validate_public_model_content(content: Any) -> str:
+    if not isinstance(content, str):
+        raise HTTPException(
+            status_code=503,
+            detail="Local intelligence returned an invalid response.",
+        )
+
+    normalized = content.strip()
+    if not normalized:
+        raise HTTPException(
+            status_code=503,
+            detail="Local intelligence returned an empty response.",
+        )
+
+    return normalized
+
+
 def _extract_model_content(result: Any) -> str:
     if not isinstance(result, dict):
         raise HTTPException(
@@ -156,14 +174,7 @@ def _extract_model_content(result: Any) -> str:
         )
 
     content = message.get("content")
-
-    if not isinstance(content, str):
-        raise HTTPException(
-            status_code=503,
-            detail="Local intelligence returned an invalid response.",
-        )
-
-    return content
+    return _validate_public_model_content(content)
 
 
 async def generate_intelligence_response(
@@ -200,28 +211,44 @@ async def generate_intelligence_response(
         "stream": False,
     }
 
-    if getattr(route, "task_type", None) == "research_synthesis":
-        payload["think"] = False
+    payload["think"] = False
 
     if generation_options:
         payload["options"] = generation_options
 
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(
-                f"{OLLAMA_URL}/api/chat",
-                json=payload,
+    max_attempts = 1 + MAX_EMPTY_RESPONSE_RETRIES
+
+    for attempt in range(max_attempts):
+        request_payload = dict(payload)
+
+        try:
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                response = await client.post(
+                    f"{OLLAMA_URL}/api/chat",
+                    json=request_payload,
+                )
+                response.raise_for_status()
+                result = response.json()
+
+        except httpx.HTTPError:
+            raise HTTPException(
+                status_code=503,
+                detail="Local intelligence unavailable."
             )
-            response.raise_for_status()
-            result = response.json()
 
-    except httpx.HTTPError:
-        raise HTTPException(
-            status_code=503,
-            detail="Local intelligence unavailable."
-        )
+        try:
+            return _extract_model_content(result)
+        except HTTPException as exc:
+            if attempt >= max_attempts - 1:
+                raise
 
-    return _extract_model_content(result)
+            if exc.status_code != 503:
+                raise
+
+            if "empty response" not in str(exc.detail).lower():
+                raise
+
+            continue
 
 
 async def generate_research_response(message: str, research_output: dict):

@@ -65,7 +65,17 @@ false_positive = router.analyze("What is the dress code for this event?")
 assert false_positive.primary_capability != Capability.CODING
 medical_false_positive = router.analyze("Explain this medical billing code")
 assert medical_false_positive.primary_capability == Capability.CHAT
+medical_exact_prompt = router.analyze("Explain what medical billing code 99213 means.")
+assert medical_exact_prompt.primary_capability == Capability.CHAT
+zip_false_positive = router.analyze("What is a ZIP code and how is it used?")
+assert zip_false_positive.primary_capability == Capability.CHAT
+airport_false_positive = router.analyze("What does airport code LAX stand for?")
+assert airport_false_positive.primary_capability == Capability.CHAT
 print("coding false-positive protection: PASS")
+
+coding_real = router.analyze("Fix this Python function and add pytest coverage for edge cases")
+assert coding_real.primary_capability == Capability.CODING
+print("real coding prompt routing: PASS")
 
 first = router.analyze("Research hybrid battery chemistry")
 second = router.analyze("Research hybrid battery chemistry")
