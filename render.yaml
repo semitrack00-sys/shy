@@ -47,9 +47,13 @@ services:
     envVars:
       - key: SHY_BACKEND_BASE_URL
         fromService:
-          type: web
+          type: pserv
           name: shy-api
-          property: host
+          property: hostport
+      - key: SHY_BASIC_AUTH_USER
+        value: shy
+      - key: SHY_BASIC_AUTH_PASSWORD
+        sync: false
 
 databases:
   - name: shy-db
