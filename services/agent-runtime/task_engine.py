@@ -1,4 +1,5 @@
 import importlib.util
+import ast
 import time
 from pathlib import Path
 from typing import Any
@@ -123,11 +124,12 @@ class TaskEngine:
         self,
         objective: str,
         deep_mode: bool = False,
+        context: dict[str, Any] | None = None,
     ) -> tuple[TaskState, object | None]:
         if not deep_mode and self.compatibility_mode:
             return self.run_compatibility_mode(objective)
 
-        return self.run_deep_mode(objective)
+        return self.run_deep_mode(objective, context=context)
 
     def run_compatibility_mode(
         self,
@@ -259,12 +261,19 @@ class TaskEngine:
         task.steps.append(artifact)
         task.current_step = artifact.index
 
-    def run_deep_mode(self, objective: str) -> tuple[TaskState, dict[str, Any] | None]:
+    def run_deep_mode(
+        self,
+        objective: str,
+        context: dict[str, Any] | None = None,
+    ) -> tuple[TaskState, dict[str, Any] | None]:
         task = self.create_task(
             objective=objective,
             verification_required=True,
             execution_mode="MULTI_STEP",
         )
+
+        if context:
+            task.execution_context.derived_values.update(dict(context))
 
         if not self.advance(task, TaskEngineState.PLAN, label="understand"):
             return task, None
@@ -420,6 +429,13 @@ class TaskEngine:
                 int(raw_plan.get("maximum_step_count", self.limits.max_steps)),
                 self.limits.max_steps,
             )
+            workflow_context = raw_plan.get("workflow_context")
+            if isinstance(workflow_context, dict):
+                task.execution_context.derived_values["workflow_context"] = dict(workflow_context)
+
+            workflow_policy = raw_plan.get("workflow_policy")
+            if isinstance(workflow_policy, dict):
+                task.execution_context.derived_values["workflow_policy"] = dict(workflow_policy)
         else:
             raw_steps = raw_plan
             goal = task.objective
@@ -530,7 +546,77 @@ class TaskEngine:
 
         return self._execute_reasoning_step(task, step)
 
+    @staticmethod
+    def _normalize_policy_tool_set(raw_values: Any) -> set[str]:
+        if raw_values is None:
+            return set()
+
+        normalized_values = raw_values
+        if isinstance(raw_values, str):
+            parsed: Any = raw_values
+            try:
+                parsed = ast.literal_eval(raw_values)
+            except Exception:
+                parsed = raw_values
+
+            if isinstance(parsed, (list, tuple, set, frozenset)):
+                normalized_values = parsed
+            else:
+                normalized_values = [raw_values]
+
+        if isinstance(normalized_values, (list, tuple, set, frozenset)):
+            return {str(item) for item in normalized_values if str(item).strip()}
+
+        return {str(normalized_values)} if str(normalized_values).strip() else set()
+
+    @staticmethod
+    def _record_policy_diagnostics(
+        task: TaskState,
+        step: PlanStep,
+        *,
+        policy_decision: str,
+        validation_result: str,
+        permission_decision: str,
+        result_status: str,
+        failure_category: str | None,
+    ) -> None:
+        task.execution_context.derived_values["last_step_diagnostics"] = {
+            "task_id": task.task_id,
+            "pending_step_id": step.step_id,
+            "tool_name": step.tool_name,
+            "workflow_type": task.execution_context.derived_values.get("workflow_type"),
+            "workflow_policy_decision": policy_decision,
+            "approval_validation_result": validation_result,
+            "permission_decision": permission_decision,
+            "resulting_task_status": result_status,
+            "sanitized_failure_category": failure_category,
+        }
+
     def _execute_tool_step(self, task: TaskState, step: PlanStep) -> dict[str, Any]:
+        workflow_policy = task.execution_context.derived_values.get("workflow_policy")
+        if isinstance(workflow_policy, dict):
+            allowed_tools = self._normalize_policy_tool_set(workflow_policy.get("allowed_tools"))
+            forbidden_tools = self._normalize_policy_tool_set(workflow_policy.get("forbidden_tools"))
+            if step.tool_name in forbidden_tools or (allowed_tools and step.tool_name not in allowed_tools):
+                step.status = PlanStepStatus.FAILED
+                step.error = TOOL_DENIED
+                self._record_policy_diagnostics(
+                    task,
+                    step,
+                    policy_decision="DENY",
+                    validation_result="NOT_EVALUATED",
+                    permission_decision="DENY",
+                    result_status=TaskStatus.BLOCKED.value,
+                    failure_category=TOOL_DENIED,
+                )
+                return {
+                    "status": "FAILED",
+                    "result_available": False,
+                    "evidence_available": False,
+                    "error_code": TOOL_DENIED,
+                    "recoverable": False,
+                }
+
         if self.runtime is None:
             step.status = PlanStepStatus.FAILED
             step.error = RUNTIME_UNAVAILABLE
@@ -592,6 +678,9 @@ class TaskEngine:
         result_status = getattr(runtime_result, "status", None)
         tool_name = getattr(runtime_result, "tool_name", step.tool_name)
         output = getattr(runtime_result, "output", None)
+        permission_decision = str(getattr(runtime_result, "decision", "UNKNOWN") or "UNKNOWN")
+        approval_state = str(getattr(runtime_result, "approval_state", "unknown") or "unknown")
+        error_category = getattr(runtime_result, "error_category", None)
 
         step.result_summary = (
             f"status={result_status};"
@@ -638,6 +727,15 @@ class TaskEngine:
                 ),
             )
             task.execution_context.approval_token = None
+            self._record_policy_diagnostics(
+                task,
+                step,
+                policy_decision="ALLOW",
+                validation_result="VALID" if approval_state == "approved" else "NOT_REQUIRED",
+                permission_decision=permission_decision,
+                result_status=TaskStatus.RUNNING.value,
+                failure_category=None,
+            )
 
             return {
                 "status": "EXECUTED",
@@ -650,6 +748,15 @@ class TaskEngine:
         if tool_status == "AWAITING_APPROVAL":
             step.status = PlanStepStatus.PENDING
             step.error = None
+            self._record_policy_diagnostics(
+                task,
+                step,
+                policy_decision="ALLOW",
+                validation_result="PENDING",
+                permission_decision=permission_decision,
+                result_status=TaskStatus.AWAITING_APPROVAL.value,
+                failure_category=APPROVAL_REQUIRED,
+            )
 
             return {
                 "status": "AWAITING_APPROVAL",
@@ -662,6 +769,15 @@ class TaskEngine:
         if tool_status == "DENIED":
             step.status = PlanStepStatus.FAILED
             step.error = TOOL_DENIED
+            self._record_policy_diagnostics(
+                task,
+                step,
+                policy_decision="DENY",
+                validation_result="INVALID" if error_category == "invalid_approval" else "NOT_REQUIRED",
+                permission_decision=permission_decision,
+                result_status=TaskStatus.BLOCKED.value,
+                failure_category=TOOL_DENIED,
+            )
 
             return {
                 "status": "FAILED",
@@ -673,6 +789,15 @@ class TaskEngine:
 
         step.status = PlanStepStatus.FAILED
         step.error = TOOL_EXECUTION_FAILED
+        self._record_policy_diagnostics(
+            task,
+            step,
+            policy_decision="ALLOW",
+            validation_result="INVALID" if error_category == "invalid_approval" else "NOT_REQUIRED",
+            permission_decision=permission_decision,
+            result_status=TaskStatus.FAILED.value,
+            failure_category=TOOL_EXECUTION_FAILED,
+        )
         self._record_step_result(
             task,
             StepResult(

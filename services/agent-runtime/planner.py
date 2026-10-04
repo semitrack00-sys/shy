@@ -1,8 +1,33 @@
 import os
 import re
+import sys
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any
+
+import importlib.util
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_business_module = _load_module(
+    "shy_business_workflows",
+    Path(__file__).resolve().parent / "business_workflows.py",
+)
+
+resolve_business_intent = _business_module.resolve_business_intent
+WorkflowInput = _business_module.WorkflowInput
+build_workflow_execution_context = _business_module.build_workflow_execution_context
+build_workflow_plan = _business_module.build_workflow_plan
+business_context_payload = _business_module.business_context_payload
+workflow_policy_payload = _business_module.workflow_policy_payload
 
 
 DEFAULT_MAX_STEPS = 5
@@ -47,6 +72,13 @@ class AgentPlanner:
 
     def decide(self, message: str) -> PlannerDecision:
         text = message.lower().strip()
+
+        business_intent = resolve_business_intent(message)
+        if business_intent is not None:
+            return PlannerDecision(
+                mode=ExecutionMode.MULTI_STEP,
+                reason=business_intent.reason,
+            )
 
         if ENABLE_SYNTHETIC_TASK_TOOLS and "approval workflow validation" in text:
             return PlannerDecision(
@@ -140,12 +172,40 @@ class AgentPlanner:
             reason=decision.reason,
         )
 
-    def build_task_plan(self, message: str, max_steps: int = DEFAULT_MAX_STEPS) -> dict[str, Any] | None:
-        decision = self.decide(message)
+    def build_task_plan(
+        self,
+        message: str,
+        max_steps: int = DEFAULT_MAX_STEPS,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        context = context or {}
+        planning_message = str(context.get("original_message") or message)
+        decision = self.decide(planning_message)
         effective_max_steps = max(1, min(int(max_steps), HARD_MAX_STEPS))
 
         if decision.mode != ExecutionMode.MULTI_STEP:
             return None
+
+        business_intent = resolve_business_intent(planning_message)
+        if business_intent is not None:
+            workflow_context = build_workflow_execution_context(
+                WorkflowInput(
+                    objective=planning_message.strip(),
+                    conversation_id=context.get("conversation_id"),
+                    user_id=context.get("user_id"),
+                    workspace_id=str(context.get("workspace_id") or "default"),
+                    business_id=context.get("business_id"),
+                ),
+                business_intent,
+            )
+            plan = build_workflow_plan(workflow_context, planning_message.strip())
+            plan["maximum_step_count"] = min(
+                int(plan.get("maximum_step_count", effective_max_steps)),
+                effective_max_steps,
+            )
+            plan["workflow_context"] = business_context_payload(workflow_context)
+            plan["workflow_policy"] = workflow_policy_payload(workflow_context.policy)
+            return plan
 
         lowered = message.lower().strip()
 

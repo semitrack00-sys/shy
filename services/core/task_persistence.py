@@ -94,6 +94,10 @@ def _sanitize_storage_value(value: Any, max_chars: int = 4000) -> Any:
     if isinstance(value, list):
         return [_sanitize_storage_value(item, max_chars=max_chars) for item in value[:40]]
 
+    if isinstance(value, (tuple, set, frozenset)):
+        normalized = list(value)
+        return [_sanitize_storage_value(item, max_chars=max_chars) for item in normalized[:40]]
+
     if isinstance(value, str):
         text = " ".join(value.split())
         if len(text) > max_chars:

@@ -644,8 +644,13 @@ def _extract_subject_and_category(text: str) -> tuple[MemoryCategory, str, float
             return (MemoryCategory.PREFERENCE, "preference.workflow", 0.8)
         return (MemoryCategory.PREFERENCE, "preference.general", 0.72)
 
-    if any(token in lowered for token in ("my name is", "i am ", "my company is", "i work at")):
-        if "my company is" in lowered or "i work at" in lowered:
+    if any(token in lowered for token in ("my name is", "i am ", "my company is", "i work at", "our company name is", "company name is")):
+        if (
+            "my company is" in lowered
+            or "i work at" in lowered
+            or "our company name is" in lowered
+            or "company name is" in lowered
+        ):
             return (MemoryCategory.USER_FACT, "user.company", 0.86)
         if "my name is" in lowered:
             return (MemoryCategory.USER_FACT, "user.name", 0.9)
@@ -653,6 +658,8 @@ def _extract_subject_and_category(text: str) -> tuple[MemoryCategory, str, float
 
     if any(token in lowered for token in ("project", "repository", "repo", "codebase", "infrastructure")):
         project_match = re.search(r"\b([a-z0-9_-]+)\s+project\b", lowered)
+        if not project_match:
+            project_match = re.search(r"\bproject\s+([a-z0-9_-]+)\b", lowered)
         project_subject = f"project.{project_match.group(1)}.configuration" if project_match else "project.configuration"
         if any(token in lowered for token in ("uses", "is configured", "runs on", "default branch", "port")):
             return (MemoryCategory.PROJECT, project_subject, 0.82)

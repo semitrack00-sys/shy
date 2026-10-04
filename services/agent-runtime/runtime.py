@@ -45,6 +45,9 @@ class AgentResult:
     tool_name: str | None = None
     tool_status: str | None = None
     output: Any = None
+    decision: str | None = None
+    approval_state: str | None = None
+    error_category: str | None = None
 
 
 class AgentRuntime:
@@ -63,8 +66,8 @@ class AgentRuntime:
     def decide(self, message: str):
         return self.planner.decide(message)
 
-    def build_task_plan(self, message: str, max_steps: int = 5):
-        return self.planner.build_task_plan(message, max_steps=max_steps)
+    def build_task_plan(self, message: str, max_steps: int = 5, context: dict[str, Any] | None = None):
+        return self.planner.build_task_plan(message, max_steps=max_steps, context=context)
 
     def execute_tool_step(
         self,
@@ -94,6 +97,9 @@ class AgentRuntime:
             tool_name=result.tool_name,
             tool_status=result.status,
             output=result.output,
+            decision=result.decision,
+            approval_state=result.approval_state,
+            error_category=result.error_category,
         )
 
     def run(self, message: str) -> AgentResult:
@@ -117,6 +123,9 @@ class AgentRuntime:
                 tool_name=result.tool_name,
                 tool_status=result.status,
                 output=result.output,
+                decision=result.decision,
+                approval_state=result.approval_state,
+                error_category=result.error_category,
             )
 
         return AgentResult(

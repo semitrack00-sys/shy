@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from model_router.router import ModelMessage, ModelRequest, ModelRole, ModelRouter, PrivacyClass
 from tools.gateway import ToolGateway
-from tools.contracts import ToolRequest
+from tools.contracts import PermissionLevel, ToolDefinition, ToolRequest
 from agent_runtime.runtime import AgentRuntime
 from agent_runtime.task_engine import TaskEngine
 
@@ -90,7 +90,41 @@ from task_persistence import (
     TaskPersistenceError,
 )
 
-SHY_VERSION = "0.16.0"
+_business_module = None
+for _candidate in (
+    Path(__file__).resolve().parents[1] / "agent-runtime" / "business_workflows.py",
+    Path(__file__).resolve().parents[1] / "agent_runtime" / "business_workflows.py",
+    Path(__file__).resolve().parent / "agent_runtime" / "business_workflows.py",
+    Path("/app") / "agent_runtime" / "business_workflows.py",
+):
+    if _candidate.exists():
+        _business_spec = importlib.util.spec_from_file_location("shy_business_workflows_runtime", _candidate)
+        _business_module = importlib.util.module_from_spec(_business_spec)
+        sys.modules["shy_business_workflows_runtime"] = _business_module
+        _business_spec.loader.exec_module(_business_module)
+        break
+
+if _business_module is None:
+    raise FileNotFoundError("Unable to locate business_workflows.py in runtime layout")
+
+BusinessIntent = _business_module.BusinessIntent
+BusinessWorkflow = _business_module.BusinessWorkflow
+DeterministicBusinessDataAdapters = _business_module.DeterministicBusinessDataAdapters
+WorkflowInput = _business_module.WorkflowInput
+build_business_audit_record = _business_module.build_business_audit_record
+build_business_report_markdown = _business_module.build_business_report_markdown
+business_context_payload = _business_module.business_context_payload
+build_workflow_execution_context = _business_module.build_workflow_execution_context
+evidence_fingerprint_from_research_payload = _business_module.evidence_fingerprint_from_research_payload
+extract_workflow_context_from_task = _business_module.extract_workflow_context_from_task
+format_public_workflow_plan = _business_module.format_public_workflow_plan
+resolve_business_intent = _business_module.resolve_business_intent
+run_business_reasoning_step = _business_module.run_business_reasoning_step
+scoped_user_uuid = _business_module.scoped_user_uuid
+workflow_requires_research_synthesis = _business_module.workflow_requires_research_synthesis
+workflow_policy_payload = _business_module.workflow_policy_payload
+
+SHY_VERSION = "0.17.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -277,6 +311,33 @@ if ENABLE_SYNTHETIC_TASK_TOOLS:
         lambda recipient, message: {"ok": True, "recipient": recipient},
     )
 
+
+tool_gateway.register_tool(
+    ToolDefinition(
+        tool_id="business.synthetic_approval_action",
+        name="business.synthetic_approval_action",
+        description="Synthetic approval-gated business action with no external side effects.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+            },
+            "required": ["action"],
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "action": {"type": "string"},
+            },
+            "required": ["ok", "action"],
+        },
+        permission_level=PermissionLevel.APPROVAL_REQUIRED,
+        timeout_seconds=5.0,
+    ),
+    lambda action: {"ok": True, "action": action},
+)
+
 research_service = None
 
 if os.getenv("TAVILY_API_KEY", "").strip():
@@ -294,11 +355,25 @@ agent_runtime = AgentRuntime(
     gateway=tool_gateway,
 )
 
+business_adapters = DeterministicBusinessDataAdapters()
+
+
+def _chat_task_reasoner(step: Any, task) -> dict[str, Any]:
+    business_result = run_business_reasoning_step(step.objective, task, business_adapters)
+    if business_result is not None:
+        return business_result
+    return TaskEngine._default_reasoner(step, task)
+
 chat_task_engine = TaskEngine(
     runtime=agent_runtime,
     limits=TaskLimits(max_iterations=2, max_tool_calls=3, max_steps=5),
     compatibility_mode=False,
-    plan_builder=lambda objective, _task: agent_runtime.build_task_plan(objective, max_steps=5),
+    plan_builder=lambda objective, task: agent_runtime.build_task_plan(
+        objective,
+        max_steps=5,
+        context=dict(getattr(task.execution_context, "derived_values", {})),
+    ),
+    reasoner=_chat_task_reasoner,
 )
 
 chat_task_repository = PostgresTaskRepository()
@@ -1152,6 +1227,39 @@ def _task_step_public_state(task) -> dict[str, Any]:
     }
 
 
+def _task_step_safe_diagnostics(task) -> dict[str, Any] | None:
+    if not (ENABLE_SYNTHETIC_TASK_TOOLS or ENABLE_MODEL_ROUTING_TEST_HOOKS):
+        return None
+
+    diagnostics = task.execution_context.derived_values.get("last_step_diagnostics")
+    if isinstance(diagnostics, dict):
+        return {
+            "task_id": diagnostics.get("task_id") or task.task_id,
+            "pending_step_id": diagnostics.get("pending_step_id"),
+            "tool_name": diagnostics.get("tool_name"),
+            "workflow_type": diagnostics.get("workflow_type"),
+            "workflow_policy_decision": diagnostics.get("workflow_policy_decision"),
+            "approval_validation_result": diagnostics.get("approval_validation_result"),
+            "permission_decision": diagnostics.get("permission_decision"),
+            "resulting_task_status": diagnostics.get("resulting_task_status") or task.status.value,
+            "sanitized_failure_category": diagnostics.get("sanitized_failure_category"),
+        }
+
+    pending_step_id = task.execution_context.awaiting_step_id
+    tool_name = task.execution_context.awaiting_tool_name
+    return {
+        "task_id": task.task_id,
+        "pending_step_id": pending_step_id,
+        "tool_name": tool_name,
+        "workflow_type": task.execution_context.derived_values.get("workflow_type"),
+        "workflow_policy_decision": None,
+        "approval_validation_result": "PENDING" if task.status == TaskStatus.AWAITING_APPROVAL else None,
+        "permission_decision": None,
+        "resulting_task_status": task.status.value,
+        "sanitized_failure_category": task.failure_reason,
+    }
+
+
 def _find_pending_step(task, pending_step_id: int | None):
     for step in task.plan_steps:
         if step.status == PlanStepStatus.PENDING:
@@ -1160,9 +1268,46 @@ def _find_pending_step(task, pending_step_id: int | None):
     return None
 
 
+def _effective_user_uuid_from_request(request: "ChatRequest") -> uuid.UUID:
+    return scoped_user_uuid(
+        user_id=request.user_id,
+        workspace_id=request.workspace_id or "default",
+        business_id=request.business_id,
+    )
+
+
+def _build_multistep_context(request: "ChatRequest", conversation_id: uuid.UUID) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "conversation_id": str(conversation_id),
+        "workspace_id": request.workspace_id or "default",
+        "business_id": request.business_id,
+        "user_id": request.user_id,
+        "original_message": request.message,
+    }
+
+    business_intent = resolve_business_intent(request.message)
+    if business_intent is None:
+        return payload
+
+    workflow_context = build_workflow_execution_context(
+        WorkflowInput(
+            objective=request.message,
+            conversation_id=str(conversation_id),
+            user_id=request.user_id,
+            workspace_id=request.workspace_id or "default",
+            business_id=request.business_id,
+        ),
+        business_intent,
+    )
+    payload["workflow_context"] = business_context_payload(workflow_context)
+    payload["workflow_policy"] = workflow_policy_payload(workflow_context.policy)
+    return payload
+
+
 async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id, route):
     existing_task = None
     model_routing_metadata: dict[str, Any] | None = None
+    effective_user_id = _effective_user_uuid_from_request(request)
     if request.task_id:
         try:
             snapshot = chat_task_repository.load_task(str(request.task_id))
@@ -1285,7 +1430,7 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
             durable_context = retrieve_durable_memory_context(
                 query_text=request.message,
                 conversation_id=conversation_id,
-                user_id=DEFAULT_USER_ID,
+                user_id=effective_user_id,
                 max_results=3,
                 max_context_chars=800,
             )
@@ -1297,7 +1442,8 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
             memory_lines = [f"- [{item.category.value}] {item.subject_key}: {item.content}" for item in durable_context.selected_records]
             objective = request.message + "\n\nRelevant memory context:\n" + "\n".join(memory_lines)
 
-        task, payload = chat_task_engine.run(objective, deep_mode=True)
+        task_context = _build_multistep_context(request, conversation_id)
+        task, payload = chat_task_engine.run(objective, deep_mode=True, context=task_context)
         try:
             chat_task_repository.create_task(
                 task=task,
@@ -1310,6 +1456,7 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
             raise HTTPException(status_code=503, detail=f"SHY task persistence unavailable: {exc}")
 
     if task.status == TaskStatus.AWAITING_APPROVAL:
+        debug_diagnostics = _task_step_safe_diagnostics(task)
         return {
             "assistant": "SHY",
             "status": TaskStatus.AWAITING_APPROVAL.value,
@@ -1330,10 +1477,13 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
             "research_invoked": False,
             "hidden_reasoning_exposed": False,
             "model_routing": model_routing_metadata,
+            "public_plan": format_public_workflow_plan(task.plan_steps),
+            "debug_diagnostics": debug_diagnostics,
             **_task_step_public_state(task),
         }
 
     if task.status in {TaskStatus.FAILED, TaskStatus.BLOCKED, TaskStatus.CANCELLED}:
+        debug_diagnostics = _task_step_safe_diagnostics(task)
         return {
             "assistant": "SHY",
             "status": task.status.value,
@@ -1354,10 +1504,60 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
             "research_invoked": False,
             "hidden_reasoning_exposed": False,
             "model_routing": model_routing_metadata,
+            "public_plan": format_public_workflow_plan(task.plan_steps),
+            "debug_diagnostics": debug_diagnostics,
             **_task_step_public_state(task),
         }
 
-    answer = _task_answer_from_state(task)
+    workflow_context = extract_workflow_context_from_task(task)
+    if workflow_context is not None and workflow_requires_research_synthesis(workflow_context):
+        try:
+            research_result = await run_research_pipeline(request.message)
+            synthesized = await generate_research_response(
+                message=request.message,
+                research_result=research_result,
+            )
+            payload = research_result.to_public_dict()
+            task.execution_context.derived_values["business_report"] = {
+                "executive_summary": "Business research workflow completed with cited synthesis.",
+                "kpis": [
+                    f"Evidence items: {len(payload.get('evidence') or [])}",
+                    f"Queries executed: {len(payload.get('queries_executed') or [])}",
+                ],
+                "problems_found": [str(item.get("detail", "")) for item in (payload.get("gaps") or []) if item.get("detail")],
+                "risks": ["Research quality depends on source coverage and recency."],
+                "recommendations": ["Validate high-impact claims against internal metrics before rollout."],
+                "evidence_references": [
+                    f"evidence_fingerprint:{evidence_fingerprint_from_research_payload(payload)}",
+                ],
+                "next_actions": ["Run follow-up research for unresolved evidence gaps."],
+                "summary": synthesized,
+            }
+        except Exception:
+            pass
+
+    answer = build_business_report_markdown(task) or _task_answer_from_state(task)
+
+    business_audit = None
+    if workflow_context is not None:
+        tools_used = [
+            item.tool_name
+            for item in getattr(task.execution_context, "step_results", [])
+            if getattr(item, "tool_name", None)
+        ]
+        report_payload = getattr(task.execution_context, "derived_values", {}).get("business_report")
+        business_audit = build_business_audit_record(
+            task_id=task.task_id,
+            context=workflow_context,
+            status=task.status.value,
+            tools_used=tools_used,
+            model_routing=model_routing_metadata,
+            approval_state="not_required",
+            completion_time=datetime.now(timezone.utc).isoformat(),
+            outcome=report_payload if isinstance(report_payload, dict) else {"summary": answer},
+        )
+        task.execution_context.derived_values["business_audit"] = business_audit
+
     try:
         promote_memory_candidate(
             DurableMemoryCandidate(
@@ -1368,7 +1568,7 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
                 is_correction=False,
             ),
             conversation_id=conversation_id,
-            user_id=DEFAULT_USER_ID,
+            user_id=effective_user_id,
             source_task_id=task.task_id,
         )
     except Exception as exc:
@@ -1396,6 +1596,8 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
         "research_invoked": False,
         "hidden_reasoning_exposed": False,
         "model_routing": model_routing_metadata,
+        "public_plan": format_public_workflow_plan(task.plan_steps),
+        "business_audit": business_audit,
         **_task_step_public_state(task),
     }
 
@@ -1409,6 +1611,9 @@ class ChatRequest(BaseModel):
     cancel_task: bool = False
     local_only: bool = False
     testing_disable_memory_context: bool = False
+    user_id: str | None = None
+    workspace_id: str | None = None
+    business_id: str | None = None
 
 
 class SyntheticApprovalRequest(BaseModel):
@@ -1420,6 +1625,9 @@ class AgentRequest(BaseModel):
     message: str
     conversation_id: uuid.UUID | None = None
     local_only: bool = False
+    user_id: str | None = None
+    workspace_id: str | None = None
+    business_id: str | None = None
 
 
 class FakeProviderControlRequest(BaseModel):
@@ -1591,9 +1799,13 @@ async def testing_task_approval(request: SyntheticApprovalRequest):
     if pending_step is None or pending_step.tool_name != task.execution_context.awaiting_tool_name:
         raise HTTPException(status_code=409, detail="Pending step is unavailable for approval.")
 
+    approval_arguments = chat_task_engine._resolve_tool_args(task, pending_step)
+    if approval_arguments is None:
+        approval_arguments = pending_step.tool_args or {}
+
     approval = tool_gateway.approvals.create(
         pending_step.tool_name,
-        pending_step.tool_args or {},
+        approval_arguments,
         scope=f"{task.task_id}:{pending_step.step_id}",
     )
 
