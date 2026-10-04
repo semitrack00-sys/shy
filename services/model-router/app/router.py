@@ -25,6 +25,7 @@ registry_module = _load_module("shy_model_registry", app_path / "registry.py")
 selection_module = _load_module("shy_model_selection", app_path / "selection.py")
 orchestrator_module = _load_module("shy_model_orchestrator", app_path / "orchestrator.py")
 ollama_module = _load_module("shy_provider_ollama", app_path / "providers" / "ollama.py")
+remote_module = _load_module("shy_provider_openai_compatible", app_path / "providers" / "openai_compatible.py")
 fake_module = _load_module("shy_provider_fake", app_path / "providers" / "fake.py")
 intelligence_candidates = (
     services_path / "agent-runtime" / "intelligence_router.py",
@@ -63,6 +64,7 @@ ModelSelectionInput = selection_module.ModelSelectionInput
 ModelOrchestrator = orchestrator_module.ModelOrchestrator
 OrchestratorLimits = orchestrator_module.OrchestratorLimits
 OllamaLocalProvider = ollama_module.OllamaLocalProvider
+OpenAICompatibleRemoteProvider = remote_module.OpenAICompatibleRemoteProvider
 build_default_fake_providers = fake_module.build_default_fake_providers
 IntelligenceRouter = intelligence_router_module.IntelligenceRouter
 
@@ -173,6 +175,10 @@ class ModelRouter:
         include_fake_providers: bool | None = None,
     ):
         self.local_model = local_model
+        self.enable_local_model = os.getenv("SHY_ENABLE_LOCAL_MODEL", "1").strip() == "1"
+        self.remote_model_id = os.getenv("SHY_REMOTE_MODEL_ID", "").strip()
+        self.remote_model_base_url = os.getenv("SHY_REMOTE_MODEL_BASE_URL", "").strip()
+        self.remote_model_api_key = os.getenv("SHY_REMOTE_MODEL_API_KEY", "").strip()
         self.include_fake_providers = (
             include_fake_providers
             if include_fake_providers is not None
@@ -216,10 +222,21 @@ class ModelRouter:
     def _build_registry(self) -> ModelRegistry:
         registry = ModelRegistry()
 
-        local_provider = OllamaLocalProvider(_model_id=self.local_model)
-        registry.register_provider(local_provider)
-        for model in local_provider.list_models():
-            registry.register_model(model)
+        if self.enable_local_model:
+            local_provider = OllamaLocalProvider(_model_id=self.local_model)
+            registry.register_provider(local_provider)
+            for model in local_provider.list_models():
+                registry.register_model(model)
+
+        if self.remote_model_id and self.remote_model_base_url:
+            remote_provider = OpenAICompatibleRemoteProvider(
+                _model_id=self.remote_model_id,
+                _base_url=self.remote_model_base_url,
+                _api_key=self.remote_model_api_key,
+            )
+            registry.register_provider(remote_provider)
+            for model in remote_provider.list_models():
+                registry.register_model(model)
 
         if self.include_fake_providers:
             for provider in build_default_fake_providers():
@@ -478,10 +495,12 @@ class ModelRouter:
                 reason=reason,
             )
 
-        # Fail closed with deterministic local compatibility fallback.
+        # Fail closed. Never send LOCAL_ONLY traffic to a remote provider.
+        fallback_provider = "ollama" if self.enable_local_model else "unavailable"
+        fallback_model = self.local_model if self.enable_local_model else (self.remote_model_id or self.local_model)
         return ModelRoute(
-            provider="ollama",
-            model=self.local_model,
+            provider=fallback_provider,
+            model=fallback_model,
             task_type=task_type,
             reason=ModelFailureCategory.NO_CAPABLE_MODEL.value,
         )

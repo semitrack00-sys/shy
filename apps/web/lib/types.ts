@@ -33,8 +33,16 @@ export interface ShyHealthResponse {
   system: string;
   version: string;
   local_model?: string;
+  active_model?: string;
+  inference_provider?: string;
+  inference_connected?: boolean;
   ollama_connected?: boolean;
+  remote_inference_connected?: boolean;
   database_connected?: boolean;
+  local_model_available?: boolean;
+  remote_model_available?: boolean;
+  model_available?: boolean;
+  application_healthy?: boolean;
 }
 
 export type MessageRole = 'user' | 'assistant';

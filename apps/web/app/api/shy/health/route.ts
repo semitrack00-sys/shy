@@ -15,7 +15,7 @@ export async function GET() {
     });
   } catch {
     return NextResponse.json(
-      { status: 'error', system: 'SHY', version: '0.11.0', ollama_connected: false, database_connected: false },
+      { status: 'error', system: 'SHY', version: 'unavailable', inference_connected: false, database_connected: false },
       { status: 503 }
     );
   }

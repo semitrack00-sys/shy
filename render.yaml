@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: shy-api
+    runtime: python
+    plan: 0.5c-512mb
+    region: oregon
+    branch: codex/shy-v0.18-production-cloud
+    buildCommand: pip install -r services/core/requirements.txt && bash scripts/build_render_runtime.sh
+    startCommand: cd runtime && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shy-db
+          property: connectionString
+      - key: SHY_ENABLE_LOCAL_MODEL
+        value: "0"
+      - key: SHY_LOCAL_MODEL
+        value: qwen3.5:4b
+      - key: SHY_REMOTE_MODEL_ID
+        value: Qwen/Qwen3.5-4B
+      - key: SHY_REMOTE_MODEL_BASE_URL
+        sync: false
+      - key: SHY_REMOTE_MODEL_API_KEY
+        sync: false
+      - key: SHY_PRIVATE_REMOTE_MEMORY_ALLOWED
+        value: "1"
+      - key: SHY_PRIVATE_REMOTE_REASONING_ALLOWED
+        value: "1"
+      - key: SHY_ENABLE_FAKE_PROVIDERS
+        value: "0"
+      - key: SHY_ENABLE_MODEL_ROUTING_TEST_HOOKS
+        value: "0"
+      - key: SHY_ENABLE_SYNTHETIC_TASK_TOOLS
+        value: "0"
+      - key: TAVILY_API_KEY
+        sync: false
+
+  - type: web
+    name: shy-web
+    runtime: node
+    plan: 0.5c-512mb
+    region: oregon
+    branch: codex/shy-v0.18-production-cloud
+    buildCommand: cd apps/web && npm ci && npm run build
+    startCommand: cd apps/web && npm start -- -p $PORT
+    envVars:
+      - key: SHY_BACKEND_BASE_URL
+        fromService:
+          type: pserv
+          name: shy-api
+          property: hostport
+      - key: SHY_BASIC_AUTH_USER
+        value: shy
+      - key: SHY_BASIC_AUTH_PASSWORD
+        sync: false
+
+databases:
+  - name: shy-db
+    plan: 0.1c-256mb
+    region: oregon
+    databaseName: shy
+    user: shy
