@@ -13,7 +13,7 @@ import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from model_router.router import ModelRouter, PrivacyClass
+from model_router.router import ModelMessage, ModelRequest, ModelRole, ModelRouter, PrivacyClass
 from tools.gateway import ToolGateway
 from tools.contracts import ToolRequest
 from agent_runtime.runtime import AgentRuntime
@@ -90,7 +90,7 @@ from task_persistence import (
     TaskPersistenceError,
 )
 
-SHY_VERSION = "0.15.0"
+SHY_VERSION = "0.16.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -99,6 +99,22 @@ _durable_memory_diagnostics: dict[str, Any] = {
     "last_failure_stage": None,
     "last_failure_type": None,
     "last_failure_at": None,
+}
+
+_model_routing_diagnostics: dict[str, Any] = {
+    "selection_failures": 0,
+    "execution_failures": 0,
+    "fallback_uses": 0,
+    "last_failure_type": None,
+    "last_failure_at": None,
+}
+
+_last_model_routing_metadata: dict[str, Any] | None = None
+_model_routing_test_controls: dict[str, Any] = {
+    "local_mode": "ok",
+    "local_call_count": 0,
+    "local_success_count": 0,
+    "local_failure_count": 0,
 }
 
 
@@ -122,6 +138,31 @@ def _durable_memory_health_snapshot() -> dict[str, Any]:
         "last_failure_at": _durable_memory_diagnostics.get("last_failure_at"),
     }
 
+
+def _record_model_routing_failure(stage: str, exc: Exception) -> None:
+    key = "selection_failures" if stage == "selection" else "execution_failures"
+    _model_routing_diagnostics[key] = int(_model_routing_diagnostics.get(key, 0)) + 1
+    _model_routing_diagnostics["last_failure_type"] = type(exc).__name__
+    _model_routing_diagnostics["last_failure_at"] = datetime.now(timezone.utc).isoformat()
+
+
+def _record_model_fallback_use() -> None:
+    _model_routing_diagnostics["fallback_uses"] = int(_model_routing_diagnostics.get("fallback_uses", 0)) + 1
+
+
+def _model_routing_health_snapshot() -> dict[str, Any]:
+    selection_failures = int(_model_routing_diagnostics.get("selection_failures", 0))
+    execution_failures = int(_model_routing_diagnostics.get("execution_failures", 0))
+    fallback_uses = int(_model_routing_diagnostics.get("fallback_uses", 0))
+    return {
+        "selection_failures": selection_failures,
+        "execution_failures": execution_failures,
+        "fallback_uses": fallback_uses,
+        "degraded": (selection_failures + execution_failures) > 0,
+        "last_failure_type": _model_routing_diagnostics.get("last_failure_type"),
+        "last_failure_at": _model_routing_diagnostics.get("last_failure_at"),
+    }
+
 app = FastAPI(
     title="SHY AI",
     version=SHY_VERSION,
@@ -142,6 +183,7 @@ router = ModelRouter(LOCAL_MODEL)
 
 tool_gateway = ToolGateway()
 ENABLE_SYNTHETIC_TASK_TOOLS = os.getenv("SHY_ENABLE_SYNTHETIC_TASK_TOOLS", "0").strip() == "1"
+ENABLE_MODEL_ROUTING_TEST_HOOKS = os.getenv("SHY_ENABLE_MODEL_ROUTING_TEST_HOOKS", "0").strip() == "1"
 
 
 def _collect_runtime_health_snapshot() -> dict[str, Any]:
@@ -189,6 +231,7 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
         "ollama_connected": ollama_connected,
         "database_connected": database_connected,
         "local_model_available": local_model_available,
+        "model_routing": _model_routing_health_snapshot(),
         "durable_memory": _durable_memory_health_snapshot(),
     }
 
@@ -288,10 +331,40 @@ RESEARCH_GENERATION_OPTIONS = {
     "repeat_penalty": 1.1,
 }
 MAX_EMPTY_RESPONSE_RETRIES = 1
+_MEMORY_BLOCKED_MARKERS = (
+    "password",
+    "passwd",
+    "api key",
+    "api_key",
+    "access token",
+    "oauth",
+    "approval token",
+    "database_url",
+    "bearer",
+    "secret",
+    "private key",
+    "chain-of-thought",
+    "hidden reasoning",
+    "verifier reasoning",
+    "step_id",
+    "action_type",
+    "superseded",
+)
 
 
 class ResearchSynthesisError(RuntimeError):
     """Raised when SHY cannot safely produce a research synthesis response."""
+
+
+def _filter_prompt_safe_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    safe_messages: list[dict[str, str]] = []
+    for item in messages:
+        content = str(item.get("content", ""))
+        lowered = content.lower()
+        if any(marker in lowered for marker in _MEMORY_BLOCKED_MARKERS):
+            continue
+        safe_messages.append(dict(item))
+    return safe_messages
 
 
 def _load_memory_history_for_message(message: str, conversation_id: uuid.UUID) -> tuple[list, bool]:
@@ -316,16 +389,16 @@ def _load_memory_history_for_message(message: str, conversation_id: uuid.UUID) -
             max_results=4,
             max_context_chars=1200,
         )
-        durable_messages = [dict(item) for item in durable_selection.selected_messages]
+        durable_messages = _filter_prompt_safe_messages([dict(item) for item in durable_selection.selected_messages])
     except Exception as exc:
         _record_durable_memory_failure("retrieval", exc)
         durable_messages = []
 
     if selection.selected_messages:
-        history = [dict(item) for item in selection.selected_messages]
-        return durable_messages + history, True
+        history = _filter_prompt_safe_messages([dict(item) for item in selection.selected_messages])
+        return durable_messages + history, bool(durable_messages or history)
 
-    history = load_messages(conversation_id)
+    history = _filter_prompt_safe_messages(load_messages(conversation_id))
     memory_used = bool(durable_messages)
     if history:
         return durable_messages + history, True
@@ -493,73 +566,284 @@ async def generate_intelligence_response(
     history: list,
     route,
     generation_options: dict[str, Any] | None = None,
+    privacy_requirement: PrivacyClass | None = None,
 ):
-    messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT,
-        }
-    ]
+    global _last_model_routing_metadata
+    response_text, routing_metadata = await _generate_intelligence_response_internal(
+        message=message,
+        history=history,
+        route=route,
+        generation_options=generation_options,
+        privacy_requirement=privacy_requirement,
+    )
+    _last_model_routing_metadata = dict(routing_metadata)
+    return response_text
 
-    for item in history:
-        messages.append(
-            {
-                "role": item["role"],
-                "content": item["content"],
-            }
+
+async def _generate_intelligence_response_compat(
+    message: str,
+    history: list,
+    route,
+    privacy_requirement: PrivacyClass | None,
+):
+    try:
+        return await generate_intelligence_response(
+            message=message,
+            history=history,
+            route=route,
+            privacy_requirement=privacy_requirement,
+        )
+    except TypeError as exc:
+        # Backward compatibility for tests that monkeypatch generate_intelligence_response
+        # with a legacy signature that does not accept privacy_requirement.
+        if "privacy_requirement" not in str(exc):
+            raise
+        return await generate_intelligence_response(
+            message=message,
+            history=history,
+            route=route,
         )
 
-    messages.append(
-        {
-            "role": "user",
-            "content": message,
-        }
-    )
 
-    payload = {
-        "model": route.model,
-        "messages": messages,
-        "stream": False,
+def _routing_metadata_payload(
+    routing_decision,
+    used_fallback: bool,
+    fallback_candidates: list[dict[str, str]],
+    executed_provider: str,
+    executed_model: str,
+) -> dict[str, Any]:
+    return {
+        "selected_model": routing_decision.selected_model,
+        "selected_provider": routing_decision.selected_provider,
+        "executed_model": executed_model,
+        "executed_provider": executed_provider,
+        "selection_matches_execution": (
+            str(routing_decision.selected_model) == str(executed_model)
+            and str(routing_decision.selected_provider) == str(executed_provider)
+        ),
+        "role": routing_decision.role.value,
+        "reason_code": routing_decision.reason_code.value,
+        "fallback_used": used_fallback,
+        "fallback_candidates": fallback_candidates,
+        "provider_health": routing_decision.provider_health,
+        "latency_tier": routing_decision.latency_tier,
+        "cost_tier": routing_decision.cost_tier,
     }
 
-    payload["think"] = False
 
+def _build_model_role(route, mode: str | None = None) -> ModelRole:
+    task_type = str(getattr(route, "task_type", "general")).lower()
+    if mode == "verify":
+        return ModelRole.VERIFIER
+    if mode == "research":
+        return ModelRole.RESEARCH
+    if task_type == "coding":
+        return ModelRole.CODING
+    if task_type in {"reasoning", "deep_reasoning"}:
+        return ModelRole.REASONING
+    if task_type == "research":
+        return ModelRole.RESEARCH
+    return ModelRole.FAST
+
+
+async def _execute_ollama_candidate(messages: list[dict[str, str]], model_id: str, generation_options: dict[str, Any] | None) -> str:
+    if ENABLE_MODEL_ROUTING_TEST_HOOKS:
+        _model_routing_test_controls["local_call_count"] = int(_model_routing_test_controls.get("local_call_count", 0)) + 1
+
+    if ENABLE_MODEL_ROUTING_TEST_HOOKS:
+        local_mode = str(_model_routing_test_controls.get("local_mode", "ok")).strip().lower()
+        if local_mode in {"timeout", "error"}:
+            _model_routing_test_controls["local_failure_count"] = int(_model_routing_test_controls.get("local_failure_count", 0)) + 1
+            raise HTTPException(status_code=503, detail="Local intelligence unavailable.")
+        if local_mode == "malformed":
+            _model_routing_test_controls["local_failure_count"] = int(_model_routing_test_controls.get("local_failure_count", 0)) + 1
+            raise HTTPException(status_code=503, detail="Local intelligence returned an invalid response.")
+
+    payload = {
+        "model": model_id,
+        "messages": messages,
+        "stream": False,
+        "think": False,
+    }
     if generation_options:
         payload["options"] = generation_options
 
     max_attempts = 1 + MAX_EMPTY_RESPONSE_RETRIES
-
     for attempt in range(max_attempts):
-        request_payload = dict(payload)
-
         try:
             async with httpx.AsyncClient(timeout=180.0) as client:
                 response = await client.post(
                     f"{OLLAMA_URL}/api/chat",
-                    json=request_payload,
+                    json=payload,
                 )
                 response.raise_for_status()
                 result = response.json()
+        except httpx.HTTPError as exc:
+            if ENABLE_MODEL_ROUTING_TEST_HOOKS:
+                _model_routing_test_controls["local_failure_count"] = int(_model_routing_test_controls.get("local_failure_count", 0)) + 1
+            raise HTTPException(status_code=503, detail="Local intelligence unavailable.") from exc
 
-        except httpx.HTTPError:
-            raise HTTPException(
-                status_code=503,
-                detail="Local intelligence unavailable."
-            )
+        if ENABLE_MODEL_ROUTING_TEST_HOOKS:
+            local_mode = str(_model_routing_test_controls.get("local_mode", "ok")).strip().lower()
+            if local_mode == "empty":
+                result = {"message": {"content": "   "}}
 
         try:
-            return _extract_model_content(result)
+            content = _extract_model_content(result)
+            if ENABLE_MODEL_ROUTING_TEST_HOOKS:
+                _model_routing_test_controls["local_success_count"] = int(_model_routing_test_controls.get("local_success_count", 0)) + 1
+            return content
         except HTTPException as exc:
             if attempt >= max_attempts - 1:
+                if ENABLE_MODEL_ROUTING_TEST_HOOKS:
+                    _model_routing_test_controls["local_failure_count"] = int(_model_routing_test_controls.get("local_failure_count", 0)) + 1
                 raise
-
-            if exc.status_code != 503:
-                raise
-
             if "empty response" not in str(exc.detail).lower():
+                if ENABLE_MODEL_ROUTING_TEST_HOOKS:
+                    _model_routing_test_controls["local_failure_count"] = int(_model_routing_test_controls.get("local_failure_count", 0)) + 1
                 raise
-
             continue
+
+    raise HTTPException(status_code=503, detail="Local intelligence unavailable.")
+
+
+async def _generate_intelligence_response_internal(
+    message: str,
+    history: list,
+    route,
+    generation_options: dict[str, Any] | None = None,
+    role: ModelRole | None = None,
+    privacy_requirement: PrivacyClass | None = None,
+) -> tuple[str, dict[str, Any]]:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for item in history:
+        messages.append({"role": item["role"], "content": item["content"]})
+    messages.append({"role": "user", "content": message})
+
+    selected_role = role or _build_model_role(route)
+
+    try:
+        routing_decision = router.build_routing_decision(
+            message=message,
+            role=selected_role,
+            privacy_requirement=(
+                privacy_requirement
+                if privacy_requirement is not None
+                else (PrivacyClass.LOCAL_ONLY if selected_role in {ModelRole.VERIFIER, ModelRole.PLANNER} else None)
+            ),
+            metadata={},
+            task_type=str(getattr(route, "task_type", "general")),
+        )
+    except Exception as exc:
+        _record_model_routing_failure("selection", exc)
+        routing_decision = None
+
+    if routing_decision is None:
+        # Deterministic local fallback preserves local-first behavior.
+        fallback_text = await _execute_ollama_candidate(messages, route.model, generation_options)
+        return fallback_text, {
+            "selected_model": route.model,
+            "selected_provider": "ollama",
+            "executed_model": route.model,
+            "executed_provider": "ollama",
+            "selection_matches_execution": True,
+            "role": selected_role.value,
+            "reason_code": "LOCAL_PRIVACY",
+            "fallback_used": False,
+            "fallback_candidates": [],
+            "provider_health": "UNKNOWN",
+            "latency_tier": "FAST",
+            "cost_tier": "LOCAL",
+        }
+
+    candidates = [
+        {
+            "provider_id": routing_decision.selected_provider,
+            "model_id": routing_decision.selected_model,
+            "provider_health": routing_decision.provider_health,
+            "latency_tier": routing_decision.latency_tier,
+            "cost_tier": routing_decision.cost_tier,
+        }
+    ]
+    candidates.extend(
+        {
+            "provider_id": item.provider_id,
+            "model_id": item.model_id,
+            "provider_health": item.provider_health,
+            "latency_tier": item.latency_tier,
+            "cost_tier": item.cost_tier,
+        }
+        for item in routing_decision.fallback_candidates
+    )
+
+    fallback_candidates_payload = [
+        {
+            "provider": item["provider_id"],
+            "model": item["model_id"],
+            "provider_health": item["provider_health"],
+        }
+        for item in candidates[1:]
+    ]
+
+    bounded_candidates = candidates[:3]
+    if privacy_requirement == PrivacyClass.LOCAL_ONLY and str(getattr(routing_decision.reason_code, "value", routing_decision.reason_code)) == "LOCAL_PRIVACY":
+        bounded_candidates = [item for item in bounded_candidates if str(item.get("provider_id")) == "ollama"][:1]
+    for index, candidate in enumerate(bounded_candidates):
+        provider_id = str(candidate["provider_id"])
+        model_id = str(candidate["model_id"])
+        try:
+            if provider_id == "ollama":
+                text = await _execute_ollama_candidate(messages, model_id, generation_options)
+            else:
+                provider = router.registry.get_provider(provider_id)
+                model_request = ModelRequest(
+                    messages=tuple(ModelMessage(role=item["role"], content=item["content"]) for item in messages),
+                    capability=routing_decision.required_capability,
+                    system_instruction=SYSTEM_PROMPT,
+                    metadata={},
+                )
+                response = provider.generate(request=model_request, model_id=model_id)
+                if str(getattr(response, "status", "")).upper() != "OK":
+                    raise RuntimeError("Provider execution error")
+                text = _validate_public_model_content(getattr(response, "content", ""))
+
+            router.registry.report_provider_success(provider_id)
+
+            if index > 0:
+                _record_model_fallback_use()
+                routing_payload = dict(
+                    _routing_metadata_payload(
+                        routing_decision,
+                        used_fallback=True,
+                        fallback_candidates=fallback_candidates_payload,
+                        executed_provider=provider_id,
+                        executed_model=model_id,
+                    )
+                )
+                routing_payload["reason_code"] = "FALLBACK_PROVIDER"
+                routing_payload["selected_model"] = model_id
+                routing_payload["selected_provider"] = provider_id
+                routing_payload["selection_matches_execution"] = True
+                routing_payload["provider_health"] = candidate["provider_health"]
+                routing_payload["latency_tier"] = candidate["latency_tier"]
+                routing_payload["cost_tier"] = candidate["cost_tier"]
+                return text, routing_payload
+
+            return text, _routing_metadata_payload(
+                routing_decision,
+                used_fallback=False,
+                fallback_candidates=fallback_candidates_payload,
+                executed_provider=provider_id,
+                executed_model=model_id,
+            )
+        except Exception as exc:
+            router.registry.report_provider_failure(provider_id)
+            _record_model_routing_failure("execution", exc)
+            if isinstance(exc, HTTPException) and index >= len(bounded_candidates) - 1:
+                raise
+            continue
+
+    raise HTTPException(status_code=503, detail="Intelligence provider unavailable.")
 
 
 def _coerce_research_public_payload(research_result: Any | None = None, research_output: dict | None = None) -> dict[str, Any]:
@@ -686,7 +970,7 @@ Answer the user's original question clearly and concisely.
     class ResearchRoute:
         model = LOCAL_MODEL
         provider = "local"
-        task_type = "research_synthesis"
+        task_type = "research"
 
     synthesis = await generate_intelligence_response(
         message=research_prompt,
@@ -878,6 +1162,7 @@ def _find_pending_step(task, pending_step_id: int | None):
 
 async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id, route):
     existing_task = None
+    model_routing_metadata: dict[str, Any] | None = None
     if request.task_id:
         try:
             snapshot = chat_task_repository.load_task(str(request.task_id))
@@ -973,6 +1258,30 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
     else:
         durable_context = None
         try:
+            planner_decision = router.build_routing_decision(
+                message=request.message,
+                role=ModelRole.PLANNER,
+                privacy_requirement=PrivacyClass.LOCAL_ONLY,
+                task_type="deep_reasoning" if str(getattr(route, "task_type", "")) == "deep_reasoning" else "reasoning",
+            )
+            if planner_decision is not None:
+                model_routing_metadata = _routing_metadata_payload(
+                    planner_decision,
+                    used_fallback=False,
+                    fallback_candidates=[
+                        {
+                            "provider": item.provider_id,
+                            "model": item.model_id,
+                            "provider_health": item.provider_health,
+                        }
+                        for item in planner_decision.fallback_candidates
+                    ],
+                )
+        except Exception as exc:
+            _record_model_routing_failure("selection", exc)
+            model_routing_metadata = None
+
+        try:
             durable_context = retrieve_durable_memory_context(
                 query_text=request.message,
                 conversation_id=conversation_id,
@@ -1020,6 +1329,7 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
             "verifier_invoked": False,
             "research_invoked": False,
             "hidden_reasoning_exposed": False,
+            "model_routing": model_routing_metadata,
             **_task_step_public_state(task),
         }
 
@@ -1043,6 +1353,7 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
             "verifier_invoked": task.verification_result is not None,
             "research_invoked": False,
             "hidden_reasoning_exposed": False,
+            "model_routing": model_routing_metadata,
             **_task_step_public_state(task),
         }
 
@@ -1084,6 +1395,7 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
         "verifier_invoked": task.verification_result is not None,
         "research_invoked": False,
         "hidden_reasoning_exposed": False,
+        "model_routing": model_routing_metadata,
         **_task_step_public_state(task),
     }
 
@@ -1095,6 +1407,8 @@ class ChatRequest(BaseModel):
     approval_token: str | None = None
     pending_step_id: int | None = None
     cancel_task: bool = False
+    local_only: bool = False
+    testing_disable_memory_context: bool = False
 
 
 class SyntheticApprovalRequest(BaseModel):
@@ -1105,6 +1419,50 @@ class SyntheticApprovalRequest(BaseModel):
 class AgentRequest(BaseModel):
     message: str
     conversation_id: uuid.UUID | None = None
+    local_only: bool = False
+
+
+class FakeProviderControlRequest(BaseModel):
+    provider_id: str
+    mode: str = "ok"
+    health: str | None = None
+
+
+def _apply_fake_provider_controls(provider_id: str, mode: str, health: str | None):
+    if provider_id == "ollama":
+        normalized_mode = str(mode or "ok").strip().lower()
+        if normalized_mode not in {"ok", "timeout", "empty", "malformed", "error"}:
+            raise HTTPException(status_code=400, detail="Unsupported local provider mode.")
+        _model_routing_test_controls["local_mode"] = normalized_mode
+
+        if health is not None:
+            normalized_health = str(health).strip().upper()
+            if normalized_health not in {"HEALTHY", "DEGRADED", "UNAVAILABLE", "UNKNOWN"}:
+                raise HTTPException(status_code=400, detail="Unsupported provider health state.")
+
+            router.registry.clear_provider_runtime_health("ollama")
+            if normalized_health == "HEALTHY":
+                router.registry.report_provider_success("ollama")
+            elif normalized_health == "DEGRADED":
+                router.registry.report_provider_failure("ollama")
+            elif normalized_health == "UNAVAILABLE":
+                router.registry.report_provider_failure("ollama")
+                router.registry.report_provider_failure("ollama")
+                router.registry.report_provider_failure("ollama")
+            # UNKNOWN is represented by no runtime override.
+        return
+
+    provider = router.registry.get_provider(provider_id)
+    if not hasattr(provider, "set_mode"):
+        raise HTTPException(status_code=400, detail="Provider does not support deterministic controls.")
+
+    provider.set_mode(mode)
+    if health is not None:
+        normalized = str(health).strip().upper()
+        if normalized not in {"HEALTHY", "DEGRADED", "UNAVAILABLE", "UNKNOWN"}:
+            raise HTTPException(status_code=400, detail="Unsupported provider health state.")
+        provider.set_health(normalized)
+        router.registry.clear_provider_runtime_health(provider_id)
 
 
 @app.on_event("startup")
@@ -1136,6 +1494,75 @@ async def tool_system_health():
         "reason": result.reason,
         "output": result.output,
     }
+
+
+@app.get("/testing/model-routing-state")
+async def testing_model_routing_state():
+    if not ENABLE_MODEL_ROUTING_TEST_HOOKS:
+        raise HTTPException(status_code=404, detail="Model routing test hooks are unavailable.")
+
+    provider_stats: dict[str, Any] = {}
+    provider_health_view: dict[str, Any] = {}
+    snapshot = router.registry.snapshot()
+    for provider_id in snapshot.provider_ids:
+        provider = router.registry.get_provider(provider_id)
+        if hasattr(provider, "stats"):
+            provider_stats[provider_id] = provider.stats()
+        provider_health_view[provider_id] = router.registry.provider_health(provider_id).status.value
+
+    return {
+        "model_routing": _model_routing_health_snapshot(),
+        "providers": provider_stats,
+        "provider_health": provider_health_view,
+        "local_provider_mode": _model_routing_test_controls.get("local_mode", "ok"),
+        "local_provider_stats": {
+            "call_count": int(_model_routing_test_controls.get("local_call_count", 0)),
+            "success_count": int(_model_routing_test_controls.get("local_success_count", 0)),
+            "failure_count": int(_model_routing_test_controls.get("local_failure_count", 0)),
+        },
+    }
+
+
+@app.post("/testing/model-routing/reset")
+async def testing_model_routing_reset():
+    if not ENABLE_MODEL_ROUTING_TEST_HOOKS:
+        raise HTTPException(status_code=404, detail="Model routing test hooks are unavailable.")
+
+    _model_routing_diagnostics["selection_failures"] = 0
+    _model_routing_diagnostics["execution_failures"] = 0
+    _model_routing_diagnostics["fallback_uses"] = 0
+    _model_routing_diagnostics["last_failure_type"] = None
+    _model_routing_diagnostics["last_failure_at"] = None
+    _model_routing_test_controls["local_mode"] = "ok"
+    _model_routing_test_controls["local_call_count"] = 0
+    _model_routing_test_controls["local_success_count"] = 0
+    _model_routing_test_controls["local_failure_count"] = 0
+
+    snapshot = router.registry.snapshot()
+    for provider_id in snapshot.provider_ids:
+        provider = router.registry.get_provider(provider_id)
+        if hasattr(provider, "reset_stats"):
+            provider.reset_stats()
+        if provider_id.startswith("fake_") and hasattr(provider, "set_mode"):
+            provider.set_mode("ok")
+        router.registry.clear_provider_runtime_health(provider_id)
+
+    return {
+        "status": "ok",
+        "model_routing": _model_routing_health_snapshot(),
+    }
+
+
+@app.post("/testing/model-routing/provider")
+async def testing_model_routing_provider(request: FakeProviderControlRequest):
+    if not ENABLE_MODEL_ROUTING_TEST_HOOKS:
+        raise HTTPException(status_code=404, detail="Model routing test hooks are unavailable.")
+
+    _apply_fake_provider_controls(request.provider_id, request.mode, request.health)
+    provider = router.registry.get_provider(request.provider_id)
+    if not hasattr(provider, "stats"):
+        return {"provider_id": request.provider_id, "status": "configured"}
+    return provider.stats()
 
 
 @app.post("/testing/task-approval")
@@ -1259,10 +1686,13 @@ async def agent(request: AgentRequest):
                     detail="Conversation not found."
                 )
 
-        history, local_memory_context_used = _load_memory_history_for_message(
-            request.message,
-            conversation_id,
-        )
+        if ENABLE_MODEL_ROUTING_TEST_HOOKS and bool(request.testing_disable_memory_context):
+            history, local_memory_context_used = [], False
+        else:
+            history, local_memory_context_used = _load_memory_history_for_message(
+                request.message,
+                conversation_id,
+            )
 
     except HTTPException:
         raise
@@ -1273,7 +1703,7 @@ async def agent(request: AgentRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
-    privacy_requirement = PrivacyClass.LOCAL_ONLY if local_memory_context_used else None
+    privacy_requirement = PrivacyClass.LOCAL_ONLY if (local_memory_context_used or bool(request.local_only)) else None
     route = router.route(request.message, privacy_requirement=privacy_requirement)
 
     try:
@@ -1302,15 +1732,20 @@ async def agent(request: AgentRequest):
         message=request.message,
         history=history,
         route=route,
+        privacy_requirement=privacy_requirement,
     )
+    routing_metadata = dict(_last_model_routing_metadata or {})
+
+    effective_model = str(routing_metadata.get("selected_model", route.model))
+    effective_provider = str(routing_metadata.get("selected_provider", route.provider))
 
     try:
         save_message(
             conversation_id=conversation_id,
             role="assistant",
             content=assistant_message,
-            model=route.model,
-            provider=route.provider,
+            model=effective_model,
+            provider=effective_provider,
             task_type=route.task_type,
         )
 
@@ -1326,10 +1761,11 @@ async def agent(request: AgentRequest):
         "reason": result.reason,
         "message": assistant_message,
         "conversation_id": str(conversation_id),
-        "model": route.model,
-        "provider": route.provider,
+        "model": effective_model,
+        "provider": effective_provider,
         "task_type": route.task_type,
         "routing_reason": route.reason,
+        "model_routing": routing_metadata,
     }
 
 async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route, tool_decision: dict[str, Any]):
@@ -1496,7 +1932,7 @@ async def chat(request: ChatRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
-    privacy_requirement = PrivacyClass.LOCAL_ONLY if local_memory_context_used else None
+    privacy_requirement = PrivacyClass.LOCAL_ONLY if (local_memory_context_used or bool(request.local_only)) else None
     route = router.route(request.message, privacy_requirement=privacy_requirement)
 
     try:
@@ -1529,6 +1965,7 @@ async def chat(request: ChatRequest):
         return await _handle_chat_tool_request(request, conversation_id, route, tool_decision)
 
     response_mode = apply_adaptive_response_policy(route, request.message)
+    model_routing_metadata: dict[str, Any] | None = None
 
     if response_mode == "research":
         try:
@@ -1537,6 +1974,7 @@ async def chat(request: ChatRequest):
                 message=request.message,
                 research_result=research_result,
             )
+            model_routing_metadata = dict(_last_model_routing_metadata or {})
         except HTTPException:
             return {
                 "assistant": "SHY",
@@ -1560,29 +1998,39 @@ async def chat(request: ChatRequest):
                 "safe_failure": "research_unavailable",
             }
     elif response_mode == "verify":
-        assistant_message = await generate_intelligence_response(
+        assistant_message = await _generate_intelligence_response_compat(
             message=request.message,
             history=history,
             route=route,
+            privacy_requirement=privacy_requirement,
         )
+        model_routing_metadata = dict(_last_model_routing_metadata or {})
         assistant_message = await _run_bounded_verification(
             message=request.message,
             response_text=assistant_message,
         )
     else:
-        assistant_message = await generate_intelligence_response(
+        assistant_message = await _generate_intelligence_response_compat(
             message=request.message,
             history=history,
             route=route,
+            privacy_requirement=privacy_requirement,
         )
+        model_routing_metadata = dict(_last_model_routing_metadata or {})
+
+    effective_model = route.model
+    effective_provider = route.provider
+    if model_routing_metadata:
+        effective_model = str(model_routing_metadata.get("selected_model", route.model))
+        effective_provider = str(model_routing_metadata.get("selected_provider", route.provider))
 
     try:
         save_message(
             conversation_id=conversation_id,
             role="assistant",
             content=assistant_message,
-            model=route.model,
-            provider=route.provider,
+            model=effective_model,
+            provider=effective_provider,
             task_type=route.task_type,
         )
 
@@ -1597,8 +2045,8 @@ async def chat(request: ChatRequest):
         "status": "RESPOND",
         "message": assistant_message,
         "conversation_id": str(conversation_id),
-        "model": route.model,
-        "provider": route.provider,
+        "model": effective_model,
+        "provider": effective_provider,
         "task_type": route.task_type,
         "routing_reason": route.reason,
         "adaptive_mode": response_mode,
@@ -1611,4 +2059,5 @@ async def chat(request: ChatRequest):
         "verifier_invoked": response_mode == "verify",
         "research_invoked": response_mode == "research",
         "hidden_reasoning_exposed": False,
+        "model_routing": model_routing_metadata,
     }

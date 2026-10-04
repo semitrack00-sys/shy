@@ -136,7 +136,7 @@ load_module("research.tavily", services / "research" / "tavily.py")
 load_module("memory", services / "core" / "memory.py")
 task_persistence_module = load_module("task_persistence", services / "core" / "task_persistence.py")
 main_module = load_module("shy_core_main_v014", services / "core" / "main.py")
-assert main_module.SHY_VERSION == "0.15.0"
+assert main_module.SHY_VERSION == "0.16.0"
 
 
 AgentPlanner = planner_module.AgentPlanner

@@ -115,11 +115,20 @@ def main():
         print("advanced memory API integration: SKIP (live SHY endpoint unavailable)")
         return
 
-    _assert(health.get("version") == "0.15.0", "health version must be 0.15.0")
+    _assert(health.get("version") == "0.16.0", "health version must be 0.16.0")
     _assert(bool(health.get("database_connected")), "database must be connected")
     _assert(bool(health.get("ollama_connected")), "ollama must be connected")
     _assert(bool(health.get("local_model_available")), "local model must be available")
     print("health version/dependencies: PASS")
+
+    try:
+        with memory_module.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+    except Exception:
+        print("advanced memory API integration: SKIP (durable memory DB direct access unavailable)")
+        return
 
     preference_conversation = None
     preference_before = len(_rows_for_subject("preference.theme"))

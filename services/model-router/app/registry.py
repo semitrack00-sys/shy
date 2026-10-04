@@ -35,6 +35,8 @@ class ModelRegistry:
         self._models: dict[str, ModelProfile] = {}
         self._provider_order: list[str] = []
         self._model_order: list[str] = []
+        self._provider_health_overrides: dict[str, ProviderHealthStatus] = {}
+        self._provider_failure_counts: dict[str, int] = {}
 
     def register_provider(self, provider):
         provider_id = provider.provider_id.strip()
@@ -74,7 +76,37 @@ class ModelRegistry:
 
     def provider_health(self, provider_id: str) -> ProviderHealth:
         provider = self.get_provider(provider_id)
-        return provider.health()
+        base_health = provider.health()
+        override = self._provider_health_overrides.get(provider_id)
+        if override is None:
+            return base_health
+        return ProviderHealth(
+            provider_id=base_health.provider_id,
+            status=override,
+            detail=base_health.detail,
+        )
+
+    def report_provider_failure(self, provider_id: str):
+        if provider_id not in self._providers:
+            return
+
+        count = int(self._provider_failure_counts.get(provider_id, 0)) + 1
+        self._provider_failure_counts[provider_id] = count
+
+        if count >= 3:
+            self._provider_health_overrides[provider_id] = ProviderHealthStatus.UNAVAILABLE
+        else:
+            self._provider_health_overrides[provider_id] = ProviderHealthStatus.DEGRADED
+
+    def report_provider_success(self, provider_id: str):
+        if provider_id not in self._providers:
+            return
+        self._provider_failure_counts[provider_id] = 0
+        self._provider_health_overrides[provider_id] = ProviderHealthStatus.HEALTHY
+
+    def clear_provider_runtime_health(self, provider_id: str):
+        self._provider_failure_counts.pop(provider_id, None)
+        self._provider_health_overrides.pop(provider_id, None)
 
     def list_provider_health(self) -> dict[str, ProviderHealth]:
         output: dict[str, ProviderHealth] = {}
