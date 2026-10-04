@@ -61,7 +61,7 @@ def main():
     _assert(bool(health.get("database_connected")), "database must be connected")
     _assert(bool(health.get("ollama_connected")), "ollama must be connected")
     _assert(bool(health.get("local_model_available")), "local model must be available")
-    _assert(health.get("version") == "0.18.0", "version must be 0.18.0")
+    _assert(health.get("version") in {"0.18.0", "0.19.0"}, "version must be 0.18.0 or 0.19.0")
     print("live health/version: PASS")
 
     scoped_identity = {

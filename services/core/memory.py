@@ -15,7 +15,7 @@ except ModuleNotFoundError:
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://shy:shy_local_dev@host.docker.internal:5432/shy"
+    "postgresql://shy:shy_local_dev@127.0.0.1:5432/shy"
 )
 
 DEFAULT_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -146,6 +146,39 @@ def ensure_memory_schema():
         with conn.cursor() as cur:
             cur.execute(
                 """
+                CREATE TABLE IF NOT EXISTS users (
+                    id UUID PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversations (
+                    id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS messages (
+                    id UUID PRIMARY KEY,
+                    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    model TEXT,
+                    provider TEXT,
+                    task_type TEXT
+                )
+                """
+            )
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS durable_memories (
                     memory_id UUID PRIMARY KEY,
                     user_id UUID NOT NULL,
@@ -163,6 +196,18 @@ def ensure_memory_schema():
                     last_used_at TIMESTAMPTZ,
                     use_count INTEGER NOT NULL DEFAULT 0
                 )
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_conversations_user_id
+                ON conversations (user_id, updated_at DESC)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
+                ON messages (conversation_id, created_at DESC, id DESC)
                 """
             )
             cur.execute(

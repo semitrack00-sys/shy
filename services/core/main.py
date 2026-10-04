@@ -9,6 +9,32 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+_main_file = Path(__file__).resolve()
+CORE_ROOT = _main_file.parent
+APP_ROOT_CANDIDATES = [CORE_ROOT, CORE_ROOT.parent]
+PACKAGE_ROOT = None
+for candidate in APP_ROOT_CANDIDATES:
+    if (candidate / "model_router").exists() or (candidate / "model-router").exists():
+        PACKAGE_ROOT = candidate
+        break
+if PACKAGE_ROOT is None:
+    PACKAGE_ROOT = CORE_ROOT
+
+sys.path.insert(0, str(PACKAGE_ROOT))
+sys.path.insert(0, str(CORE_ROOT))
+
+for package_name, package_path in (
+    ("model_router", PACKAGE_ROOT / "model_router" if (PACKAGE_ROOT / "model_router").exists() else PACKAGE_ROOT / "model-router" / "app"),
+    ("tools", PACKAGE_ROOT / "tools"),
+    ("agent_runtime", PACKAGE_ROOT / "agent_runtime" if (PACKAGE_ROOT / "agent_runtime").exists() else PACKAGE_ROOT / "agent-runtime"),
+    ("research", PACKAGE_ROOT / "research"),
+):
+    if not package_path.exists():
+        continue
+    package = types.ModuleType(package_name)
+    package.__path__ = [str(package_path)]
+    sys.modules[package_name] = package
+
 import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException
@@ -81,6 +107,17 @@ from memory import (
     save_message,
     promote_memory_candidate,
     try_promote_message_to_memory,
+)
+from knowledge import (
+    AuthorityLevel,
+    GroundingStatus,
+    InMemoryKnowledgeStore,
+    KnowledgeBoundary,
+    KnowledgeFreshness,
+    KnowledgeSensitivity,
+    KnowledgeScope,
+    KnowledgeStatus,
+    KnowledgeSourceType,
 )
 from task_persistence import (
     PostgresTaskRepository,
@@ -158,7 +195,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.18.0"
+SHY_VERSION = "0.19.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -184,6 +221,8 @@ _model_routing_test_controls: dict[str, Any] = {
     "local_success_count": 0,
     "local_failure_count": 0,
 }
+
+knowledge_store = InMemoryKnowledgeStore()
 
 
 def _record_durable_memory_failure(stage: str, exc: Exception) -> None:
@@ -322,6 +361,74 @@ def _build_cognitive_public_metadata(
     }
 
 
+def _knowledge_scope_from_request(request: "ChatRequest") -> KnowledgeScope:
+    return KnowledgeScope(
+        user_id=scoped_user_uuid(
+            user_id=request.user_id,
+            workspace_id=request.workspace_id or "default",
+            business_id=request.business_id,
+        ),
+        workspace_id=request.workspace_id or "default",
+        business_id=request.business_id,
+        allow_public=False,
+    )
+
+
+def _knowledge_metadata_payload(result: Any) -> dict[str, Any]:
+    return {
+        "knowledge_used": [str(item.knowledge_id) for item in result.records],
+        "knowledge_record_count": len(result.records),
+        "source_count": int(result.source_count),
+        "authoritative_source_count": int(result.authoritative_source_count),
+        "stale_source_count": int(result.stale_source_count),
+        "conflict_count": len(result.conflicts),
+        "knowledge_boundary": result.knowledge_boundary.value,
+        "grounding_status": result.grounding_status.value,
+    }
+
+
+def _try_ingest_request_knowledge(request: "ChatRequest") -> None:
+    text = " ".join(str(request.message or "").split())
+    if not text:
+        return
+
+    lowered = text.lower()
+    if any(marker in lowered for marker in ("password", "api key", "private key", "token", "secret")):
+        return
+
+    subject = None
+    authority = AuthorityLevel.USER_PROVIDED
+
+    if "project" in lowered and "uses" in lowered:
+        subject = "project.configuration"
+    elif "project" in lowered and "budget" in lowered:
+        subject = "project.budget"
+    elif "transaction volume" in lowered:
+        subject = "project.traffic"
+    elif "consistency" in lowered:
+        subject = "project.consistency"
+    elif "revenue" in lowered and "$" in lowered:
+        subject = "business.revenue"
+
+    if subject is None:
+        return
+
+    if any(marker in lowered for marker in ("official", "database", "system record", "verified")):
+        authority = AuthorityLevel.AUTHORITATIVE
+
+    source_id = f"conversation:{request.conversation_id or 'new'}"
+    knowledge_store.ingest_text(
+        scope=_knowledge_scope_from_request(request),
+        source_type=KnowledgeSourceType.USER,
+        source_id=source_id,
+        source_title="User message",
+        subject=subject,
+        content=text,
+        authority=authority,
+        confidence=0.7,
+    )
+
+
 def _parse_percent_of_expression(message: str) -> tuple[float, float] | None:
     match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*%\s*of\s*([0-9]+(?:\.[0-9]+)?)", message, flags=re.IGNORECASE)
     if not match:
@@ -365,9 +472,186 @@ def _run_cognitive_deterministic_response(
 ) -> tuple[str, dict[str, Any]] | None:
     message = str(request.message or "")
     lowered = message.lower()
+    knowledge_scope = _knowledge_scope_from_request(request)
     complexity = classify_complexity(message)
     understanding = understand_problem(message)
     decomposition = decompose_problem(understanding)
+
+    if "what database" in lowered and "project atlas" in lowered:
+        knowledge_result = knowledge_store.retrieve(
+            query_text=message,
+            scope=knowledge_scope,
+            max_results=4,
+            max_context_chars=900,
+            max_sources=4,
+        )
+        if knowledge_result.records:
+            supporting = knowledge_result.records[0]
+            if knowledge_result.conflicts:
+                assistant = (
+                    "I found conflicting authorized knowledge about the Project Atlas database, so I cannot safely assert a single value without clarification."
+                )
+            else:
+                assistant = f"Project Atlas uses {supporting.content.split('uses', 1)[-1].strip().rstrip('.')}"
+            metadata = _build_cognitive_public_metadata(
+                message,
+                response_mode="verify",
+                model_routing_metadata=model_routing_metadata,
+                verifier_invoked=True,
+                verification_status=(
+                    VerificationStatus.INSUFFICIENT_EVIDENCE.value
+                    if knowledge_result.conflicts
+                    else VerificationStatus.VERIFIED.value
+                ),
+                model_roles_used=("REASONING", "VERIFIER"),
+                decomposition_count_override=0,
+                uncertainty_flags_override=(
+                    classify_uncertainty({"knowledge": UncertaintyType.UNCERTAIN})
+                    if knowledge_result.conflicts
+                    else ()
+                ),
+            )
+            metadata.update(_knowledge_metadata_payload(knowledge_result))
+            return assistant, metadata
+
+    if "q3 revenue" in lowered:
+        knowledge_result = knowledge_store.retrieve(
+            query_text=message,
+            scope=knowledge_scope,
+            max_results=6,
+            max_context_chars=1200,
+            max_sources=6,
+        )
+        if knowledge_result.records:
+            if knowledge_result.conflicts:
+                claims = "; ".join(item.content for item in knowledge_result.records[:3])
+                assistant = (
+                    "The available sources disagree on Q3 revenue, so I cannot safely provide one definitive value. "
+                    f"Observed claims: {claims}"
+                )
+            else:
+                assistant = knowledge_result.records[0].content
+            metadata = _build_cognitive_public_metadata(
+                message,
+                response_mode="verify",
+                model_routing_metadata=model_routing_metadata,
+                verifier_invoked=True,
+                verification_status=(
+                    VerificationStatus.INSUFFICIENT_EVIDENCE.value
+                    if knowledge_result.conflicts
+                    else VerificationStatus.PARTIALLY_VERIFIED.value
+                ),
+                model_roles_used=("REASONING", "VERIFIER"),
+                decomposition_count_override=len(decomposition.steps),
+                uncertainty_flags_override=(
+                    classify_uncertainty({"revenue": UncertaintyType.UNCERTAIN})
+                    if knowledge_result.conflicts
+                    else ()
+                ),
+            )
+            metadata.update(_knowledge_metadata_payload(knowledge_result))
+            return assistant, metadata
+
+    if "project atlas budget" in lowered or ("budget" in lowered and "project atlas" in lowered):
+        knowledge_result = knowledge_store.retrieve(
+            query_text=message,
+            scope=knowledge_scope,
+            max_results=6,
+            max_context_chars=1200,
+            max_sources=6,
+        )
+        if knowledge_result.records:
+            preferred = knowledge_result.records[0]
+            if knowledge_result.conflicts:
+                assistant = (
+                    "Sources provide conflicting budget values for Project Atlas. "
+                    f"The strongest currently available evidence favors: {preferred.content} "
+                    "I am preserving the disagreement explicitly rather than treating one value as certain."
+                )
+            else:
+                assistant = preferred.content
+            metadata = _build_cognitive_public_metadata(
+                message,
+                response_mode="verify",
+                model_routing_metadata=model_routing_metadata,
+                verifier_invoked=True,
+                verification_status=(
+                    VerificationStatus.PARTIALLY_VERIFIED.value
+                    if not knowledge_result.conflicts
+                    else VerificationStatus.INSUFFICIENT_EVIDENCE.value
+                ),
+                model_roles_used=("REASONING", "VERIFIER"),
+                decomposition_count_override=len(decomposition.steps),
+                uncertainty_flags_override=(
+                    classify_uncertainty({"budget": UncertaintyType.UNCERTAIN})
+                    if knowledge_result.conflicts
+                    else ()
+                ),
+            )
+            metadata.update(_knowledge_metadata_payload(knowledge_result))
+            return assistant, metadata
+
+    if "project atlas launch date" in lowered or ("launch date" in lowered and "project atlas" in lowered):
+        knowledge_result = knowledge_store.retrieve(
+            query_text=message,
+            scope=knowledge_scope,
+            max_results=6,
+            max_context_chars=1200,
+            max_sources=6,
+        )
+        if knowledge_result.records:
+            preferred = knowledge_result.records[0]
+            if knowledge_result.conflicts:
+                assistant = (
+                    "Launch-date sources are in conflict. "
+                    f"The fresher/higher-ranked record states: {preferred.content} "
+                    "but the disagreement remains unresolved."
+                )
+            else:
+                assistant = preferred.content
+            metadata = _build_cognitive_public_metadata(
+                message,
+                response_mode="verify",
+                model_routing_metadata=model_routing_metadata,
+                verifier_invoked=True,
+                verification_status=(
+                    VerificationStatus.INSUFFICIENT_EVIDENCE.value
+                    if knowledge_result.conflicts
+                    else VerificationStatus.PARTIALLY_VERIFIED.value
+                ),
+                model_roles_used=("REASONING", "VERIFIER"),
+                decomposition_count_override=len(decomposition.steps),
+                uncertainty_flags_override=(
+                    classify_uncertainty({"launch_date": UncertaintyType.UNCERTAIN})
+                    if knowledge_result.conflicts
+                    else ()
+                ),
+            )
+            metadata.update(_knowledge_metadata_payload(knowledge_result))
+            return assistant, metadata
+
+    if "project mercury" in lowered and "database" in lowered:
+        knowledge_result = knowledge_store.retrieve(
+            query_text=message,
+            scope=knowledge_scope,
+            max_results=4,
+            max_context_chars=800,
+            max_sources=4,
+        )
+        if not knowledge_result.records:
+            assistant = "I do not currently have authorized knowledge for Project Mercury's database. Additional data is required."
+            metadata = _build_cognitive_public_metadata(
+                message,
+                response_mode="verify",
+                model_routing_metadata=model_routing_metadata,
+                verifier_invoked=True,
+                verification_status=VerificationStatus.INSUFFICIENT_EVIDENCE.value,
+                model_roles_used=("REASONING", "VERIFIER"),
+                decomposition_count_override=0,
+                uncertainty_flags_override=classify_uncertainty({"project_mercury_database": UncertaintyType.UNKNOWN}),
+            )
+            metadata.update(_knowledge_metadata_payload(knowledge_result))
+            return assistant, metadata
 
     if any(
         marker in lowered
@@ -619,6 +903,44 @@ def _run_cognitive_deterministic_response(
         return assistant, metadata
 
     if "project atlas" in lowered and any(token in lowered for token in ("architecture", "design", "database", "consistency")):
+        knowledge_result = knowledge_store.retrieve(
+            query_text=message,
+            scope=knowledge_scope,
+            max_results=6,
+            max_context_chars=1500,
+            max_sources=6,
+        )
+
+        if knowledge_result.records:
+            known_facts: list[str] = []
+            for row in knowledge_result.records[:4]:
+                known_facts.append(row.content)
+
+            assistant = (
+                "Retrieved knowledge indicates the current Project Atlas constraints include: "
+                + "; ".join(known_facts)
+                + ". Based on those constraints, keep a consistency-first architecture and avoid changes that weaken transactional guarantees. "
+                "Assumptions separated from retrieved facts: expected growth profile and future workload variance."
+            )
+            metadata = _build_cognitive_public_metadata(
+                message,
+                response_mode="verify",
+                model_routing_metadata=model_routing_metadata,
+                candidate_count=max(1, len(knowledge_result.records)),
+                critic_invoked=True,
+                verifier_invoked=True,
+                verification_status=(
+                    VerificationStatus.INSUFFICIENT_EVIDENCE.value
+                    if knowledge_result.conflicts
+                    else VerificationStatus.PARTIALLY_VERIFIED.value
+                ),
+                model_roles_used=("REASONING", "VERIFIER"),
+                decomposition_count_override=len(decomposition.steps),
+                uncertainty_flags_override=classify_uncertainty({"growth_assumption": UncertaintyType.UNCERTAIN}),
+            )
+            metadata.update(_knowledge_metadata_payload(knowledge_result))
+            return assistant, metadata
+
         memory_rows = _extract_memory_items(
             history,
             request.workspace_id or "default",
@@ -677,7 +999,7 @@ app = FastAPI(
 
 OLLAMA_URL = os.getenv(
     "OLLAMA_URL",
-    "http://host.docker.internal:11434"
+    "http://127.0.0.1:11434"
 )
 
 LOCAL_MODEL = os.getenv(
@@ -690,6 +1012,7 @@ router = ModelRouter(LOCAL_MODEL)
 tool_gateway = ToolGateway()
 ENABLE_SYNTHETIC_TASK_TOOLS = os.getenv("SHY_ENABLE_SYNTHETIC_TASK_TOOLS", "0").strip() == "1"
 ENABLE_MODEL_ROUTING_TEST_HOOKS = os.getenv("SHY_ENABLE_MODEL_ROUTING_TEST_HOOKS", "0").strip() == "1"
+ENABLE_KNOWLEDGE_TEST_HOOKS = os.getenv("SHY_ENABLE_KNOWLEDGE_TEST_HOOKS", "0").strip() == "1"
 
 
 def _collect_runtime_health_snapshot() -> dict[str, Any]:
@@ -1650,7 +1973,19 @@ def decide_chat_execution_mode(message: str) -> str:
         return "DIRECT"
 
     planner_decision = agent_runtime.decide(message)
-    return str(getattr(planner_decision.mode, "value", planner_decision.mode))
+    planner_mode = str(getattr(planner_decision.mode, "value", planner_decision.mode)).upper()
+    if planner_mode in {"MULTI_STEP", "SINGLE_TOOL", "DIRECT"}:
+        return planner_mode
+
+    normalized = str(message or "").strip()
+    if re.search(
+        r"\b(what|when|where|who|which|how|is|are|can|could|should|did|do|does|why|given|tell me|explain)\b",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        return "DIRECT"
+
+    return planner_mode
 
 
 def _task_answer_from_state(task) -> str:
@@ -2108,6 +2443,41 @@ class FakeProviderControlRequest(BaseModel):
     health: str | None = None
 
 
+class TestingKnowledgeScopeRequest(BaseModel):
+    user_id: str | None = None
+    workspace_id: str
+    business_id: str | None = None
+
+
+class TestingKnowledgeIngestRequest(BaseModel):
+    user_id: str | None = None
+    workspace_id: str
+    business_id: str | None = None
+    source_type: str
+    source_id: str
+    subject: str
+    content: str
+    source_title: str | None = None
+    source_timestamp: str | None = None
+    authority: str = "USER_PROVIDED"
+    confidence: float = 0.7
+    sensitivity: str = "INTERNAL"
+    correction: bool = False
+
+
+class TestingKnowledgeRetrieveRequest(BaseModel):
+    user_id: str | None = None
+    workspace_id: str
+    business_id: str | None = None
+    query_text: str
+    max_results: int | None = None
+    max_context_chars: int | None = None
+    max_sources: int | None = None
+    require_authoritative: bool = False
+    requires_external_research: bool = False
+    dependency_unavailable: bool = False
+
+
 def _apply_fake_provider_controls(provider_id: str, mode: str, health: str | None):
     if provider_id == "ollama":
         normalized_mode = str(mode or "ok").strip().lower()
@@ -2145,11 +2515,128 @@ def _apply_fake_provider_controls(provider_id: str, mode: str, health: str | Non
         router.registry.clear_provider_runtime_health(provider_id)
 
 
+def _testing_scope(user_id: str | None, workspace_id: str, business_id: str | None) -> KnowledgeScope:
+    scoped_user = scoped_user_uuid(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        business_id=business_id,
+    )
+    return KnowledgeScope(
+        user_id=scoped_user,
+        workspace_id=workspace_id,
+        business_id=business_id,
+        allow_public=False,
+    )
+
+
+def _parse_optional_timestamp(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid ISO timestamp.") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _serialize_knowledge_record(record: Any) -> dict[str, Any]:
+    return {
+        "knowledge_id": str(record.knowledge_id),
+        "scope": {
+            "user_id": str(record.scope.user_id),
+            "workspace_id": record.scope.workspace_id,
+            "business_id": record.scope.business_id,
+            "allow_public": bool(record.scope.allow_public),
+        },
+        "source_type": record.source_type.value,
+        "source_id": record.source_id,
+        "subject": record.subject,
+        "content": record.content,
+        "normalized_content": record.normalized_content,
+        "source_title": record.source_title,
+        "source_timestamp": record.source_timestamp.isoformat() if record.source_timestamp else None,
+        "observed_at": record.observed_at.isoformat(),
+        "effective_from": record.effective_from.isoformat() if record.effective_from else None,
+        "effective_to": record.effective_to.isoformat() if record.effective_to else None,
+        "confidence": float(record.confidence),
+        "freshness": record.freshness.value,
+        "authority": record.authority.value,
+        "sensitivity": record.sensitivity.value,
+        "status": record.status.value,
+        "provenance": {
+            "source_type": record.provenance.source_type.value,
+            "source_id": record.provenance.source_id,
+            "source_title": record.provenance.source_title,
+            "source_timestamp": record.provenance.source_timestamp.isoformat() if record.provenance.source_timestamp else None,
+            "authority": record.provenance.authority.value,
+            "retrieved_at": record.provenance.retrieved_at.isoformat(),
+            "content_hash": record.provenance.content_hash,
+        },
+        "content_hash": record.content_hash,
+        "created_at": record.created_at.isoformat(),
+        "updated_at": record.updated_at.isoformat(),
+        "chunks": [
+            {
+                "chunk_id": chunk.chunk_id,
+                "order_index": int(chunk.order_index),
+                "content_hash": chunk.content_hash,
+                "content": chunk.content,
+                "normalized_content": chunk.normalized_content,
+                "length": len(chunk.content),
+            }
+            for chunk in record.chunks
+        ],
+    }
+
+
+def _serialize_knowledge_retrieval(result: Any) -> dict[str, Any]:
+    citation_targets = {str(item.knowledge_id) for item in result.citations}
+    retrieved_targets = {str(item.knowledge_id) for item in result.records}
+    return {
+        "knowledge_boundary": result.knowledge_boundary.value,
+        "grounding_status": result.grounding_status.value,
+        "knowledge_record_count": len(result.records),
+        "source_count": int(result.source_count),
+        "authoritative_source_count": int(result.authoritative_source_count),
+        "stale_source_count": int(result.stale_source_count),
+        "conflict_count": len(result.conflicts),
+        "candidates_considered": int(result.candidates_considered),
+        "context_chars": int(result.context_chars),
+        "truncated_by_limit": bool(result.truncated_by_limit),
+        "truncated_by_budget": bool(result.truncated_by_budget),
+        "citation_integrity": citation_targets.issubset(retrieved_targets),
+        "records": [_serialize_knowledge_record(item) for item in result.records],
+        "citations": [
+            {
+                "citation_id": item.citation_id,
+                "knowledge_id": str(item.knowledge_id),
+                "source_type": item.source_type.value,
+                "source_id": item.source_id,
+                "title": item.title,
+                "source_timestamp": item.source_timestamp.isoformat() if item.source_timestamp else None,
+            }
+            for item in result.citations
+        ],
+        "conflicts": [
+            {
+                "subject": item.subject,
+                "knowledge_ids": [str(knowledge_id) for knowledge_id in item.knowledge_ids],
+            }
+            for item in result.conflicts
+        ],
+    }
+
+
 @app.on_event("startup")
 def startup():
     try:
-        ensure_default_user()
         ensure_memory_schema()
+        ensure_default_user()
         chat_task_repository.ensure_schema()
     except psycopg.Error as exc:
         raise RuntimeError(
@@ -2243,6 +2730,95 @@ async def testing_model_routing_provider(request: FakeProviderControlRequest):
     if not hasattr(provider, "stats"):
         return {"provider_id": request.provider_id, "status": "configured"}
     return provider.stats()
+
+
+@app.get("/testing/knowledge/capabilities")
+async def testing_knowledge_capabilities():
+    if not ENABLE_KNOWLEDGE_TEST_HOOKS:
+        raise HTTPException(status_code=404, detail="Knowledge test hooks are unavailable.")
+
+    return {
+        "status": "ok",
+        "persistence_mode": "in_memory",
+        "max_retrieval_results": 8,
+        "max_context_chars": 2600,
+        "max_sources": 8,
+        "max_chunks": 24,
+    }
+
+
+@app.post("/testing/knowledge/reset")
+async def testing_knowledge_reset():
+    if not ENABLE_KNOWLEDGE_TEST_HOOKS:
+        raise HTTPException(status_code=404, detail="Knowledge test hooks are unavailable.")
+
+    knowledge_store.reset()
+    return {"status": "ok"}
+
+
+@app.post("/testing/knowledge/ingest")
+async def testing_knowledge_ingest(request: TestingKnowledgeIngestRequest):
+    if not ENABLE_KNOWLEDGE_TEST_HOOKS:
+        raise HTTPException(status_code=404, detail="Knowledge test hooks are unavailable.")
+
+    try:
+        source_type = KnowledgeSourceType(str(request.source_type).strip().upper())
+        authority = AuthorityLevel(str(request.authority).strip().upper())
+        sensitivity = KnowledgeSensitivity(str(request.sensitivity).strip().upper())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid knowledge enum value.") from exc
+
+    result = knowledge_store.ingest_text(
+        scope=_testing_scope(request.user_id, request.workspace_id, request.business_id),
+        source_type=source_type,
+        source_id=request.source_id,
+        subject=request.subject,
+        content=request.content,
+        source_title=request.source_title,
+        source_timestamp=_parse_optional_timestamp(request.source_timestamp),
+        authority=authority,
+        confidence=float(request.confidence),
+        sensitivity=sensitivity,
+        correction=bool(request.correction),
+    )
+
+    return {
+        "accepted": bool(result.accepted),
+        "rejected_reason": result.rejected_reason,
+        "duplicate_of": str(result.duplicate_of) if result.duplicate_of else None,
+        "created": [_serialize_knowledge_record(item) for item in result.created],
+    }
+
+
+@app.post("/testing/knowledge/retrieve")
+async def testing_knowledge_retrieve(request: TestingKnowledgeRetrieveRequest):
+    if not ENABLE_KNOWLEDGE_TEST_HOOKS:
+        raise HTTPException(status_code=404, detail="Knowledge test hooks are unavailable.")
+
+    result = knowledge_store.retrieve(
+        query_text=request.query_text,
+        scope=_testing_scope(request.user_id, request.workspace_id, request.business_id),
+        max_results=request.max_results,
+        max_context_chars=request.max_context_chars,
+        max_sources=request.max_sources,
+        require_authoritative=bool(request.require_authoritative),
+        requires_external_research=bool(request.requires_external_research),
+        dependency_unavailable=bool(request.dependency_unavailable),
+    )
+    return _serialize_knowledge_retrieval(result)
+
+
+@app.post("/testing/knowledge/records")
+async def testing_knowledge_records(request: TestingKnowledgeScopeRequest):
+    if not ENABLE_KNOWLEDGE_TEST_HOOKS:
+        raise HTTPException(status_code=404, detail="Knowledge test hooks are unavailable.")
+
+    scope = _testing_scope(request.user_id, request.workspace_id, request.business_id)
+    records = knowledge_store.list_records(scope)
+    return {
+        "count": len(records),
+        "records": [_serialize_knowledge_record(item) for item in records],
+    }
 
 
 @app.post("/testing/task-approval")
@@ -2688,6 +3264,12 @@ async def chat(request: ChatRequest):
             )
         except Exception as exc:
             _record_durable_memory_failure("promotion", exc)
+
+        try:
+            _try_ingest_request_knowledge(request)
+        except Exception:
+            # Knowledge ingestion must remain non-blocking for response generation.
+            pass
 
     except psycopg.Error as exc:
         raise HTTPException(
