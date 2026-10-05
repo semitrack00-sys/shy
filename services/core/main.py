@@ -132,6 +132,11 @@ from agent_runtime.platform_manifest import (
     build_platform_manifest,
     public_platform_manifest,
 )
+from agent_runtime.long_horizon_planning import (
+    HorizonPhase,
+    build_horizon_plan,
+    public_horizon_plan,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -284,7 +289,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.30.0"
+SHY_VERSION = "0.31.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1552,6 +1557,13 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "integrated_manifest": True,
             "sequence_v020_to_v030_complete": True,
             "required_disabled_invariants_enforced": True,
+        },
+        "long_horizon_capabilities": {
+            "multi_phase_planning": True,
+            "dependency_validation": True,
+            "review_checkpoints": True,
+            "max_replans": 3,
+            "automatic_execution": False,
         },
     }
 
@@ -3115,6 +3127,19 @@ class ToolRegistrySelectRequest(ToolRegistryValidateRequest):
     max_candidates: int = 8
 
 
+class HorizonPhaseRequest(BaseModel):
+    phase_id: int
+    name: str
+    dependencies: list[int] = []
+    requires_review: bool = True
+
+
+class HorizonPlanRequest(BaseModel):
+    phases: list[HorizonPhaseRequest]
+    max_phases: int = 12
+    max_replans: int = 3
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3425,6 +3450,30 @@ def startup():
 @app.get("/health")
 async def health():
     return _collect_runtime_health_snapshot()
+
+
+@app.post("/planning/horizon-preview")
+async def planning_horizon_preview(request: HorizonPlanRequest):
+    plan = build_horizon_plan(
+        tuple(
+            HorizonPhase(
+                phase_id=item.phase_id,
+                name=item.name,
+                dependencies=tuple(item.dependencies),
+                requires_review=bool(item.requires_review),
+            )
+            for item in request.phases
+        ),
+        max_phases=max(1, min(int(request.max_phases), 24)),
+        max_replans=max(0, min(int(request.max_replans), 3)),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "plan": public_horizon_plan(plan),
+        "execution_performed": False,
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.get("/platform/capabilities")
