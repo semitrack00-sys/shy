@@ -132,6 +132,12 @@ from agent_runtime.platform_manifest import (
     build_platform_manifest,
     public_platform_manifest,
 )
+from agent_runtime.temporal_intelligence import (
+    TemporalTask,
+    plan_temporal_tasks,
+    preview_recurrence,
+    public_temporal_plan,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -284,7 +290,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.30.0"
+SHY_VERSION = "0.31.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1546,6 +1552,13 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "side_effect_approval_enforcement": True,
             "registry_execution": False,
             "arbitrary_shell_capability": False,
+        },
+        "temporal_capabilities": {
+            "timezone_aware_planning": True,
+            "dependency_ordering": True,
+            "deadline_conflict_detection": True,
+            "bounded_recurrence_preview": True,
+            "external_schedule_creation": False,
         },
         "platform_checkpoint": {
             "version": "0.30.0",
@@ -3115,6 +3128,26 @@ class ToolRegistrySelectRequest(ToolRegistryValidateRequest):
     max_candidates: int = 8
 
 
+class TemporalTaskRequest(BaseModel):
+    task_id: str
+    duration_minutes: int
+    earliest_start: str
+    deadline: str
+    dependencies: list[str] = []
+
+
+class TemporalPlanRequest(BaseModel):
+    tasks: list[TemporalTaskRequest]
+    max_tasks: int = 32
+
+
+class RecurrencePreviewRequest(BaseModel):
+    start: str
+    every_minutes: int
+    occurrences: int
+    max_occurrences: int = 20
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3507,6 +3540,51 @@ def _registered_tools_from_request(items: list[RegisteredToolRequest]):
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Unsupported tool registry permission or risk.") from exc
+
+
+@app.post("/temporal/plan")
+async def temporal_plan(request: TemporalPlanRequest):
+    plan = plan_temporal_tasks(
+        tuple(
+            TemporalTask(
+                task_id=item.task_id,
+                duration_minutes=int(item.duration_minutes),
+                earliest_start=item.earliest_start,
+                deadline=item.deadline,
+                dependencies=tuple(item.dependencies),
+            )
+            for item in request.tasks
+        ),
+        max_tasks=max(1, min(int(request.max_tasks), 64)),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "temporal": public_temporal_plan(plan),
+        "external_schedule_created": False,
+        "hidden_reasoning_exposed": False,
+    }
+
+
+@app.post("/temporal/recurrence-preview")
+async def temporal_recurrence_preview(request: RecurrencePreviewRequest):
+    try:
+        preview = preview_recurrence(
+            request.start,
+            every_minutes=int(request.every_minutes),
+            occurrences=int(request.occurrences),
+            max_occurrences=max(1, min(int(request.max_occurrences), 50)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "occurrences": list(preview.occurrences),
+        "bounded": preview.bounded,
+        "external_schedule_created": False,
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.post("/tool-registry/validate")
