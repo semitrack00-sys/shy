@@ -118,7 +118,11 @@ def build_platform_manifest(
     current = _version_tuple(version)
     ordered = tuple(sorted(capabilities, key=lambda item: (_version_tuple(item.introduced_version), item.capability_id)))
     introduced = {item.introduced_version for item in ordered if _version_tuple(item.introduced_version) <= current}
-    sequence_complete = all(item in introduced for item in _REQUIRED_SEQUENCE)
+    required_through_current = tuple(
+        item for item in _REQUIRED_SEQUENCE
+        if _version_tuple(item) <= current
+    )
+    sequence_complete = all(item in introduced for item in required_through_current)
 
     by_id = {item.capability_id: item for item in ordered}
     required_disabled = (
