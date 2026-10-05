@@ -104,6 +104,13 @@ from agent_runtime.preference_intelligence import (
     public_preference_evaluation,
     public_preference_profile,
 )
+from agent_runtime.entity_graph import (
+    EntityNode,
+    RelationEdge,
+    build_graph,
+    neighbor_subgraph,
+    public_graph,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -256,7 +263,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.26.0"
+SHY_VERSION = "0.27.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1494,6 +1501,13 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "protected_sensitive_categories": True,
             "scoped_profiles": True,
             "persistent_preference_profile": False,
+        },
+        "knowledge_graph_capabilities": {
+            "scoped_entities": True,
+            "provenance_backed_edges": True,
+            "bounded_neighbor_traversal": True,
+            "cross_scope_edges": False,
+            "persistent_graph": False,
         },
     }
 
@@ -2986,6 +3000,35 @@ class PreferenceProfileRequest(BaseModel):
     max_preferences: int = 50
 
 
+class GraphNodeRequest(BaseModel):
+    entity_id: str
+    name: str
+    entity_type: str
+    scope_id: str
+    aliases: list[str] = []
+
+
+class GraphEdgeRequest(BaseModel):
+    source_id: str
+    target_id: str
+    relation: str
+    confidence: float = 0.7
+    provenance_ids: list[str] = []
+
+
+class GraphBuildRequest(BaseModel):
+    nodes: list[GraphNodeRequest]
+    edges: list[GraphEdgeRequest]
+    max_nodes: int = 200
+    max_edges: int = 500
+
+
+class GraphNeighborsRequest(GraphBuildRequest):
+    entity_id: str
+    depth: int = 1
+    max_results: int = 30
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3340,6 +3383,30 @@ def _parse_preference_scope(value: str) -> PreferenceScope:
         return PreferenceScope(str(value).strip().upper())
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Unsupported preference scope.") from exc
+
+
+def _graph_from_request(request: GraphBuildRequest):
+    return build_graph(
+        tuple(EntityNode(item.entity_id,item.name,item.entity_type,item.scope_id,tuple(item.aliases)) for item in request.nodes),
+        tuple(RelationEdge(item.source_id,item.target_id,item.relation,float(item.confidence),tuple(item.provenance_ids)) for item in request.edges),
+        max_nodes=max(1,min(int(request.max_nodes),1000)),
+        max_edges=max(1,min(int(request.max_edges),2000)),
+    )
+
+
+@app.post("/graph/build")
+async def graph_build(request: GraphBuildRequest):
+    result=_graph_from_request(request)
+    return {"status":"ok" if result.accepted else "rejected","version":SHY_VERSION,"reason":result.reason,"graph":public_graph(result.graph) if result.graph else None,"persistent_change_applied":False,"hidden_reasoning_exposed":False}
+
+
+@app.post("/graph/neighbors")
+async def graph_neighbors(request: GraphNeighborsRequest):
+    result=_graph_from_request(request)
+    if not result.accepted or result.graph is None:
+        return {"status":"rejected","version":SHY_VERSION,"reason":result.reason,"graph":None,"hidden_reasoning_exposed":False}
+    sub=neighbor_subgraph(result.graph,request.entity_id,depth=max(0,min(int(request.depth),3)),max_results=max(1,min(int(request.max_results),100)))
+    return {"status":"ok","version":SHY_VERSION,"reason":None,"graph":public_graph(sub),"hidden_reasoning_exposed":False}
 
 
 @app.post("/preference/evaluate")
