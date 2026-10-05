@@ -83,6 +83,11 @@ from agent_runtime.vision_intelligence import (
     public_vision_plan,
     validate_visual_observation,
 )
+from agent_runtime.multimodal_intelligence import (
+    build_evidence_unit,
+    fuse_evidence,
+    public_fusion_metadata,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -235,7 +240,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.23.0"
+SHY_VERSION = "0.24.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1448,6 +1453,15 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "image_provider_connected": False,
             "real_person_identity_recognition": False,
             "visual_provenance_required": True,
+        },
+        "multimodal_capabilities": {
+            "text": True,
+            "voice_transcript": True,
+            "vision_observation": True,
+            "cross_modality_conflict_detection": True,
+            "max_sources": 32,
+            "raw_audio": False,
+            "raw_image_inference": False,
         },
     }
 
@@ -2882,6 +2896,20 @@ class VisionObservationRequest(BaseModel):
     provenance_available: bool = True
 
 
+class MultimodalEvidenceRequest(BaseModel):
+    modality: str
+    source_id: str
+    content: str
+    confidence: float = 0.7
+    provenance_available: bool = True
+    claims: dict[str, str] = {}
+
+
+class MultimodalFuseRequest(BaseModel):
+    evidence: list[MultimodalEvidenceRequest]
+    max_sources: int = 12
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3205,6 +3233,41 @@ async def tool_system_health():
         "risk": result.risk,
         "reason": result.reason,
         "output": result.output,
+    }
+
+
+@app.post("/multimodal/fuse")
+async def multimodal_fuse(request: MultimodalFuseRequest):
+    try:
+        items = tuple(
+            build_evidence_unit(
+                modality=item.modality,
+                source_id=item.source_id,
+                content=item.content,
+                confidence=item.confidence,
+                provenance_available=item.provenance_available,
+                claims=item.claims,
+            )
+            for item in request.evidence
+        )
+    except ValueError as exc:
+        return {
+            "status": "rejected",
+            "version": SHY_VERSION,
+            "rejected_reason": str(exc),
+            "fusion": None,
+            "hidden_reasoning_exposed": False,
+        }
+
+    result = fuse_evidence(
+        items,
+        max_sources=max(1, min(int(request.max_sources), 32)),
+    )
+    return {
+        "status": "ok" if result.boundary.value != "REJECTED" else "rejected",
+        "version": SHY_VERSION,
+        "fusion": public_fusion_metadata(result),
+        "hidden_reasoning_exposed": False,
     }
 
 
