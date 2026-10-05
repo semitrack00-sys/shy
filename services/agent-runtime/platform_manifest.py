@@ -42,6 +42,7 @@ _REQUIRED_SEQUENCE = (
     "0.31.0",
     "0.32.0",
     "0.33.0",
+    "0.34.0",
 )
 
 
@@ -66,6 +67,7 @@ _DEFAULT_CAPABILITIES = (
     PlatformCapability("temporal_intelligence", "0.31.0", CapabilityState.BOUNDED, "planning_only_no_external_schedule_creation"),
     PlatformCapability("condition_intelligence", "0.32.0", CapabilityState.BOUNDED, "evaluation_only_no_monitoring_or_notifications"),
     PlatformCapability("collaboration_delegation", "0.33.0", CapabilityState.BOUNDED, "planning_only_no_dispatch_or_permission_expansion"),
+    PlatformCapability("recovery_rollback", "0.34.0", CapabilityState.BOUNDED, "verified_checkpoint_planning_only_no_rollback_execution"),
 )
 
 
@@ -78,7 +80,7 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 
 def build_platform_manifest(
     *,
-    version: str = "0.33.0",
+    version: str = "0.34.0",
     capabilities: Sequence[PlatformCapability] = _DEFAULT_CAPABILITIES,
 ) -> PlatformManifest:
     current = _version_tuple(version)
