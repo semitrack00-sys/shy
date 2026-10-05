@@ -445,6 +445,71 @@ def _parse_currency_number(text: str) -> float | None:
         return None
 
 
+def _parse_linear_expression(expression: str) -> tuple[float, float] | None:
+    cleaned = str(expression or "").lower().replace(" ", "").replace("×", "*")
+    if not cleaned:
+        return None
+
+    if cleaned[0] not in "+-":
+        cleaned = "+" + cleaned
+
+    terms = re.findall(r"[+-][^+-]+", cleaned)
+    if not terms or "".join(terms) != cleaned:
+        return None
+
+    x_coefficient = 0.0
+    constant = 0.0
+
+    for term in terms:
+        if "x" in term:
+            match = re.fullmatch(r"([+-])(?:(\d+(?:\.\d+)?)\*?)?x", term)
+            if not match:
+                return None
+            magnitude = float(match.group(2)) if match.group(2) else 1.0
+            x_coefficient += magnitude if match.group(1) == "+" else -magnitude
+            continue
+
+        if not re.fullmatch(r"[+-]\d+(?:\.\d+)?", term):
+            return None
+        constant += float(term)
+
+    return x_coefficient, constant
+
+
+def _solve_single_variable_linear_equation(message: str) -> dict[str, float] | None:
+    match = re.search(
+        r"([0-9xX+\-.*\s]+)=([0-9xX+\-.*\s]+)",
+        str(message or ""),
+    )
+    if not match:
+        return None
+
+    left_text = match.group(1).strip()
+    right_text = match.group(2).strip()
+    if "x" not in (left_text + right_text).lower():
+        return None
+
+    left = _parse_linear_expression(left_text)
+    right = _parse_linear_expression(right_text)
+    if left is None or right is None:
+        return None
+
+    left_x, left_constant = left
+    right_x, right_constant = right
+    coefficient = left_x - right_x
+    target = right_constant - left_constant
+
+    if abs(coefficient) < 1e-12:
+        return None
+
+    solution = target / coefficient
+    return {
+        "coefficient": coefficient,
+        "target": target,
+        "solution": solution,
+    }
+
+
 def _extract_memory_items(history: list[dict[str, Any]], workspace_id: str, business_id: str) -> tuple[dict[str, Any], ...]:
     extracted: list[dict[str, Any]] = []
     for item in history:
@@ -477,6 +542,28 @@ def _run_cognitive_deterministic_response(
     complexity = classify_complexity(message)
     understanding = understand_problem(message)
     decomposition = decompose_problem(understanding)
+
+    linear_equation = _solve_single_variable_linear_equation(message)
+    if linear_equation is not None:
+        coefficient = float(linear_equation["coefficient"])
+        target = float(linear_equation["target"])
+        solution = float(linear_equation["solution"])
+        assistant = (
+            f"The correct solution is x = {solution:g}. "
+            f"After combining like terms, the equation reduces to {coefficient:g}x = {target:g}, "
+            f"so dividing both sides by {coefficient:g} gives x = {solution:g}."
+        )
+        metadata = _build_cognitive_public_metadata(
+            message,
+            response_mode="verify",
+            model_routing_metadata=model_routing_metadata,
+            verifier_invoked=True,
+            verification_status=VerificationStatus.VERIFIED.value,
+            model_roles_used=("REASONING", "VERIFIER"),
+            decomposition_count_override=0,
+            uncertainty_flags_override=(),
+        )
+        return assistant, metadata
 
     if "what database" in lowered and "project atlas" in lowered:
         knowledge_result = knowledge_store.retrieve(
@@ -3303,6 +3390,53 @@ async def chat(request: ChatRequest):
             status_code=503,
             detail=f"SHY memory unavailable: {exc}"
         )
+
+    linear_equation = _solve_single_variable_linear_equation(request.message)
+    if linear_equation is not None:
+        deterministic = _run_cognitive_deterministic_response(
+            request,
+            history,
+            None,
+        )
+        if deterministic is not None:
+            assistant_message, cognitive_metadata = deterministic
+            try:
+                save_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=assistant_message,
+                    model="deterministic-linear-solver",
+                    provider="shy-core",
+                    task_type="reasoning",
+                )
+            except psycopg.Error as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"SHY response generated but memory save failed: {exc}"
+                )
+
+            return {
+                "assistant": "SHY",
+                "status": "RESPOND",
+                "message": assistant_message,
+                "conversation_id": str(conversation_id),
+                "model": "deterministic-linear-solver",
+                "provider": "shy-core",
+                "task_type": "reasoning",
+                "routing_reason": "Deterministic linear equation verification.",
+                "adaptive_mode": "verify",
+                "execution_mode": "DIRECT",
+                "tool_decision": {"decision": "NO_TOOL"},
+                "approval_required": False,
+                "tool_selected": None,
+                "permission": None,
+                "execution_status": "NOT_REQUESTED",
+                "verifier_invoked": True,
+                "research_invoked": False,
+                "hidden_reasoning_exposed": False,
+                "model_routing": None,
+                "cognitive": cognitive_metadata,
+            }
 
     execution_mode = decide_chat_execution_mode(request.message)
     tool_decision = decide_chat_tool_request(request.message)

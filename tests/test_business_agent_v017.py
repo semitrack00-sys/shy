@@ -211,6 +211,39 @@ assert "Late rate: 20%" in logistics_answer
 assert "tied as top causes" in logistics_answer
 print("logistics workflow deterministic output: PASS")
 
+investment_prompt = """I run a delivery company with 100 deliveries per week.
+
+18 deliveries are late:
+- 9 because of loading delays
+- 4 because of traffic
+- 3 because of driver scheduling
+- 2 because of mechanical problems
+
+A new loading system would reduce loading-related delays by 50%.
+It costs $2,000 per month.
+
+Each prevented late delivery saves about $120.
+
+Analyze whether I should buy the new loading system."""
+investment_task, investment_payload = engine.run(
+    investment_prompt,
+    deep_mode=True,
+    context={"workspace_id": "investment-ws", "business_id": "investment-biz", "user_id": "investment-user"},
+)
+assert investment_task.status == TaskStatus.COMPLETED
+assert investment_payload["verification"] == "PASS"
+investment_answer = build_business_report_markdown(investment_task)
+assert investment_answer is not None
+assert "Current late-delivery rate: 18%" in investment_answer
+assert "Expected prevented late deliveries: 4.5 per week" in investment_answer
+assert "Expected weekly savings: $540" in investment_answer
+assert "Expected monthly savings (4-week assumption): $2,160" in investment_answer
+assert "Net monthly benefit after $2,000 cost: $160" in investment_answer
+assert "slightly financially positive" in investment_answer.lower()
+assert "Strongest remaining cause after the change: loading delays at 4.5 expected late deliveries/week." in investment_answer
+assert investment_task.execution_context.derived_values.get("logistics_metrics_source") == "user_prompt"
+print("self-contained delivery investment analysis: PASS")
+
 context = extract_workflow_context_from_task(logistics_task)
 assert context is not None
 assert context.workspace_id == "workspace-a"
