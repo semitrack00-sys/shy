@@ -579,12 +579,118 @@ def _research_orchestration(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _business_operations(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_kpis = payload.get("kpis") or []
+    max_kpis = max(1, min(int(payload.get("max_kpis") or 32), 128))
+
+    if not isinstance(raw_kpis, list) or not raw_kpis:
+        return AdvancedResult(
+            "business_operations",
+            AdvancedBoundary.DATA_REQUIRED,
+            "business_kpis_required",
+            {},
+            False,
+        )
+
+    selected = raw_kpis[:max_kpis]
+    scored: list[dict[str, object]] = []
+    seen: set[str] = set()
+    weight_total = 0.0
+    weighted_score = 0.0
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "business_operations",
+                AdvancedBoundary.INVALID_INPUT,
+                "kpi_entries_must_be_objects",
+                {},
+                False,
+            )
+
+        name = str(raw.get("name") or "").strip()
+        if not name or name in seen:
+            return AdvancedResult(
+                "business_operations",
+                AdvancedBoundary.INVALID_INPUT,
+                "kpi_names_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        seen.add(name)
+
+        value = float(raw.get("value") or 0.0)
+        target = float(raw.get("target") or 0.0)
+        weight = float(raw.get("weight") or 1.0)
+        direction = str(raw.get("direction") or "HIGHER").strip().upper()
+
+        if target <= 0 or weight < 0 or direction not in {"HIGHER", "LOWER"}:
+            return AdvancedResult(
+                "business_operations",
+                AdvancedBoundary.INVALID_INPUT,
+                "positive_target_nonnegative_weight_and_valid_direction_required",
+                {"kpi": name},
+                False,
+            )
+
+        if direction == "HIGHER":
+            performance = max(0.0, min(1.0, value / target))
+        else:
+            performance = 1.0 if value <= target else max(0.0, min(1.0, target / value))
+
+        weighted_score += performance * weight
+        weight_total += weight
+        scored.append(
+            {
+                "name": name,
+                "performance": round(performance, 6),
+                "on_target": performance >= 1.0,
+                "bottleneck": performance < 0.8,
+            }
+        )
+
+    if weight_total <= 0:
+        return AdvancedResult(
+            "business_operations",
+            AdvancedBoundary.INVALID_INPUT,
+            "positive_total_weight_required",
+            {},
+            False,
+        )
+
+    score = round(weighted_score / weight_total, 6)
+    bottlenecks = [
+        str(item["name"])
+        for item in sorted(scored, key=lambda item: (float(item["performance"]), str(item["name"])))
+        if bool(item["bottleneck"])
+    ]
+
+    return AdvancedResult(
+        "business_operations",
+        AdvancedBoundary.READY,
+        "business_operations_assessment_ready",
+        {
+            "operations_score": score,
+            "kpi_count": len(scored),
+            "bottlenecks": bottlenecks,
+            "focus_order": bottlenecks[:5],
+            "kpi_limit_enforced": len(raw_kpis) <= max_kpis,
+            "pricing_changed": False,
+            "staff_dispatched": False,
+            "money_spent": False,
+            "business_action_executed": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
     "data_workspace": _data_workspace,
     "code_repository": _code_repository,
     "research_orchestration": _research_orchestration,
+    "business_operations": _business_operations,
 }
 
 
