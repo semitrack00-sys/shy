@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.0. A future number must not be added
+shipped. The current implementation is v0.105.1. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -16,7 +16,8 @@ on browser language packs. Remote browser speech requires session-only opt-in.
 The core has an optional bounded local Whisper HTTP adapter; no model is installed
 in the core image. No real microphone, Haitian Creole
 speech quality, Windows execution, wake-word behavior, or GPU speech latency has
-been measured by CI. Automated voice tests use fixtures, not acoustic recordings.
+been measured by CI. Browser voice UI tests use fixtures. A separate acoustic
+smoke test uses a real English recording with the local Whisper engine on CPU.
 
 | Version | Feature | Status |
 | --- | --- | --- |
@@ -32,9 +33,9 @@ been measured by CI. Automated voice tests use fixtures, not acoustic recordings
 | v0.110 | Voice reliability, latency, privacy benchmarks | Planned: target microphone and hardware required |
 | v0.111 | Conversation search | Implemented early in v0.103: browser history titles and messages |
 | v0.112 | Editable conversation titles | Implemented early in v0.103: browser-local titles |
-| v0.113 | Conversation summaries | Planned |
-| v0.114 | Explicit remember-this requests | Planned: reconcile with existing durable-memory approval path |
-| v0.115 | Review, correct, delete saved memories | Planned |
+| v0.113 | Conversation summaries | Implemented early in v0.105.1: bounded excerpts with links; no inferred facts or completion |
+| v0.114 | Explicit remember-this requests | Implemented early in v0.105.1: reviewed facts saved in existing durable memory; automatic chat promotion unchanged |
+| v0.115 | Review, correct, delete saved memories | Implemented early in v0.105.1: local-user pagination and revision-checked changes; original history remains |
 | v0.116 | Personal preferences with consent | Planned |
 | v0.117 | Separate memory for each project | Planned |
 | v0.118 | Memory conflict correction | Planned |
@@ -122,6 +123,11 @@ been measured by CI. Automated voice tests use fixtures, not acoustic recordings
 | v0.200 | Integrated release with documented limits | Planned: prior release acceptance required |
 
 ## Next sequential prerequisite
+
+The v0.105.1 patch implements memory controls ahead of their planned release
+numbers. See [saved memory controls](saved-memory-controls.md) for usage,
+confirmation, persistence, deletion scope, and the remaining authentication and
+project-isolation limits. No v0.106–v0.115 release numbers are claimed complete.
 
 v0.106 requires genuine representative recordings and quality measurements for
 English, French, and Haitian Creole. The v0.105 speech adapter supports selected

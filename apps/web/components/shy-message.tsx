@@ -33,7 +33,7 @@ export function ShyMessage({ message, onRetry }: ShyMessageProps) {
   }
 
   return (
-    <article className="shy-message" data-role={message.role} data-status={message.status}>
+    <article id={`message-${message.id}`} className="shy-message" data-role={message.role} data-status={message.status}>
       <div className="shy-message-header">
         <div>
           <div className="shy-message-name">{message.role === 'user' ? 'You' : 'SHY'}</div>

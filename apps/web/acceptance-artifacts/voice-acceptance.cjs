@@ -34,8 +34,22 @@ let browser;
     } });
   });
   let submitted = 0;
+  let memoryWrites = 0;
+  let memory = { id: '00000000-0000-0000-0000-000000000002', subject_key: 'project.shy.database',
+    category: 'PROJECT', content: 'SHY uses PostgreSQL.', status: 'ACTIVE', revision: 'a'.repeat(64) };
+  await page.route('**/api/shy/memories**', async route => {
+    const request = route.request();
+    if (request.method() === 'GET') return route.fulfill({ json: { records: memory ? [memory] : [], has_more: false } });
+    memoryWrites++;
+    const payload = request.postDataJSON();
+    assert.equal(payload.confirmed, true);
+    assert.equal(payload.expected_revision, memory.revision);
+    if (request.method() === 'PATCH') memory = { ...memory, content: payload.content, revision: 'b'.repeat(64) };
+    else memory = null;
+    return route.fulfill({ json: { corrected: true, deleted: memory === null } });
+  });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.0', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.1', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -64,13 +78,35 @@ let browser;
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByLabel('Conversation title', { exact: true }).fill('SHY voice check');
   await page.getByRole('button', { name: 'Save title', exact: true }).click();
+  await page.getByText('Conversation summary', { exact: true }).click();
+  assert.equal(await page.getByRole('link', { name: 'This is a fixture reply.', exact: true }).count(), 1);
+  await page.getByRole('button', { name: 'Review saved memories', exact: true }).click();
+  await page.getByText('SHY uses PostgreSQL.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Correct project.shy.database', exact: true }).click();
+  await page.getByLabel('Memory content', { exact: true }).fill('SHY uses PostgreSQL 16.');
+  assert.equal(await page.getByRole('button', { name: 'Save reviewed memory', exact: true }).isDisabled(), true);
+  assert.equal(memoryWrites, 0, 'memory changes require explicit review');
+  await page.getByLabel('I reviewed this exact memory change and confirm it.', { exact: true }).check();
+  await page.getByRole('button', { name: 'Save reviewed memory', exact: true }).click();
+  await page.getByText('Saved memory updated.', { exact: true }).waitFor();
+  await page.getByText('SHY uses PostgreSQL 16.', { exact: true }).waitFor();
+  for (const width of [360, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `memory overflow at ${width}px`);
+  }
+  await page.getByRole('button', { name: 'Delete project.shy.database', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: 'Confirm deletion', exact: true }).isDisabled(), true);
+  await page.getByLabel('I reviewed this exact memory change and confirm it.', { exact: true }).check();
+  await page.getByRole('button', { name: 'Confirm deletion', exact: true }).click();
+  await page.getByText('Selected saved memory deleted. Original chat history remains.', { exact: true }).waitFor();
+  assert.equal(memoryWrites, 2);
   await page.getByLabel('Search conversations').fill('voice check');
   await page.getByRole('button', { name: /SHY voice check/ }).waitFor();
   await page.reload();
   await page.getByRole('button', { name: /SHY voice check/ }).waitFor();
   assert.equal(await page.getByLabel('Allow browser speech services for this session').isChecked(), false);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'desktop overflow');
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, mobile overflow, session-only consent (fixtures).');
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, mobile overflow, session-only consent (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();

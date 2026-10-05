@@ -174,6 +174,7 @@ button {
   grid-template-rows: 1fr auto;
   padding: 0 1rem 1rem;
 }
+.shy-content[data-settings-open='true'] { grid-template-rows: auto minmax(0, 1fr) auto; }
 
 .shy-empty-state {
   align-self: center;
@@ -535,4 +536,18 @@ button {
   border-radius: 8px; background: var(--panel-strong); color: var(--text);
 }
 .shy-settings { padding: 16px; border: 1px solid var(--border); border-radius: 12px; margin: 12px; }
+.shy-settings { max-height: 35vh; overflow-y: auto; overflow-wrap: anywhere; }
+.shy-conversation-summary { margin: 16px 0; }
+.shy-conversation-summary summary { cursor: pointer; }
+.shy-conversation-summary a { color: var(--text); }
+.shy-memory-manager { margin: 16px 0; }
+.shy-memory-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.shy-memory-actions button { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+.shy-memory-list { list-style: none; padding: 0; }
+.shy-memory-list li { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 8px 0; }
+.shy-settings .shy-memory-manager form { display: flex; flex-direction: column; align-items: stretch; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.shy-memory-manager label { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.shy-memory-manager textarea, .shy-memory-manager select { max-width: 100%; color: inherit; background: var(--panel); padding: 8px; }
+.shy-memory-manager textarea { width: 100%; min-height: 80px; }
+.shy-memory-manager input[type='checkbox'] { width: auto; }
 .shy-settings form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

@@ -12,7 +12,7 @@ spec.loader.exec_module(manifest)
 
 class LocalVoiceManifestTests(unittest.TestCase):
     def test_current_local_input_and_output_controls_are_bounded(self):
-        current = manifest.build_platform_manifest()
+        current = manifest.build_platform_manifest(version="0.105.0")
         self.assertEqual(current.version, "0.105.0")
         self.assertTrue(current.sequence_complete)
         self.assertTrue(current.required_disabled_invariants_hold)
