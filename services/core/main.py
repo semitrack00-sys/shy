@@ -44,7 +44,13 @@ from tools.gateway import ToolGateway
 from tools.contracts import PermissionLevel, ToolDefinition, ToolRequest
 from agent_runtime.runtime import AgentRuntime
 from agent_runtime.task_engine import TaskEngine
-from agent_runtime.expert_intelligence import apply_expert_response_policy, public_expert_metadata, select_expert
+from agent_runtime.expert_intelligence import (
+    apply_expert_response_policy,
+    build_expert_response_frame,
+    count_authoritative_research_sources,
+    public_expert_metadata,
+    select_expert,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -289,6 +295,8 @@ def _build_cognitive_public_metadata(
     decomposition_count_override: int | None = None,
     uncertainty_flags_override: tuple[str, ...] | None = None,
     knowledge_boundary: str | None = None,
+    grounding_status: str | None = None,
+    authoritative_sources_count: int = 0,
 ) -> dict[str, Any]:
     complexity = classify_complexity(
         message,
@@ -347,6 +355,15 @@ def _build_cognitive_public_metadata(
         message,
         knowledge_boundary=knowledge_boundary,
         evidence_sources_count=evidence_sources_count,
+        authoritative_sources_count=authoritative_sources_count,
+    )
+    expert_frame = build_expert_response_frame(
+        expert_decision,
+        evidence_sources_count=evidence_sources_count,
+        authoritative_sources_count=authoritative_sources_count,
+        knowledge_boundary=knowledge_boundary,
+        grounding_status=grounding_status,
+        verification_status=verification_enum.value,
     )
 
     return {
@@ -366,7 +383,7 @@ def _build_cognitive_public_metadata(
         "model_role": metadata.model_role,
         "selected_provider": metadata.selected_provider,
         "executed_provider": metadata.executed_provider,
-        "expert": public_expert_metadata(expert_decision),
+        "expert": public_expert_metadata(expert_decision, expert_frame),
     }
 
 
