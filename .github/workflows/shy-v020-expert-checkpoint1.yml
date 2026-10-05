@@ -102,8 +102,17 @@ jobs:
               def do_POST(self):
                   if self.path == "/api/chat":
                       length = int(self.headers.get("Content-Length", "0") or "0")
-                      if length:
-                          self.rfile.read(length)
+                      raw = self.rfile.read(length) if length else b"{}"
+                      try:
+                          request = json.loads(raw.decode("utf-8"))
+                      except Exception:
+                          request = {}
+                      messages = request.get("messages", []) if isinstance(request, dict) else []
+                      system_content = ""
+                      if messages and isinstance(messages[0], dict):
+                          system_content = str(messages[0].get("content", ""))
+                      with open("/tmp/fake-ollama-v020-systems.log", "a", encoding="utf-8") as handle:
+                          handle.write(system_content.replace("\n", " ") + "\n")
                       self._send({
                           "message": {
                               "role": "assistant",
@@ -151,6 +160,11 @@ jobs:
 
       - name: Run live expert intelligence proof
         run: python tests/test_expert_intelligence_live_v020.py
+
+      - name: Prove software playbook reached model
+        run: |
+          grep -F "EXPERT PLAYBOOK: SOFTWARE_ENGINEERING (software-engineering-v1)" /tmp/fake-ollama-v020-systems.log
+          echo "live software playbook prompt injection: PASS"
 
       - name: Repository hygiene
         run: |
