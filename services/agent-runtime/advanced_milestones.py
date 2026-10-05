@@ -1260,6 +1260,75 @@ def _experiment_causal(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _forecast_trend(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_values = payload.get("values") or []
+    horizon = int(payload.get("horizon") or 1)
+    max_points = max(2, min(int(payload.get("max_points") or 500), 5000))
+    max_horizon = max(1, min(int(payload.get("max_horizon") or 12), 52))
+
+    if not isinstance(raw_values, list) or len(raw_values) < 2:
+        return AdvancedResult(
+            "forecast_trend",
+            AdvancedBoundary.DATA_REQUIRED,
+            "at_least_two_values_required",
+            {},
+            False,
+        )
+    if horizon <= 0 or horizon > max_horizon:
+        return AdvancedResult(
+            "forecast_trend",
+            AdvancedBoundary.INVALID_INPUT,
+            "horizon_out_of_bounds",
+            {"max_horizon": max_horizon},
+            False,
+        )
+
+    selected = [float(item) for item in raw_values[-max_points:]]
+    n = len(selected)
+    x_mean = (n - 1) / 2.0
+    y_mean = sum(selected) / n
+    denominator = sum((index - x_mean) ** 2 for index in range(n))
+    slope = (
+        sum((index - x_mean) * (value - y_mean) for index, value in enumerate(selected)) / denominator
+        if denominator > 0
+        else 0.0
+    )
+    intercept = y_mean - slope * x_mean
+    fitted = [intercept + slope * index for index in range(n)]
+    mae = sum(abs(actual - estimate) for actual, estimate in zip(selected, fitted)) / n
+    projected = [
+        intercept + slope * (n + step)
+        for step in range(horizon)
+    ]
+
+    if abs(slope) < 1e-12:
+        direction = "FLAT"
+    elif slope > 0:
+        direction = "UP"
+    else:
+        direction = "DOWN"
+
+    return AdvancedResult(
+        "forecast_trend",
+        AdvancedBoundary.READY,
+        "bounded_trend_projection_ready",
+        {
+            "point_count": n,
+            "trend_direction": direction,
+            "slope_per_period": round(slope, 6),
+            "mean_absolute_fit_error": round(mae, 6),
+            "horizon": horizon,
+            "projected_values": [round(value, 6) for value in projected],
+            "point_limit_enforced": len(raw_values) <= max_points,
+            "external_data_fetched": False,
+            "forecast_guaranteed": False,
+            "trade_executed": False,
+            "financial_transaction_executed": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -1273,6 +1342,7 @@ _EVALUATORS = {
     "resource_capacity": _resource_capacity,
     "change_impact": _change_impact,
     "experiment_causal": _experiment_causal,
+    "forecast_trend": _forecast_trend,
 }
 
 
