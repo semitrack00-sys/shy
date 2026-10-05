@@ -91,6 +91,15 @@ Analyze whether I should buy the new loading system."""
     _assert("solution is 5" not in equation_text, "web equation response must not contradict itself")
     print("web equation consistency path: PASS")
 
+    post_health = httpx.get(f"{WEB_BASE_URL}/api/shy/health", timeout=TIMEOUT)
+    _assert(post_health.status_code == 200, "post-request web health proxy must remain available")
+    post_health_payload = post_health.json()
+    routing = post_health_payload.get("model_routing") or {}
+    _assert(int(routing.get("selection_failures", -1)) == 0, f"successful user requests must not create routing selection failures: {routing}")
+    _assert(int(routing.get("execution_failures", -1)) == 0, f"successful user requests must not create routing execution failures: {routing}")
+    _assert(routing.get("degraded") is False, f"successful user requests must leave model routing healthy: {routing}")
+    print("web routing diagnostics remain clean: PASS")
+
     print("SHY v0.19 WEB USER PATH GATE: PASS")
 
 
