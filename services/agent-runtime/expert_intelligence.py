@@ -420,6 +420,35 @@ def select_expert(
     )
 
 
+def apply_expert_response_policy(
+    message: str,
+    response_mode: str,
+    *,
+    knowledge_boundary: str | None = None,
+    evidence_sources_count: int = 0,
+) -> tuple[str, ExpertDecision]:
+    decision = select_expert(
+        message,
+        knowledge_boundary=knowledge_boundary,
+        evidence_sources_count=evidence_sources_count,
+    )
+
+    normalized_mode = str(response_mode or "direct").strip().lower()
+    if normalized_mode == "research":
+        return "research", decision
+
+    if decision.requires_research:
+        return "research", decision
+
+    if normalized_mode == "verify":
+        return "verify", decision
+
+    if decision.requires_verification:
+        return "verify", decision
+
+    return "direct", decision
+
+
 def public_expert_metadata(decision: ExpertDecision) -> dict[str, object]:
     # Do not expose classifier markers or internal matching rationale.
     return {
