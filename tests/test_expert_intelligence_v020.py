@@ -99,7 +99,9 @@ high_stakes_finance = expert.select_expert(
 )
 _assert(high_stakes_finance.risk_level == expert.ExpertRiskLevel.HIGH, "personal retirement stock recommendation should be high risk")
 _assert(high_stakes_finance.requires_research is True, "high-stakes finance should require research")
+_assert(high_stakes_finance.requires_authoritative_sources is True, "high-stakes finance must require authoritative sources")
 _assert(high_stakes_finance.evidence_requirement == expert.EvidenceRequirement.AUTHORITATIVE, "high-stakes finance should require authoritative evidence")
+_assert(high_stakes_finance.answer_boundary == expert.ExpertAnswerBoundary.AUTHORITATIVE_EVIDENCE_REQUIRED, "high-stakes finance without an authoritative source must remain blocked")
 _assert(high_stakes_finance.confidence_ceiling <= 0.68, "high-stakes finance must have a bounded confidence ceiling")
 print("high-stakes finance escalation: PASS")
 
@@ -153,6 +155,103 @@ _assert(metadata["expert_role"] == "REASONING", "public metadata must expose saf
 _assert("matched_signals" not in metadata, "public metadata must not expose internal classifier markers")
 _assert("reasoning" not in " ".join(str(key).lower() for key in metadata.keys() if key not in {"expert_role"}), "public metadata must not expose hidden reasoning fields")
 print("public expert metadata privacy: PASS")
+
+
+authority_count = expert.count_authoritative_research_sources(
+    [
+        {"domain": "www.sec.gov"},
+        {"domain": "investor.example.com"},
+        {"domain": "www.irs.gov"},
+        {"domain": "sec.gov"},
+        {"domain": "who.int"},
+    ]
+)
+_assert(authority_count == 3, f"authoritative source count should dedupe official domains, got {authority_count}")
+_assert(expert.is_authoritative_research_domain("www.sec.gov") is True, "SEC must be recognized as authoritative")
+_assert(expert.is_authoritative_research_domain("blog.example.com") is False, "ordinary web sources must not be treated as authoritative")
+print("authoritative research source recognition: PASS")
+
+
+non_authoritative_high_stakes = expert.select_expert(
+    "Should I buy this stock today for my retirement portfolio?",
+    evidence_sources_count=4,
+    authoritative_sources_count=0,
+)
+_assert(
+    non_authoritative_high_stakes.answer_boundary == expert.ExpertAnswerBoundary.AUTHORITATIVE_EVIDENCE_REQUIRED,
+    "multiple non-authoritative sources must not satisfy high-stakes evidence policy",
+)
+non_authoritative_frame = expert.build_expert_response_frame(
+    non_authoritative_high_stakes,
+    evidence_sources_count=4,
+    authoritative_sources_count=0,
+    verification_status="PARTIALLY_VERIFIED",
+)
+_assert(non_authoritative_frame.confidence_band == expert.ExpertConfidenceBand.LOW, "insufficient high-stakes authority must remain LOW confidence")
+_assert(non_authoritative_frame.authoritative_sources_sufficient is False, "authority sufficiency must be false")
+_assert(non_authoritative_frame.next_evidence_needed == ("authoritative_source",), "next evidence must explicitly request an authoritative source")
+print("non-authoritative high-stakes evidence rejected: PASS")
+
+
+authoritative_high_stakes = expert.select_expert(
+    "Should I buy this stock today for my retirement portfolio?",
+    evidence_sources_count=4,
+    authoritative_sources_count=1,
+)
+_assert(
+    authoritative_high_stakes.answer_boundary == expert.ExpertAnswerBoundary.VERIFY,
+    "authoritative evidence should permit a verification-bounded high-stakes answer",
+)
+authoritative_frame = expert.build_expert_response_frame(
+    authoritative_high_stakes,
+    evidence_sources_count=4,
+    authoritative_sources_count=1,
+    grounding_status="GROUNDED",
+    verification_status="VERIFIED",
+)
+_assert(authoritative_frame.authoritative_sources_sufficient is True, "authoritative evidence sufficiency must be true")
+_assert(authoritative_frame.next_evidence_needed == (), "verified authoritative evidence should not request another mandatory source")
+print("authoritative high-stakes evidence accepted for verification: PASS")
+
+
+grounded_decision = expert.select_expert(
+    "Evaluate the software architecture and recommend the safest design.",
+    knowledge_boundary="ANSWERABLE",
+    evidence_sources_count=2,
+    authoritative_sources_count=1,
+)
+grounded_frame = expert.build_expert_response_frame(
+    grounded_decision,
+    evidence_sources_count=2,
+    authoritative_sources_count=1,
+    knowledge_boundary="ANSWERABLE",
+    grounding_status="GROUNDED",
+    verification_status="VERIFIED",
+)
+_assert(grounded_frame.confidence_band == expert.ExpertConfidenceBand.HIGH, f"grounded verified expert evidence should support HIGH band: {grounded_frame}")
+_assert(grounded_frame.uncertainty_required is True, "verification-bounded expert decisions should still expose uncertainty requirement")
+print("expert confidence band from grounding: PASS")
+
+
+conflict_frame = expert.build_expert_response_frame(
+    conflicted,
+    evidence_sources_count=3,
+    authoritative_sources_count=2,
+    knowledge_boundary="CONFLICTING_KNOWLEDGE",
+    grounding_status="PARTIALLY_GROUNDED",
+    verification_status="INSUFFICIENT_EVIDENCE",
+)
+_assert(conflict_frame.confidence_band == expert.ExpertConfidenceBand.LOW, "conflicting evidence must remain LOW confidence")
+_assert(conflict_frame.next_evidence_needed == ("resolve_conflicting_sources",), "conflict frame must request source reconciliation")
+print("expert next-evidence frame: PASS")
+
+
+public_frame = expert.public_expert_metadata(non_authoritative_high_stakes, non_authoritative_frame)
+_assert(public_frame["response_frame"]["decision"] == "AUTHORITATIVE_EVIDENCE_REQUIRED", "public frame must expose safe boundary")
+_assert(public_frame["response_frame"]["authoritative_sources_count"] == 0, "public frame must expose authority count")
+_assert(public_frame["response_frame"]["next_evidence_needed"] == ["authoritative_source"], "public frame must expose next evidence safely")
+_assert("matched_signals" not in public_frame, "response frame must not leak classifier markers")
+print("public expert response frame: PASS")
 
 
 domains = expert.supported_expert_domains()
