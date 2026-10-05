@@ -4,6 +4,28 @@ The evaluation runner is implemented as preparation for v0.106. That milestone
 is not complete until genuine English, French, and Haitian Creole recordings are
 evaluated and the resulting limits are reviewed. No such corpus is bundled.
 
+An offline Common Voice importer is available. Mozilla publishes the
+[Haitian test dataset](https://mozilladatacollective.com/datasets/cmu5o29ou00w3mh07e9heh8xv),
+but access requires your own account and acceptance of download terms. Use the
+official download flow for English, French, and Haitian datasets. The importer
+does not sign in, accept terms, fetch data, or re-share recordings. Keep the
+original dataset provenance and terms with your local evaluation materials.
+
+After extracting each language directory containing `test.tsv` and `clips/`, and
+installing a trusted ffmpeg executable, run:
+
+```powershell
+python scripts/import_speech_corpus.py --dataset en=C:\SHY-speech\en --dataset fr=C:\SHY-speech\fr --dataset ht=C:\SHY-speech\ht --output C:\SHY-speech\evaluation --cases-per-language 3
+```
+
+Use a new output directory outside the SHY repository. The importer selects the
+first requested test-split rows in source order, converts real recordings to the
+required PCM format, and writes `cases.json`. It rejects duplicate audio,
+traversal, missing coverage, and recordings over 30 seconds. Conversion failures
+leave no partial corpus. Conversion tests use synthetic signals solely to check
+file handling; they do not establish recognition quality. Check the selected
+references and coverage before running the evaluator below.
+
 Put consented mono 16-bit 16 kHz PCM WAV files (at most 30 seconds each) beside a
 UTF-8 case manifest. Each reference must be checked against the actual recording,
 not copied from the model's output. Use varied speakers, accents, background noise,

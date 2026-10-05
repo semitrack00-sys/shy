@@ -25,7 +25,7 @@ been measured by CI. Automated voice tests use fixtures, not acoustic recordings
 | v0.103 | Silence handling and recording limit | Implemented: browser speech-end events and 30-second limit; no custom VAD model |
 | v0.104 | Microphone selection and audio diagnostics | Implemented: selected microphone, PCM WAV capture, level meter; configured local engine required |
 | v0.105 | Voice, speed, and volume controls | Implemented: installed voice availability varies |
-| v0.106 | English, French, Haitian Creole speech evaluation | Blocked: representative recordings and target-hardware quality measurements required |
+| v0.106 | English, French, Haitian Creole speech evaluation | Runner and offline corpus importer implemented; genuine multilingual recordings and measured results pending |
 | v0.107 | Language selection and automatic detection | Implemented early in v0.105: manual selection and local-engine auto detection; language quality unmeasured |
 | v0.108 | Optional Hey SHY wake phrase | Planned |
 | v0.109 | Hands-free conversation mode | Planned |
@@ -129,10 +129,16 @@ microphone streams when a local Whisper server is configured. Configuration is
 not proof of availability or accuracy. A single English acoustic smoke case is
 not a multilingual benchmark, a microphone test, or GPU performance evidence.
 See [local speech setup](local-voice-v105.md) for the executable integration path.
+The [speech evaluation guide](speech-evaluation.md) includes an offline importer
+for officially downloaded Common Voice test splits. Mozilla account access and
+download consent are required for that source; SHY does not bypass them. Other
+consented recordings with checked references can also use the evaluator.
 
 ## Release evidence
 
 The current release gate runs Python contracts, web tests, lint, production build,
 production dependency audit, and Docker runtime HTTP verification. The latter
-checks the existing 50 supplied-data utilities. It does not validate acoustic
-recognition or GPU inference. See [voice usage and boundaries](voice-v103.md).
+checks the existing 50 supplied-data utilities. A separate local-speech job runs
+a real English recording through the pinned Whisper engine on CPU. This checks
+the acoustic integration, not multilingual quality or GPU inference. See
+[voice usage and boundaries](voice-v103.md).
