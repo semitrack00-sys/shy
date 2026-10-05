@@ -150,6 +150,11 @@ from agent_runtime.collaboration_intelligence import (
     plan_delegation,
     public_delegation_plan,
 )
+from agent_runtime.advanced_milestones import (
+    available_advanced_capabilities,
+    evaluate_advanced_capability,
+    public_advanced_result,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -302,7 +307,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.33.0"
+SHY_VERSION = "0.34.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1585,6 +1590,11 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "protected_scope_denial": True,
             "task_dispatch": False,
             "permission_expansion": False,
+        },
+        "advanced_capabilities": {
+            "available": list(available_advanced_capabilities()),
+            "evaluation_only": True,
+            "side_effect_execution": False,
         },
         "platform_checkpoint": {
             "version": "0.30.0",
@@ -3154,6 +3164,11 @@ class ToolRegistrySelectRequest(ToolRegistryValidateRequest):
     max_candidates: int = 8
 
 
+class AdvancedCapabilityRequest(BaseModel):
+    capability: str
+    payload: dict[str, Any] = {}
+
+
 class DelegationTaskRequest(BaseModel):
     task_id: str
     role: str
@@ -3593,6 +3608,21 @@ def _registered_tools_from_request(items: list[RegisteredToolRequest]):
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Unsupported tool registry permission or risk.") from exc
+
+
+@app.post("/advanced/evaluate")
+async def advanced_evaluate(request: AdvancedCapabilityRequest):
+    result = evaluate_advanced_capability(
+        request.capability,
+        request.payload,
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "result": public_advanced_result(result),
+        "side_effect_performed": False,
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.post("/collaboration/plan")
