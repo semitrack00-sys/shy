@@ -62,7 +62,24 @@ _assert(current_expert.get("requires_research") is True, "current-market expert 
 _assert(current_expert.get("evidence_requirement") == "EXTERNAL_CURRENT", f"current evidence policy mismatch: {current_expert}")
 _assert(current_expert.get("answer_boundary") == "RESEARCH_REQUIRED", f"current request must remain research-required: {current_expert}")
 _assert(float(current_expert.get("confidence_ceiling", 1.0)) <= 0.62, "missing current evidence must cap confidence")
+current_frame = current_expert.get("response_frame") or {}
+_assert(current_frame.get("confidence_band") == "LOW", f"missing current evidence must be LOW confidence: {current_frame}")
+_assert(current_frame.get("evidence_sources_count") == 0, f"unavailable research must report zero evidence: {current_frame}")
+_assert(current_frame.get("next_evidence_needed") == ["current_external_sources"], f"current-data frame must request current sources: {current_frame}")
 print("live current-data expert boundary: PASS")
+
+
+high_stakes = _chat("Should I buy this stock today for my retirement portfolio?")
+_assert(high_stakes.get("status") == "FAILED", "high-stakes finance without research provider must fail safely")
+high_expert = ((high_stakes.get("cognitive") or {}).get("expert") or {})
+high_frame = high_expert.get("response_frame") or {}
+_assert(high_expert.get("risk_level") == "HIGH", f"retirement stock request must be HIGH risk: {high_expert}")
+_assert(high_expert.get("requires_authoritative_sources") is True, "high-stakes request must require authoritative evidence")
+_assert(high_expert.get("answer_boundary") == "AUTHORITATIVE_EVIDENCE_REQUIRED", f"high-stakes boundary mismatch: {high_expert}")
+_assert(high_frame.get("authoritative_sources_sufficient") is False, f"missing authority must be explicit: {high_frame}")
+_assert(high_frame.get("next_evidence_needed") == ["authoritative_source"], f"high-stakes frame must request authoritative evidence: {high_frame}")
+_assert(high_frame.get("confidence_band") == "LOW", f"high-stakes missing authority must remain LOW confidence: {high_frame}")
+print("live high-stakes authority boundary: PASS")
 
 
 equation = _chat("Solve 2x - 4 + 4 = 9")
@@ -128,6 +145,11 @@ _assert(conflict_expert.get("domain") == "SOFTWARE_ENGINEERING", f"database arch
 _assert(conflict_expert.get("answer_boundary") == "CLARIFICATION_REQUIRED", f"conflict must require clarification: {conflict_expert}")
 _assert(float(conflict_expert.get("confidence_ceiling", 1.0)) <= 0.45, "conflicting knowledge must sharply cap expert confidence")
 _assert(conflict_cognitive.get("knowledge_boundary") == "CONFLICTING_KNOWLEDGE", f"runtime knowledge boundary mismatch: {conflict_cognitive}")
+conflict_frame = conflict_expert.get("response_frame") or {}
+_assert(conflict_frame.get("decision") == "CLARIFICATION_REQUIRED", f"conflict response frame decision mismatch: {conflict_frame}")
+_assert(conflict_frame.get("confidence_band") == "LOW", f"conflict frame must be LOW confidence: {conflict_frame}")
+_assert(conflict_frame.get("next_evidence_needed") == ["resolve_conflicting_sources"], f"conflict frame must request reconciliation: {conflict_frame}")
+_assert(int(conflict_frame.get("evidence_sources_count", 0)) >= 2, f"conflict frame must report real sources: {conflict_frame}")
 print("live expert conflict boundary: PASS")
 
 
@@ -150,6 +172,10 @@ _assert(missing_expert.get("domain") == "SOFTWARE_ENGINEERING", f"missing archit
 _assert(missing_expert.get("answer_boundary") == "DATA_REQUIRED", f"missing knowledge must stay DATA_REQUIRED: {missing_expert}")
 _assert(float(missing_expert.get("confidence_ceiling", 1.0)) <= 0.55, "missing knowledge must cap expert confidence")
 _assert(missing_cognitive.get("knowledge_record_count") == 0, "missing-data expert answer must not invent knowledge records")
+missing_frame = missing_expert.get("response_frame") or {}
+_assert(missing_frame.get("decision") == "DATA_REQUIRED", f"missing-data frame decision mismatch: {missing_frame}")
+_assert(missing_frame.get("confidence_band") == "LOW", f"missing-data frame must be LOW confidence: {missing_frame}")
+_assert(missing_frame.get("next_evidence_needed") == ["relevant_authorized_data"], f"missing-data frame must request authorized data: {missing_frame}")
 print("live expert missing-knowledge boundary: PASS")
 
 
@@ -197,7 +223,13 @@ _assert(grounded_expert.get("domain") == "SOFTWARE_ENGINEERING", f"grounded arch
 _assert(grounded_expert.get("answer_boundary") == "VERIFY", f"grounded expert answer should remain verification-bounded: {grounded_expert}")
 _assert(int(grounded_cognitive.get("knowledge_record_count", 0)) >= 1, "grounded expert answer must report real knowledge records")
 _assert(grounded_cognitive.get("grounding_status") in {"GROUNDED", "PARTIALLY_GROUNDED"}, f"grounding status must be explicit: {grounded_cognitive}")
+grounded_frame = grounded_expert.get("response_frame") or {}
+_assert(grounded_frame.get("decision") == "VERIFY", f"grounded response frame must stay verification-bounded: {grounded_frame}")
+_assert(int(grounded_frame.get("evidence_sources_count", 0)) >= 1, f"grounded frame must report evidence: {grounded_frame}")
+_assert(grounded_frame.get("grounding_status") in {"GROUNDED", "PARTIALLY_GROUNDED"}, f"grounded frame must expose grounding state: {grounded_frame}")
+_assert(grounded_frame.get("confidence_band") in {"MODERATE", "HIGH"}, f"grounded expert confidence should not remain LOW: {grounded_frame}")
 print("live expert grounded-knowledge boundary: PASS")
 
 
 print("SHY v0.20 EXPERT INTELLIGENCE CHECKPOINT 2: PASS")
+print("SHY v0.20 EXPERT INTELLIGENCE CHECKPOINT 3 RESPONSE FRAME: PASS")
