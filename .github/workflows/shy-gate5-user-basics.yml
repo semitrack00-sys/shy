@@ -1,0 +1,177 @@
+name: SHY Gate 5 User Basics
+
+on:
+  push:
+    branches:
+      - codex/shy-v0.19-user-basics-gate5
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: shy
+          POSTGRES_USER: shy
+          POSTGRES_PASSWORD: shy_local_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shy -d shy"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://shy:shy_local_dev@127.0.0.1:5432/shy
+      SHY_LOCAL_MODEL: qwen3.5:4b
+      OLLAMA_URL: http://127.0.0.1:11434
+      SHY_API_BASE_URL: http://127.0.0.1:8019
+      SHY_WEB_BASE_URL: http://127.0.0.1:3000
+      SHY_BACKEND_BASE_URL: http://127.0.0.1:8019
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install core dependencies
+        run: python -m pip install -r services/core/requirements.txt
+
+      - name: Compile Gate 5 Python
+        run: |
+          python -m py_compile \
+            services/core/main.py \
+            tests/test_user_basics_live_v019.py \
+            tests/test_web_user_path_live_v019.py
+
+      - name: Run focused backend regressions
+        shell: bash
+        run: |
+          set -e
+          python tests/test_health_integrity_v019.py
+          python tests/test_business_agent_v017.py
+          python tests/test_multistep_agent.py
+          python tests/test_tool_intelligence.py
+          python tests/test_adaptive_chat.py
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Run web tests
+        working-directory: apps/web
+        run: npm test
+
+      - name: Lint web
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Build web
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Start controlled Ollama tags endpoint
+        shell: bash
+        run: |
+          cat >/tmp/fake_ollama.py <<'PY'
+          import json
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  if self.path == "/api/tags":
+                      body = json.dumps({
+                          "models": [
+                              {"name": "qwen3.5:4b", "model": "qwen3.5:4b"}
+                          ]
+                      }).encode("utf-8")
+                      self.send_response(200)
+                      self.send_header("Content-Type", "application/json")
+                      self.send_header("Content-Length", str(len(body)))
+                      self.end_headers()
+                      self.wfile.write(body)
+                      return
+                  self.send_response(404)
+                  self.end_headers()
+
+              def log_message(self, format, *args):
+                  return
+
+          HTTPServer(("127.0.0.1", 11434), Handler).serve_forever()
+          PY
+          nohup python /tmp/fake_ollama.py >/tmp/fake-ollama.log 2>&1 &
+          echo $! >/tmp/fake-ollama.pid
+
+      - name: Start SHY v0.19 API
+        shell: bash
+        run: |
+          set -e
+          cd services/core
+          nohup python -m uvicorn main:app --host 127.0.0.1 --port 8019 >/tmp/shy-gate5-api.log 2>&1 &
+          echo $! >/tmp/shy-gate5-api.pid
+          cd ../..
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8019/health >/tmp/shy-health.json; then
+              cat /tmp/shy-health.json
+              python - <<'PY'
+          import json
+          payload = json.load(open("/tmp/shy-health.json", "r", encoding="utf-8"))
+          assert payload["version"] == "0.19.0"
+          assert payload["application_healthy"] is True
+          assert payload["ollama_connected"] is True
+          assert payload["database_connected"] is True
+          assert payload["local_model_available"] is True
+          print("Gate 5 backend health: PASS")
+          PY
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/shy-gate5-api.log
+          exit 1
+
+      - name: Run live backend user basics
+        run: |
+          python tests/test_user_basics_live_v019.py
+          python tests/test_user_reasoning_live_v019.py
+
+      - name: Start SHY web
+        working-directory: apps/web
+        shell: bash
+        run: |
+          nohup npm start -- -p 3000 >/tmp/shy-gate5-web.log 2>&1 &
+          echo $! >/tmp/shy-gate5-web.pid
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3000/api/shy/health >/tmp/shy-web-health.json; then
+              cat /tmp/shy-web-health.json
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/shy-gate5-web.log
+          exit 1
+
+      - name: Run exact web user path
+        run: python tests/test_web_user_path_live_v019.py
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          cat /tmp/shy-gate5-api.log || true
+          cat /tmp/shy-gate5-web.log || true
+          cat /tmp/fake-ollama.log || true
