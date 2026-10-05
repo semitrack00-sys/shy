@@ -684,6 +684,112 @@ def _business_operations(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _financial_planning(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_scenarios = payload.get("scenarios") or []
+    max_scenarios = max(1, min(int(payload.get("max_scenarios") or 12), 32))
+
+    if not isinstance(raw_scenarios, list) or not raw_scenarios:
+        return AdvancedResult(
+            "financial_planning",
+            AdvancedBoundary.DATA_REQUIRED,
+            "financial_scenarios_required",
+            {},
+            False,
+        )
+
+    selected = raw_scenarios[:max_scenarios]
+    summaries: list[dict[str, object]] = []
+    seen: set[str] = set()
+    probability_total = 0.0
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "financial_planning",
+                AdvancedBoundary.INVALID_INPUT,
+                "scenario_entries_must_be_objects",
+                {},
+                False,
+            )
+
+        name = str(raw.get("name") or "").strip()
+        if not name or name in seen:
+            return AdvancedResult(
+                "financial_planning",
+                AdvancedBoundary.INVALID_INPUT,
+                "scenario_names_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        seen.add(name)
+
+        revenue = float(raw.get("revenue") or 0.0)
+        costs = float(raw.get("costs") or 0.0)
+        investment = float(raw.get("investment") or 0.0)
+        probability = float(raw.get("probability") or 1.0)
+
+        if min(revenue, costs, investment, probability) < 0:
+            return AdvancedResult(
+                "financial_planning",
+                AdvancedBoundary.INVALID_INPUT,
+                "financial_inputs_must_be_nonnegative",
+                {"scenario": name},
+                False,
+            )
+
+        operating_profit = revenue - costs
+        net_after_investment = operating_profit - investment
+        roi = (net_after_investment / investment) if investment > 0 else None
+        margin = (operating_profit / revenue) if revenue > 0 else None
+        break_even_revenue = costs + investment
+
+        probability_total += probability
+        summaries.append(
+            {
+                "name": name,
+                "revenue": round(revenue, 2),
+                "costs": round(costs, 2),
+                "investment": round(investment, 2),
+                "probability": probability,
+                "operating_profit": round(operating_profit, 2),
+                "net_after_investment": round(net_after_investment, 2),
+                "roi": round(roi, 6) if roi is not None else None,
+                "operating_margin": round(margin, 6) if margin is not None else None,
+                "break_even_revenue": round(break_even_revenue, 2),
+            }
+        )
+
+    if probability_total <= 0:
+        return AdvancedResult(
+            "financial_planning",
+            AdvancedBoundary.INVALID_INPUT,
+            "positive_probability_mass_required",
+            {},
+            False,
+        )
+
+    expected_net = sum(
+        (float(item["probability"]) / probability_total) * float(item["net_after_investment"])
+        for item in summaries
+    )
+
+    return AdvancedResult(
+        "financial_planning",
+        AdvancedBoundary.READY,
+        "financial_scenario_analysis_ready",
+        {
+            "scenario_count": len(summaries),
+            "scenarios": summaries,
+            "expected_net_after_investment": round(expected_net, 2),
+            "scenario_limit_enforced": len(raw_scenarios) <= max_scenarios,
+            "decision_support_only": True,
+            "transaction_executed": False,
+            "personalized_buy_sell_instruction": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -691,6 +797,7 @@ _EVALUATORS = {
     "code_repository": _code_repository,
     "research_orchestration": _research_orchestration,
     "business_operations": _business_operations,
+    "financial_planning": _financial_planning,
 }
 
 
