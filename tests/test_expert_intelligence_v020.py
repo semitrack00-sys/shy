@@ -60,6 +60,28 @@ _assert(current_market.confidence_ceiling <= 0.62, "missing current evidence mus
 print("current-data escalation: PASS")
 
 
+policy_mode, policy_decision = expert.apply_expert_response_policy(
+    "What is the current market price and latest news for this investment?",
+    "direct",
+)
+_assert(policy_mode == "research", "expert policy must escalate current data from direct to research")
+_assert(policy_decision.requires_research is True, "expert policy escalation must retain the expert decision")
+
+verify_mode, verify_decision = expert.apply_expert_response_policy(
+    "Compare PostgreSQL and MySQL for a software architecture and recommend the safer tradeoffs.",
+    "direct",
+)
+_assert(verify_mode == "verify", "expert policy must escalate expert recommendations from direct to verify")
+_assert(verify_decision.domain == expert.ExpertDomain.SOFTWARE_ENGINEERING, "verify escalation should preserve domain")
+
+preserved_research_mode, _ = expert.apply_expert_response_policy(
+    "Explain a general concept.",
+    "research",
+)
+_assert(preserved_research_mode == "research", "expert policy must never downgrade an existing research mode")
+print("expert response-policy escalation: PASS")
+
+
 regulated = expert.select_expert(
     "Give me legal advice on whether this contract is enforceable."
 )
