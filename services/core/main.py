@@ -197,7 +197,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.19.0"
+SHY_VERSION = "0.20.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
