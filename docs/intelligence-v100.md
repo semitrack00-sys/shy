@@ -130,6 +130,11 @@ data tests do not measure Qwen answer quality, GPU latency, audio, or image infe
 
 ## Repository and local rollout
 
+Use [the Windows candidate validation guide](windows-v100-validation.md) to stage a
+separate checkout, build the image, and exercise the runtime against a disposable
+database before replacing an installed SHY instance. The release gate now builds
+and starts that Docker image and runs the same HTTP verifier.
+
 The v0.100 release was integrated through PR #40 into
 `codex/shy-v0.50-integrated-platform`. The promotion to `main` includes the full
 v0.11–v0.100 history. Use `main` after the promotion PR is merged and its release

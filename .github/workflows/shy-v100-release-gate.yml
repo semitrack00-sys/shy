@@ -39,6 +39,21 @@ jobs:
       - run: python -m pip install -r services/core/requirements.txt
       - run: python -m compileall -q services packages tests scripts
       - run: python scripts/validate_release.py --report .validation/v100-python.json
+      - name: Build the packaged Windows runtime image
+        run: docker build -t shy-core:ci .
+      - name: Start the packaged runtime against disposable PostgreSQL
+        run: |
+          docker run -d --name shy-core-ci --network host \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e OLLAMA_URL=http://127.0.0.1:11434 \
+            -e SHY_LOCAL_MODEL="$SHY_LOCAL_MODEL" shy-core:ci
+          python scripts/verify_local_release.py --wait-seconds 90
+      - name: Container diagnostics
+        if: failure()
+        run: docker logs --tail 100 shy-core-ci || true
+      - name: Remove disposable runtime
+        if: always()
+        run: docker rm -f shy-core-ci || true
       - run: git diff --check
       - uses: actions/upload-artifact@v4
         if: always()
