@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import Sequence
+
+
+class CapabilityState(str, Enum):
+    ACTIVE = "ACTIVE"
+    BOUNDED = "BOUNDED"
+    DISABLED = "DISABLED"
+
+
+@dataclass(frozen=True)
+class PlatformCapability:
+    capability_id: str
+    introduced_version: str
+    state: CapabilityState
+    safety_boundary: str
+
+
+@dataclass(frozen=True)
+class PlatformManifest:
+    version: str
+    capabilities: tuple[PlatformCapability, ...]
+    sequence_complete: bool
+    required_disabled_invariants_hold: bool
+
+
+_REQUIRED_SEQUENCE = (
+    "0.20.0",
+    "0.21.0",
+    "0.22.0",
+    "0.23.0",
+    "0.24.0",
+    "0.25.0",
+    "0.26.0",
+    "0.27.0",
+    "0.28.0",
+    "0.29.0",
+    "0.30.0",
+)
+
+
+_DEFAULT_CAPABILITIES = (
+    PlatformCapability("expert_intelligence", "0.20.0", CapabilityState.ACTIVE, "evidence_and_risk_bounded"),
+    PlatformCapability("learning_decision", "0.21.0", CapabilityState.BOUNDED, "verified_outcomes_only"),
+    PlatformCapability("voice_interpretation", "0.22.0", CapabilityState.BOUNDED, "transcript_only_no_audio_provider"),
+    PlatformCapability("computer_planning", "0.22.0", CapabilityState.BOUNDED, "no_unrestricted_execution"),
+    PlatformCapability("vision_reasoning", "0.23.0", CapabilityState.BOUNDED, "provider_and_provenance_required"),
+    PlatformCapability("multimodal_fusion", "0.24.0", CapabilityState.ACTIVE, "conflict_detection_and_source_bounds"),
+    PlatformCapability("goal_orchestration", "0.25.0", CapabilityState.BOUNDED, "approval_pauses_and_step_limits"),
+    PlatformCapability("preference_context", "0.26.0", CapabilityState.BOUNDED, "explicit_or_verified_non_sensitive_only"),
+    PlatformCapability("knowledge_graph", "0.27.0", CapabilityState.BOUNDED, "scope_and_provenance_required"),
+    PlatformCapability("reliability_self_evaluation", "0.28.0", CapabilityState.BOUNDED, "no_self_certification_or_self_modification"),
+    PlatformCapability("tool_capability_registry", "0.29.0", CapabilityState.BOUNDED, "selection_only_no_execution"),
+    PlatformCapability("raw_audio_capture", "0.30.0", CapabilityState.DISABLED, "provider_not_connected"),
+    PlatformCapability("raw_image_inference", "0.30.0", CapabilityState.DISABLED, "provider_not_connected"),
+    PlatformCapability("unrestricted_computer_execution", "0.30.0", CapabilityState.DISABLED, "approval_and_tool_gateway_required"),
+    PlatformCapability("arbitrary_shell_execution", "0.30.0", CapabilityState.DISABLED, "explicitly_denied"),
+    PlatformCapability("real_person_identity_recognition", "0.30.0", CapabilityState.DISABLED, "not_supported"),
+    PlatformCapability("autonomous_security_policy_rewrite", "0.30.0", CapabilityState.DISABLED, "protected_policy"),
+)
+
+
+def _version_tuple(value: str) -> tuple[int, int, int]:
+    parts = str(value).strip().split(".")
+    if len(parts) != 3:
+        raise ValueError("version_must_have_three_parts")
+    return tuple(int(part) for part in parts)  # type: ignore[return-value]
+
+
+def build_platform_manifest(
+    *,
+    version: str = "0.30.0",
+    capabilities: Sequence[PlatformCapability] = _DEFAULT_CAPABILITIES,
+) -> PlatformManifest:
+    current = _version_tuple(version)
+    ordered = tuple(sorted(capabilities, key=lambda item: (_version_tuple(item.introduced_version), item.capability_id)))
+    introduced = {item.introduced_version for item in ordered if _version_tuple(item.introduced_version) <= current}
+    sequence_complete = all(item in introduced or item == "0.30.0" for item in _REQUIRED_SEQUENCE[:-1])
+
+    by_id = {item.capability_id: item for item in ordered}
+    required_disabled = (
+        "raw_audio_capture",
+        "raw_image_inference",
+        "unrestricted_computer_execution",
+        "arbitrary_shell_execution",
+        "real_person_identity_recognition",
+        "autonomous_security_policy_rewrite",
+    )
+    invariants = all(
+        by_id.get(capability_id) is not None
+        and by_id[capability_id].state == CapabilityState.DISABLED
+        for capability_id in required_disabled
+    )
+
+    return PlatformManifest(
+        version=version,
+        capabilities=ordered,
+        sequence_complete=sequence_complete,
+        required_disabled_invariants_hold=invariants,
+    )
+
+
+def public_platform_manifest(manifest: PlatformManifest) -> dict[str, object]:
+    return {
+        "version": manifest.version,
+        "sequence_complete": manifest.sequence_complete,
+        "required_disabled_invariants_hold": manifest.required_disabled_invariants_hold,
+        "capability_count": len(manifest.capabilities),
+        "capabilities": [
+            {
+                "capability_id": item.capability_id,
+                "introduced_version": item.introduced_version,
+                "state": item.state.value,
+                "safety_boundary": item.safety_boundary,
+            }
+            for item in manifest.capabilities
+        ],
+    }
