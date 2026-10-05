@@ -8,6 +8,7 @@ import httpx
 
 
 BASE_URL = os.getenv("SHY_API_BASE_URL", "http://127.0.0.1:8019").rstrip("/")
+EXPECTED_VERSION = os.getenv("SHY_EXPECTED_VERSION", "0.19.0")
 TIMEOUT = 240.0
 
 
@@ -93,7 +94,7 @@ def main():
     _assert(bool(health.get("ollama_connected")), "ollama must be connected")
     _assert(bool(health.get("database_connected")), "database must be connected")
     _assert(bool(health.get("local_model_available")), "local model must be available")
-    _assert(health.get("version") == "0.19.0", "version must be 0.19.0")
+    _assert(health.get("version") == EXPECTED_VERSION, f"version must be {EXPECTED_VERSION}")
     print("live health/version: PASS")
 
     capabilities = _safe_get("/testing/knowledge/capabilities")
