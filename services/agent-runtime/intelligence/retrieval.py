@@ -7,8 +7,15 @@ from collections import Counter, defaultdict
 from .common import canonical, digest, integer, number, rows, text, timestamp, tokens, unique_ids
 
 
+def citation_label(value, name):
+    value = text(value, name)
+    if not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,200}", value):
+        raise ValueError(f"{name}_must_be_safe_citation_label")
+    return value
+
+
 def chunk_text(p: dict) -> dict:
-    source = text(p.get("source_id"), "source_id")
+    source = citation_label(p.get("source_id"), "source_id")
     value = text(p.get("text"))
     size = integer(p.get("chunk_chars", 1000), "chunk_chars", 32, 8000)
     overlap = integer(p.get("overlap", 100), "overlap", 0, size - 1)
@@ -30,9 +37,10 @@ def scoped_passages(p: dict) -> list[dict]:
     passages = rows(p, "passages", allow_empty=True)
     unique_ids(passages)
     for item in passages:
+        citation_label(item.get("id"), "passage_id")
         text(item.get("scope"), "passage_scope")
         text(item.get("text"), "passage_text")
-        text(item.get("source_id"), "source_id")
+        citation_label(item.get("source_id"), "source_id")
     return [item for item in passages if item["scope"] == scope]
 
 
@@ -155,7 +163,7 @@ def consolidate_memory(p: dict) -> dict:
 
 
 _REDACTIONS = (
-    ("credential", re.compile(r"(?i)\b(?:api[_ -]?key|password|secret|token)\s*[:=]\s*[\"']?[^\s,;\"']+")),
+    ("credential", re.compile(r"""(?i)\b(?:api[_ -]?key|password|secret|token)\s*[:=]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;"']+)""")),
     ("bearer", re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+")),
     ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S)),
     ("email", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),

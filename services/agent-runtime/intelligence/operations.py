@@ -80,7 +80,7 @@ def regression_report(p: dict) -> dict:
         current = number(item.get("current"), "current")
         tolerance = number(item.get("absolute_tolerance", 0), "absolute_tolerance", 0)
         direction = item.get("direction")
-        if direction not in {"higher", "lower"}:
+        if not isinstance(direction, str) or direction not in {"higher", "lower"}:
             raise ValueError("metric_direction_required")
         degradation = baseline - current if direction == "higher" else current - baseline
         report.append({"id": item["id"], "delta": current - baseline, "relative_delta": (current - baseline) / abs(baseline) if baseline else None, "regressed": degradation > tolerance})

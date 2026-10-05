@@ -94,7 +94,7 @@ def join_rows(p: dict) -> dict:
     left, right = rows(p, "left"), rows(p, "right")
     keys = key_columns(p)
     mode = p.get("mode", "inner")
-    if mode not in {"inner", "left"}:
+    if not isinstance(mode, str) or mode not in {"inner", "left"}:
         raise ValueError("unsupported_join_mode")
     right_index = defaultdict(list)
     for item in right:
