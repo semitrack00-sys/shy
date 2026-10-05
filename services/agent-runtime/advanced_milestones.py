@@ -1329,6 +1329,94 @@ def _forecast_trend(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _approval_governance(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_approvals = payload.get("approvals") or []
+    required_approvals = int(payload.get("required_approvals") or 1)
+    allowed_roles = {
+        str(item).strip().lower()
+        for item in (payload.get("allowed_roles") or [])
+        if str(item).strip()
+    }
+    max_approvals = max(1, min(int(payload.get("max_approvals") or 32), 128))
+
+    if required_approvals <= 0:
+        return AdvancedResult(
+            "approval_governance",
+            AdvancedBoundary.INVALID_INPUT,
+            "required_approvals_must_be_positive",
+            {},
+            False,
+        )
+    if not isinstance(raw_approvals, list):
+        return AdvancedResult(
+            "approval_governance",
+            AdvancedBoundary.INVALID_INPUT,
+            "approvals_must_be_a_list",
+            {},
+            False,
+        )
+
+    selected = raw_approvals[:max_approvals]
+    seen: set[str] = set()
+    verified_approvers: list[str] = []
+    rejected_entries: list[str] = []
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "approval_governance",
+                AdvancedBoundary.INVALID_INPUT,
+                "approval_entries_must_be_objects",
+                {},
+                False,
+            )
+
+        actor_id = str(raw.get("actor_id") or "").strip()
+        role = str(raw.get("role") or "").strip().lower()
+        approved = bool(raw.get("approved", False))
+        verified = bool(raw.get("verified", False))
+
+        if not actor_id or actor_id in seen:
+            return AdvancedResult(
+                "approval_governance",
+                AdvancedBoundary.INVALID_INPUT,
+                "approval_actor_ids_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        seen.add(actor_id)
+
+        if allowed_roles and role not in allowed_roles:
+            rejected_entries.append(actor_id)
+            continue
+
+        if approved and verified:
+            verified_approvers.append(actor_id)
+
+    quorum_met = len(verified_approvers) >= required_approvals
+    boundary = AdvancedBoundary.READY if quorum_met else AdvancedBoundary.DATA_REQUIRED
+    reason = "verified_human_approval_quorum_met" if quorum_met else "verified_human_approval_quorum_required"
+
+    return AdvancedResult(
+        "approval_governance",
+        boundary,
+        reason,
+        {
+            "required_approvals": required_approvals,
+            "verified_approval_count": len(verified_approvers),
+            "verified_approver_ids": sorted(verified_approvers),
+            "rejected_actor_ids": sorted(rejected_entries),
+            "quorum_met": quorum_met,
+            "approval_limit_enforced": len(raw_approvals) <= max_approvals,
+            "self_approval_used": False,
+            "approval_token_issued": False,
+            "permission_changed": False,
+            "action_executed": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -1343,6 +1431,7 @@ _EVALUATORS = {
     "change_impact": _change_impact,
     "experiment_causal": _experiment_causal,
     "forecast_trend": _forecast_trend,
+    "approval_governance": _approval_governance,
 }
 
 
