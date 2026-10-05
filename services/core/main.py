@@ -1171,8 +1171,38 @@ def _run_cognitive_deterministic_response(
             decomposition_count_override=len(decomposition.steps),
             uncertainty_flags_override=classify_uncertainty({"growth_assumption": UncertaintyType.UNCERTAIN}),
         )
+        decision_criteria = (
+            DecisionCriterion("correctness", 0.24),
+            DecisionCriterion("feasibility", 0.18),
+            DecisionCriterion("evidence", 0.16),
+            DecisionCriterion("cost", 0.12, CriterionDirection.LOWER_IS_BETTER),
+            DecisionCriterion("risk", 0.14, CriterionDirection.LOWER_IS_BETTER),
+            DecisionCriterion("constraints_fit", 0.10),
+            DecisionCriterion("expected_outcome", 0.06),
+        )
+        decision_options = tuple(
+            DecisionOption(
+                candidate.name,
+                {
+                    "correctness": candidate.correctness,
+                    "feasibility": candidate.feasibility,
+                    "evidence": candidate.evidence,
+                    "cost": candidate.cost,
+                    "risk": candidate.risk,
+                    "constraints_fit": candidate.constraints_fit,
+                    "expected_outcome": candidate.expected_outcome,
+                },
+            )
+            for candidate in candidates
+        )
+        decision_analysis = analyze_decision(
+            decision_criteria,
+            decision_options,
+            evidence_quality=0.80,
+        )
         metadata["selected_candidate"] = selected
         metadata["critic_issue_count"] = len(critic.issues)
+        metadata["decision"] = public_decision_metadata(decision_analysis)
         return assistant, metadata
 
     if "project atlas" in lowered and any(token in lowered for token in ("architecture", "design", "database", "consistency")):
