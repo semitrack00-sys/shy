@@ -46,6 +46,7 @@ _REQUIRED_SEQUENCE = (
     "0.35.0",
     "0.36.0",
     "0.37.0",
+    "0.38.0",
 )
 
 
@@ -74,6 +75,7 @@ _DEFAULT_CAPABILITIES = (
     PlatformCapability("document_intelligence", "0.35.0", CapabilityState.BOUNDED, "provenance_required_sensitive_redaction_no_mutation"),
     PlatformCapability("data_workspace", "0.36.0", CapabilityState.BOUNDED, "bounded_profile_no_raw_export_or_mutation"),
     PlatformCapability("code_repository", "0.37.0", CapabilityState.BOUNDED, "static_impact_analysis_no_execution_or_repository_write"),
+    PlatformCapability("research_orchestration", "0.38.0", CapabilityState.BOUNDED, "supplied_sources_only_no_external_fetch"),
 )
 
 
@@ -86,7 +88,7 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 
 def build_platform_manifest(
     *,
-    version: str = "0.37.0",
+    version: str = "0.38.0",
     capabilities: Sequence[PlatformCapability] = _DEFAULT_CAPABILITIES,
 ) -> PlatformManifest:
     current = _version_tuple(version)
