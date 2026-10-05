@@ -131,8 +131,124 @@ def _recovery_rollback(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+_SENSITIVE_DOCUMENT_MARKERS = (
+    "password",
+    "api key",
+    "secret",
+    "social security",
+    "ssn",
+    "credit card",
+    "bank account",
+    "private key",
+)
+
+
+def _document_intelligence(payload: Mapping[str, object]) -> AdvancedResult:
+    source_id = str(payload.get("source_id") or "").strip()
+    raw_sections = payload.get("sections") or []
+    max_sections = max(1, min(int(payload.get("max_sections") or 64), 128))
+
+    if not source_id:
+        return AdvancedResult(
+            "document_intelligence",
+            AdvancedBoundary.DATA_REQUIRED,
+            "source_id_required",
+            {},
+            False,
+        )
+    if not isinstance(raw_sections, list):
+        return AdvancedResult(
+            "document_intelligence",
+            AdvancedBoundary.INVALID_INPUT,
+            "sections_must_be_a_list",
+            {"source_id": source_id},
+            False,
+        )
+
+    selected = raw_sections[:max_sections]
+    if not selected:
+        return AdvancedResult(
+            "document_intelligence",
+            AdvancedBoundary.DATA_REQUIRED,
+            "document_sections_required",
+            {"source_id": source_id},
+            False,
+        )
+
+    seen: set[str] = set()
+    pages: set[int] = set()
+    sensitive = False
+    citation_ids: list[str] = []
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "document_intelligence",
+                AdvancedBoundary.INVALID_INPUT,
+                "section_must_be_an_object",
+                {"source_id": source_id},
+                False,
+            )
+
+        section_id = str(raw.get("section_id") or "").strip()
+        if not section_id or section_id in seen:
+            return AdvancedResult(
+                "document_intelligence",
+                AdvancedBoundary.INVALID_INPUT,
+                "section_ids_must_be_unique_and_nonempty",
+                {"source_id": source_id},
+                False,
+            )
+        seen.add(section_id)
+
+        if not bool(raw.get("provenance_available", False)):
+            return AdvancedResult(
+                "document_intelligence",
+                AdvancedBoundary.DATA_REQUIRED,
+                "section_provenance_required",
+                {"source_id": source_id, "section_id": section_id},
+                False,
+            )
+
+        page = int(raw.get("page") or 0)
+        if page <= 0:
+            return AdvancedResult(
+                "document_intelligence",
+                AdvancedBoundary.INVALID_INPUT,
+                "positive_page_number_required",
+                {"source_id": source_id, "section_id": section_id},
+                False,
+            )
+        pages.add(page)
+
+        text = _norm(raw.get("text"))
+        if any(marker in text for marker in _SENSITIVE_DOCUMENT_MARKERS):
+            sensitive = True
+
+        citation_ids.append(f"{source_id}:{section_id}")
+
+    return AdvancedResult(
+        "document_intelligence",
+        AdvancedBoundary.READY,
+        "document_metadata_ready",
+        {
+            "source_id": source_id,
+            "section_count": len(selected),
+            "page_count": len(pages),
+            "citation_ids": citation_ids,
+            "citations_supported": True,
+            "sensitive_content_detected": sensitive,
+            "redaction_required": sensitive,
+            "raw_text_returned": False,
+            "section_limit_enforced": len(raw_sections) <= max_sections,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
+    "document_intelligence": _document_intelligence,
 }
 
 
