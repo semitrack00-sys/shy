@@ -246,9 +246,89 @@ def _document_intelligence(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _data_workspace(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_columns = payload.get("columns") or []
+    raw_rows = payload.get("rows") or []
+    max_rows = max(1, min(int(payload.get("max_rows") or 500), 2000))
+
+    if not isinstance(raw_columns, list) or not raw_columns:
+        return AdvancedResult(
+            "data_workspace",
+            AdvancedBoundary.DATA_REQUIRED,
+            "columns_required",
+            {},
+            False,
+        )
+    if not isinstance(raw_rows, list):
+        return AdvancedResult(
+            "data_workspace",
+            AdvancedBoundary.INVALID_INPUT,
+            "rows_must_be_a_list",
+            {},
+            False,
+        )
+
+    columns: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_columns[:256]:
+        name = str(raw.get("name") if isinstance(raw, dict) else raw).strip()
+        if not name or name in seen:
+            return AdvancedResult(
+                "data_workspace",
+                AdvancedBoundary.INVALID_INPUT,
+                "column_names_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        seen.add(name)
+        columns.append(name)
+
+    selected_rows = raw_rows[:max_rows]
+    missing_counts = {name: 0 for name in columns}
+    observed_cells = 0
+    for raw in selected_rows:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "data_workspace",
+                AdvancedBoundary.INVALID_INPUT,
+                "rows_must_be_objects",
+                {"row_count": len(selected_rows)},
+                False,
+            )
+        for name in columns:
+            observed_cells += 1
+            value = raw.get(name)
+            if value is None or value == "":
+                missing_counts[name] += 1
+
+    row_count = len(selected_rows)
+    missing_rates = {
+        name: round((missing_counts[name] / row_count), 6) if row_count else 0.0
+        for name in columns
+    }
+
+    return AdvancedResult(
+        "data_workspace",
+        AdvancedBoundary.READY,
+        "data_profile_ready",
+        {
+            "column_count": len(columns),
+            "row_count_profiled": row_count,
+            "missing_rates": missing_rates,
+            "sample_limit_enforced": len(raw_rows) <= max_rows,
+            "raw_rows_returned": False,
+            "dataset_mutated": False,
+            "query_executed": False,
+            "observed_cells": observed_cells,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
+    "data_workspace": _data_workspace,
 }
 
 
