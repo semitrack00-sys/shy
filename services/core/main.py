@@ -94,6 +94,16 @@ from agent_runtime.goal_orchestration import (
     build_goal_plan,
     public_goal_plan,
 )
+from agent_runtime.preference_intelligence import (
+    PreferenceRecord,
+    PreferenceScope,
+    PreferenceSource,
+    PreferenceUpdate,
+    build_preference_profile,
+    evaluate_preference_update,
+    public_preference_evaluation,
+    public_preference_profile,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -246,7 +256,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.25.0"
+SHY_VERSION = "0.26.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1476,6 +1486,14 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "resumable_state": True,
             "persistent_goal_state": False,
             "unrestricted_autonomy": False,
+        },
+        "preference_capabilities": {
+            "explicit_preference_evaluation": True,
+            "verified_outcome_preferences": True,
+            "implicit_behavior_learning": False,
+            "protected_sensitive_categories": True,
+            "scoped_profiles": True,
+            "persistent_preference_profile": False,
         },
     }
 
@@ -2946,6 +2964,28 @@ class GoalAdvanceRequest(BaseModel):
     cancel: bool = False
 
 
+class PreferenceUpdateRequest(BaseModel):
+    key: str
+    value: str
+    source: str = "EXPLICIT"
+    scope: str = "USER"
+    confidence: float = 1.0
+
+
+class PreferenceRecordRequest(BaseModel):
+    key: str
+    value: str
+    source: str = "EXPLICIT"
+    scope: str = "USER"
+    confidence: float = 1.0
+
+
+class PreferenceProfileRequest(BaseModel):
+    records: list[PreferenceRecordRequest]
+    scope: str = "USER"
+    max_preferences: int = 50
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3286,6 +3326,51 @@ def _goal_plan_from_request(objective: str, milestones: list[GoalMilestoneReques
         ),
         max_steps=max(1, min(int(max_steps), 24)),
     )
+
+
+def _parse_preference_source(value: str) -> PreferenceSource:
+    try:
+        return PreferenceSource(str(value).strip().upper())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Unsupported preference source.") from exc
+
+
+def _parse_preference_scope(value: str) -> PreferenceScope:
+    try:
+        return PreferenceScope(str(value).strip().upper())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Unsupported preference scope.") from exc
+
+
+@app.post("/preference/evaluate")
+async def preference_evaluate(request: PreferenceUpdateRequest):
+    result = evaluate_preference_update(
+        PreferenceUpdate(
+            key=request.key,
+            value=request.value,
+            source=_parse_preference_source(request.source),
+            scope=_parse_preference_scope(request.scope),
+            confidence=float(request.confidence),
+        )
+    )
+    return {"status":"ok","version":SHY_VERSION,"preference":public_preference_evaluation(result),"persistent_change_applied":False,"hidden_reasoning_exposed":False}
+
+
+@app.post("/preference/profile-preview")
+async def preference_profile_preview(request: PreferenceProfileRequest):
+    scope = _parse_preference_scope(request.scope)
+    records = tuple(
+        PreferenceRecord(
+            key=item.key,
+            value=item.value,
+            source=_parse_preference_source(item.source),
+            scope=_parse_preference_scope(item.scope),
+            confidence=max(0.0,min(1.0,float(item.confidence))),
+        )
+        for item in request.records
+    )
+    profile = build_preference_profile(records, scope=scope, max_preferences=max(1,min(int(request.max_preferences),100)))
+    return {"status":"ok","version":SHY_VERSION,"profile":public_preference_profile(profile),"persistent_change_applied":False,"hidden_reasoning_exposed":False}
 
 
 @app.post("/goal/plan")
