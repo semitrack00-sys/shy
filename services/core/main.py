@@ -1983,10 +1983,7 @@ async def _generate_intelligence_response_internal(
                     messages=tuple(ModelMessage(role=item["role"], content=item["content"]) for item in messages),
                     capability=routing_decision.required_capability,
                     system_instruction=effective_system_prompt,
-                    metadata={
-                        "expert_domain": generation_expert.domain.value,
-                        "expert_playbook_id": generation_expert.profile.domain.value,
-                    },
+                    metadata={},
                 )
                 response = provider.generate(request=model_request, model_id=model_id)
                 if str(getattr(response, "status", "")).upper() != "OK":
