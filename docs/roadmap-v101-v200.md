@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.1. A future number must not be added
+shipped. The current implementation is v0.105.2. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -39,7 +39,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.116 | Personal preferences with consent | Planned |
 | v0.117 | Separate memory for each project | Planned |
 | v0.118 | Memory conflict correction | Planned |
-| v0.119 | Long-conversation context management | Planned |
+| v0.119 | Long-conversation context management | Implemented early in v0.105.2: ordinary chat history uses hard excerpt budgets, including fallback; older context can be omitted |
 | v0.120 | Memory accuracy and isolation benchmarks | Planned |
 | v0.121 | Upload and read text files | Planned |
 | v0.122 | PDF text extraction | Planned |
@@ -128,6 +128,7 @@ The v0.105.1 patch implements memory controls ahead of their planned release
 numbers. See [saved memory controls](saved-memory-controls.md) for usage,
 confirmation, persistence, deletion scope, and the remaining authentication and
 project-isolation limits. No v0.106–v0.115 release numbers are claimed complete.
+The v0.105.2 patch enforces [ordinary chat history budgets](chat-context-limits.md).
 
 v0.106 requires genuine representative recordings and quality measurements for
 English, French, and Haitian Creole. The v0.105 speech adapter supports selected

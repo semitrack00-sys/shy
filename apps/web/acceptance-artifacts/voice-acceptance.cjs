@@ -49,7 +49,7 @@ let browser;
     return route.fulfill({ json: { corrected: true, deleted: memory === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.1', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.2', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
