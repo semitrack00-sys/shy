@@ -8,6 +8,8 @@ from typing import Mapping, Sequence
 class CriterionDirection(str, Enum):
     HIGHER_IS_BETTER = "HIGHER_IS_BETTER"
     LOWER_IS_BETTER = "LOWER_IS_BETTER"
+    BENEFIT = "HIGHER_IS_BETTER"
+    COST = "LOWER_IS_BETTER"
 
 
 class DecisionBoundary(str, Enum):
@@ -15,6 +17,16 @@ class DecisionBoundary(str, Enum):
     DATA_REQUIRED = "DATA_REQUIRED"
     NO_ELIGIBLE_STRATEGY = "NO_ELIGIBLE_STRATEGY"
     VERIFY_OUTCOME_REQUIRED = "VERIFY_OUTCOME_REQUIRED"
+    RECOMMEND = "RECOMMEND"
+    NEEDS_DATA = "NEEDS_DATA"
+    NO_CLEAR_WINNER = "NO_CLEAR_WINNER"
+    CONDITIONAL = "CONDITIONAL"
+
+
+class DecisionConfidence(str, Enum):
+    LOW = "LOW"
+    MODERATE = "MODERATE"
+    HIGH = "HIGH"
 
 
 class OutcomeVerification(str, Enum):
@@ -29,6 +41,10 @@ class DecisionCriterion:
     weight: float
     direction: CriterionDirection = CriterionDirection.HIGHER_IS_BETTER
     required: bool = True
+
+    @property
+    def key(self) -> str:
+        return self.name
 
 
 @dataclass(frozen=True)
@@ -127,6 +143,61 @@ class LearningApplication:
     requested_delta: float
     applied_delta: float
     reason: str
+
+
+@dataclass(frozen=True)
+class DecisionOption:
+    name: str
+    metrics: Mapping[str, float]
+    hard_constraints_satisfied: bool = True
+
+
+@dataclass(frozen=True)
+class RankedDecisionOption:
+    name: str
+    score: float
+    coverage: float
+    disqualified: bool
+    missing_criteria: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DecisionSensitivity:
+    stable: bool
+    winner_changes: tuple[str, ...]
+    tested_variations: int
+
+
+@dataclass(frozen=True)
+class DecisionAnalysis:
+    selected_option: str | None
+    ranked_options: tuple[RankedDecisionOption, ...]
+    boundary: DecisionBoundary
+    confidence: DecisionConfidence
+    overall_coverage: float
+    missing_criteria: tuple[str, ...]
+    score_margin: float
+    sensitivity: DecisionSensitivity
+
+
+@dataclass(frozen=True)
+class DecisionFeedback:
+    explicit: bool
+    criterion_adjustments: Mapping[str, float]
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class ExplicitFeedbackApplication:
+    applied: bool
+    criteria: tuple[DecisionCriterion, ...]
+    reason: str
+
+
+MIN_DATA_COVERAGE = 0.75
+NO_CLEAR_WINNER_MARGIN = 0.03
+SENSITIVITY_WEIGHT_SHIFT = 0.15
+MAX_EXPLICIT_WEIGHT_ADJUSTMENT = 0.20
 
 
 _PROTECTED_LEARNING_MARKERS = (
@@ -516,9 +587,299 @@ def apply_learning_signal(
     )
 
 
+def _compat_score_option(
+    option: DecisionOption,
+    criteria: Sequence[DecisionCriterion],
+    weights: Mapping[str, float],
+) -> RankedDecisionOption:
+    score = 0.0
+    coverage = 0.0
+    missing: list[str] = []
+
+    for criterion in criteria:
+        weight = float(weights[criterion.name])
+        if criterion.name not in option.metrics:
+            if criterion.required:
+                missing.append(criterion.name)
+            continue
+
+        coverage += weight
+        value = _bounded_unit(float(option.metrics[criterion.name]))
+        if criterion.direction == CriterionDirection.LOWER_IS_BETTER:
+            value = 1.0 - value
+        score += weight * value
+
+    return RankedDecisionOption(
+        name=option.name,
+        score=round(_bounded_unit(score), 6),
+        coverage=round(_bounded_unit(coverage), 6),
+        disqualified=not bool(option.hard_constraints_satisfied),
+        missing_criteria=tuple(sorted(missing)),
+    )
+
+
+def _winner_for_weights(
+    options: Sequence[DecisionOption],
+    criteria: Sequence[DecisionCriterion],
+    weights: Mapping[str, float],
+) -> str | None:
+    scored = [_compat_score_option(option, criteria, weights) for option in options]
+    eligible = [item for item in scored if not item.disqualified and item.coverage >= MIN_DATA_COVERAGE]
+    if not eligible:
+        return None
+    eligible.sort(key=lambda item: (-item.score, item.name.lower()))
+    return eligible[0].name
+
+
+def _decision_sensitivity(
+    options: Sequence[DecisionOption],
+    criteria: Sequence[DecisionCriterion],
+    base_weights: Mapping[str, float],
+    baseline_winner: str | None,
+) -> DecisionSensitivity:
+    if baseline_winner is None or len(options) < 2 or len(criteria) < 2:
+        return DecisionSensitivity(
+            stable=baseline_winner is not None,
+            winner_changes=(),
+            tested_variations=0,
+        )
+
+    changes: list[str] = []
+    tested = 0
+    for criterion in criteria:
+        for direction in (-1.0, 1.0):
+            varied = dict(base_weights)
+            varied[criterion.name] = max(
+                0.0,
+                float(varied[criterion.name]) + direction * SENSITIVITY_WEIGHT_SHIFT,
+            )
+            total = sum(varied.values())
+            if total <= 0:
+                continue
+            varied = {name: value / total for name, value in varied.items()}
+            tested += 1
+            winner = _winner_for_weights(options, criteria, varied)
+            if winner is not None and winner != baseline_winner:
+                changes.append(
+                    f"{criterion.name}:{'up' if direction > 0 else 'down'}->{winner}"
+                )
+
+    return DecisionSensitivity(
+        stable=not changes,
+        winner_changes=tuple(sorted(set(changes))),
+        tested_variations=tested,
+    )
+
+
+def analyze_decision(
+    criteria: Sequence[DecisionCriterion],
+    options: Sequence[DecisionOption],
+    *,
+    evidence_quality: float = 0.7,
+) -> DecisionAnalysis:
+    weights = _normalized_weights(criteria)
+
+    if not options:
+        return DecisionAnalysis(
+            selected_option=None,
+            ranked_options=(),
+            boundary=DecisionBoundary.NEEDS_DATA,
+            confidence=DecisionConfidence.LOW,
+            overall_coverage=0.0,
+            missing_criteria=tuple(sorted(item.name for item in criteria if item.required)),
+            score_margin=0.0,
+            sensitivity=DecisionSensitivity(stable=False, winner_changes=(), tested_variations=0),
+        )
+
+    scored = tuple(_compat_score_option(option, criteria, weights) for option in options)
+    ranked = tuple(
+        sorted(
+            scored,
+            key=lambda item: (
+                item.disqualified,
+                -item.score,
+                item.name.lower(),
+            ),
+        )
+    )
+    eligible = tuple(item for item in ranked if not item.disqualified)
+    missing = tuple(sorted({name for item in eligible for name in item.missing_criteria}))
+    overall_coverage = max((item.coverage for item in eligible), default=0.0)
+
+    complete = tuple(item for item in eligible if item.coverage >= MIN_DATA_COVERAGE and not item.missing_criteria)
+    if not complete:
+        return DecisionAnalysis(
+            selected_option=None,
+            ranked_options=ranked,
+            boundary=DecisionBoundary.NEEDS_DATA,
+            confidence=DecisionConfidence.LOW,
+            overall_coverage=round(overall_coverage, 6),
+            missing_criteria=missing,
+            score_margin=0.0,
+            sensitivity=DecisionSensitivity(stable=False, winner_changes=(), tested_variations=0),
+        )
+
+    selected = complete[0]
+    runner_up = complete[1] if len(complete) > 1 else None
+    margin = selected.score - runner_up.score if runner_up else selected.score
+    sensitivity = _decision_sensitivity(
+        options,
+        criteria,
+        weights,
+        selected.name,
+    )
+
+    if runner_up and margin < NO_CLEAR_WINNER_MARGIN:
+        boundary = DecisionBoundary.NO_CLEAR_WINNER
+    elif not sensitivity.stable:
+        boundary = DecisionBoundary.CONDITIONAL
+    else:
+        boundary = DecisionBoundary.RECOMMEND
+
+    evidence = _bounded_unit(evidence_quality)
+    if evidence < 0.50 or overall_coverage < MIN_DATA_COVERAGE:
+        confidence = DecisionConfidence.LOW
+    elif (
+        boundary == DecisionBoundary.RECOMMEND
+        and evidence >= 0.80
+        and margin >= 0.12
+        and sensitivity.stable
+    ):
+        confidence = DecisionConfidence.HIGH
+    else:
+        confidence = DecisionConfidence.MODERATE
+
+    return DecisionAnalysis(
+        selected_option=selected.name,
+        ranked_options=ranked,
+        boundary=boundary,
+        confidence=confidence,
+        overall_coverage=round(overall_coverage, 6),
+        missing_criteria=missing,
+        score_margin=round(max(0.0, margin), 6),
+        sensitivity=sensitivity,
+    )
+
+
+def apply_explicit_feedback(
+    criteria: Sequence[DecisionCriterion],
+    feedback: DecisionFeedback,
+) -> ExplicitFeedbackApplication:
+    original = tuple(criteria)
+
+    if not feedback.explicit:
+        return ExplicitFeedbackApplication(
+            applied=False,
+            criteria=original,
+            reason="implicit_feedback_rejected",
+        )
+
+    adjustments = dict(feedback.criterion_adjustments or {})
+    if not adjustments:
+        return ExplicitFeedbackApplication(
+            applied=False,
+            criteria=original,
+            reason="no_explicit_weight_adjustments",
+        )
+
+    known = {_normalized_name(item.name): item.name for item in criteria}
+    unknown = [
+        key
+        for key in adjustments
+        if _normalized_name(key) not in known
+    ]
+    if unknown:
+        return ExplicitFeedbackApplication(
+            applied=False,
+            criteria=original,
+            reason="unknown_criteria:" + ",".join(sorted(str(item) for item in unknown)),
+        )
+
+    protected = [
+        key
+        for key in adjustments
+        if is_learning_target_protected(key)
+    ]
+    if protected:
+        return ExplicitFeedbackApplication(
+            applied=False,
+            criteria=original,
+            reason="protected_learning_target",
+        )
+
+    if any(abs(float(delta)) > MAX_EXPLICIT_WEIGHT_ADJUSTMENT for delta in adjustments.values()):
+        return ExplicitFeedbackApplication(
+            applied=False,
+            criteria=original,
+            reason="weight_adjustment_out_of_bounds",
+        )
+
+    updated_weights = {
+        item.name: max(0.0, float(item.weight))
+        for item in criteria
+    }
+    for raw_key, delta in adjustments.items():
+        canonical = known[_normalized_name(raw_key)]
+        updated_weights[canonical] = max(
+            0.0,
+            updated_weights[canonical] + float(delta),
+        )
+
+    total = sum(updated_weights.values())
+    if total <= 0:
+        return ExplicitFeedbackApplication(
+            applied=False,
+            criteria=original,
+            reason="invalid_weight_state",
+        )
+
+    normalized = {
+        name: value / total
+        for name, value in updated_weights.items()
+    }
+    updated_criteria = tuple(
+        DecisionCriterion(
+            name=item.name,
+            weight=round(normalized[item.name], 6),
+            direction=item.direction,
+            required=item.required,
+        )
+        for item in criteria
+    )
+    return ExplicitFeedbackApplication(
+        applied=True,
+        criteria=updated_criteria,
+        reason="explicit_feedback_applied",
+    )
+
+
 def public_decision_metadata(
-    recommendation: DecisionRecommendation,
+    recommendation: DecisionRecommendation | DecisionAnalysis,
 ) -> dict[str, object]:
+    if isinstance(recommendation, DecisionAnalysis):
+        return {
+            "selected_option": recommendation.selected_option,
+            "boundary": recommendation.boundary.value,
+            "confidence": recommendation.confidence.value,
+            "overall_coverage": recommendation.overall_coverage,
+            "missing_criteria": list(recommendation.missing_criteria),
+            "score_margin": recommendation.score_margin,
+            "ranked_options": [
+                {
+                    "name": item.name,
+                    "score": item.score,
+                    "coverage": item.coverage,
+                    "disqualified": item.disqualified,
+                }
+                for item in recommendation.ranked_options
+            ],
+            "sensitivity": {
+                "stable": recommendation.sensitivity.stable,
+                "winner_change_count": len(recommendation.sensitivity.winner_changes),
+                "tested_variations": recommendation.sensitivity.tested_variations,
+            },
+        }
+
     return {
         "decision_boundary": recommendation.boundary.value,
         "selected_strategy": recommendation.selected.name if recommendation.selected else None,
