@@ -970,6 +970,95 @@ def _incident_triage(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _resource_capacity(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_resources = payload.get("resources") or []
+    max_resources = max(1, min(int(payload.get("max_resources") or 64), 256))
+
+    if not isinstance(raw_resources, list) or not raw_resources:
+        return AdvancedResult(
+            "resource_capacity",
+            AdvancedBoundary.DATA_REQUIRED,
+            "resources_required",
+            {},
+            False,
+        )
+
+    selected = raw_resources[:max_resources]
+    seen: set[str] = set()
+    rows: list[dict[str, object]] = []
+    shortages: list[str] = []
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "resource_capacity",
+                AdvancedBoundary.INVALID_INPUT,
+                "resource_entries_must_be_objects",
+                {},
+                False,
+            )
+
+        resource_id = str(raw.get("resource_id") or "").strip()
+        capacity = float(raw.get("capacity") or 0.0)
+        demand = float(raw.get("demand") or 0.0)
+        reserve = float(raw.get("reserve") or 0.0)
+
+        if not resource_id or resource_id in seen:
+            return AdvancedResult(
+                "resource_capacity",
+                AdvancedBoundary.INVALID_INPUT,
+                "resource_ids_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        if capacity < 0 or demand < 0 or reserve < 0 or reserve > capacity:
+            return AdvancedResult(
+                "resource_capacity",
+                AdvancedBoundary.INVALID_INPUT,
+                "capacity_demand_and_reserve_must_be_valid_nonnegative_values",
+                {"resource_id": resource_id},
+                False,
+            )
+
+        seen.add(resource_id)
+        usable_capacity = max(0.0, capacity - reserve)
+        shortage = max(0.0, demand - usable_capacity)
+        utilization = (demand / usable_capacity) if usable_capacity > 0 else (1.0 if demand > 0 else 0.0)
+        if shortage > 0:
+            shortages.append(resource_id)
+
+        rows.append(
+            {
+                "resource_id": resource_id,
+                "capacity": round(capacity, 6),
+                "reserve": round(reserve, 6),
+                "usable_capacity": round(usable_capacity, 6),
+                "demand": round(demand, 6),
+                "utilization": round(utilization, 6),
+                "shortage": round(shortage, 6),
+                "over_capacity": shortage > 0,
+            }
+        )
+
+    rows.sort(key=lambda row: (-float(row["utilization"]), str(row["resource_id"])))
+    return AdvancedResult(
+        "resource_capacity",
+        AdvancedBoundary.READY,
+        "resource_capacity_analysis_ready",
+        {
+            "resource_count": len(rows),
+            "resources": rows,
+            "shortage_resource_ids": shortages,
+            "resource_limit_enforced": len(raw_resources) <= max_resources,
+            "provisioning_performed": False,
+            "hiring_performed": False,
+            "purchase_performed": False,
+            "allocation_changed": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -980,6 +1069,7 @@ _EVALUATORS = {
     "financial_planning": _financial_planning,
     "compliance_policy": _compliance_policy,
     "incident_triage": _incident_triage,
+    "resource_capacity": _resource_capacity,
 }
 
 
