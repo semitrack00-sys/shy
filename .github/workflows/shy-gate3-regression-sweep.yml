@@ -1,0 +1,48 @@
+name: SHY Gate 3 Regression Sweep
+
+on:
+  push:
+    branches:
+      - codex/shy-v0.19-user-reasoning-gate3
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install core dependencies
+        run: python -m pip install -r services/core/requirements.txt
+
+      - name: Compile changed Python
+        run: |
+          python -m py_compile \
+            services/agent-runtime/business_workflows.py \
+            services/core/main.py \
+            tests/test_business_agent_v017.py \
+            tests/test_user_reasoning_live_v019.py
+
+      - name: Run non-live regressions
+        shell: bash
+        run: |
+          set -e
+          python tests/test_business_agent_v017.py
+          python tests/test_cognitive_intelligence_v018.py
+          python tests/test_multistep_agent.py
+          python tests/test_tool_intelligence.py
+          python tests/test_multi_model_brain.py
+          python tests/test_advanced_memory.py
+          python tests/test_memory_relevance.py
+          python tests/test_research_synthesis.py
+          python tests/test_adaptive_chat.py
