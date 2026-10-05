@@ -130,13 +130,14 @@ data tests do not measure Qwen answer quality, GPU latency, audio, or image infe
 
 ## Repository and local rollout
 
-The existing default branch is `codex/shy-v0.9-web-research`, and `main` is at
-v0.10. This candidate must be compared against `codex/shy-v0.50-integrated-platform`.
-Selecting the default branch would omit the established v0.11–v0.50 implementation.
+The v0.100 release was integrated through PR #40 into
+`codex/shy-v0.50-integrated-platform`. The promotion to `main` includes the full
+v0.11–v0.100 history. Use `main` after the promotion PR is merged and its release
+checks pass. The existing default branch, `codex/shy-v0.9-web-research`, is
+historical and does not contain this release; select `main` explicitly.
 
-The remote development branch is `codex/shy-v0.100-verified-platform`. On the SHY
-computer, first inspect `git status` and preserve any uncommitted work. Fetch that
-branch and review it before replacing the local runtime. The Dockerfile copies the
+On the SHY computer, first inspect `git status` and preserve any uncommitted work.
+Fetch `main` and review the release commit before replacing the local runtime. The Dockerfile copies the
 new modules using its existing core/agent-runtime layout. A rebuild can use
 `docker build -t shy-core:0.100 .`; the existing database and Ollama environment
 settings remain required. Do not replace or delete an existing local container
