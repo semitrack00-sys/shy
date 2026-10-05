@@ -2462,10 +2462,16 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
                 task_type="deep_reasoning" if str(getattr(route, "task_type", "")) == "deep_reasoning" else "reasoning",
             )
             if planner_decision is not None:
-                model_routing_metadata = _routing_metadata_payload(
-                    planner_decision,
-                    used_fallback=False,
-                    fallback_candidates=[
+                model_routing_metadata = {
+                    "selected_model": planner_decision.selected_model,
+                    "selected_provider": planner_decision.selected_provider,
+                    "executed_model": None,
+                    "executed_provider": None,
+                    "selection_matches_execution": False,
+                    "role": planner_decision.role.value,
+                    "reason_code": planner_decision.reason_code.value,
+                    "fallback_used": False,
+                    "fallback_candidates": [
                         {
                             "provider": item.provider_id,
                             "model": item.model_id,
@@ -2473,7 +2479,10 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
                         }
                         for item in planner_decision.fallback_candidates
                     ],
-                )
+                    "provider_health": planner_decision.provider_health,
+                    "latency_tier": planner_decision.latency_tier,
+                    "cost_tier": planner_decision.cost_tier,
+                }
         except Exception as exc:
             _record_model_routing_failure("selection", exc)
             model_routing_metadata = None
