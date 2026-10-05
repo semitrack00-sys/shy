@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -191,6 +192,112 @@ WORKFLOW_POLICIES: dict[BusinessWorkflow, WorkflowPolicy] = {
         external_provider_privacy_policy="local_preferred_remote_allowed",
     ),
 }
+
+
+
+def _parse_numeric_token(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(str(value).replace(",", "").replace("$", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _clean_count(value: float) -> int | float:
+    return int(value) if float(value).is_integer() else float(value)
+
+
+def _format_money(value: float) -> str:
+    sign = "-" if value < 0 else ""
+    return sign + "$" + format(abs(float(value)), ",.0f")
+
+
+def _parse_inline_logistics_inputs(message: str) -> dict[str, Any] | None:
+    """Parse a self-contained logistics business case from the user's own prompt.
+
+    This path intentionally uses only values explicitly supplied by the user.
+    If the minimum logistics facts are not present, the caller falls back to
+    the approved deterministic workspace adapter.
+    """
+    text = " ".join(str(message or "").split()).lower()
+    if not text:
+        return None
+
+    number = r"([0-9][0-9,]*(?:\.[0-9]+)?)"
+    total_match = re.search(rf"{number}\s+deliveries\s+per\s+week", text)
+    late_match = re.search(rf"{number}\s+deliveries\s+(?:are|were)\s+late", text)
+    if late_match is None:
+        late_match = re.search(rf"{number}\s+(?:are|were)\s+late", text)
+
+    total = _parse_numeric_token(total_match.group(1)) if total_match else None
+    late = _parse_numeric_token(late_match.group(1)) if late_match else None
+    if total is None or late is None or total <= 0 or late < 0 or late > total:
+        return None
+
+    reason_patterns: tuple[tuple[str, str], ...] = (
+        ("loading delays", r"loading(?:-related)?\s+delays?"),
+        ("traffic", r"traffic"),
+        ("driver scheduling", r"driver\s+schedul(?:ing|e|es)?"),
+        ("mechanical problems", r"mechanical(?:\s+problems?|\s+issues?)?"),
+    )
+    reasons: dict[str, int | float] = {}
+    for reason_name, reason_pattern in reason_patterns:
+        match = re.search(rf"{number}\s+(?:because\s+of\s+)?{reason_pattern}", text)
+        if not match:
+            continue
+        count = _parse_numeric_token(match.group(1))
+        if count is not None and count >= 0:
+            reasons[reason_name] = _clean_count(count)
+
+    if not reasons:
+        return None
+
+    if sum(float(value) for value in reasons.values()) > float(late) + 1e-9:
+        return None
+
+    payload: dict[str, Any] = {
+        "total_deliveries": _clean_count(total),
+        "late_deliveries": _clean_count(late),
+        "delay_reasons": reasons,
+        "source": "user_prompt",
+    }
+
+    reduction_match = re.search(
+        rf"(?:would\s+)?reduce(?:s|d|ing)?\s+loading(?:-related)?\s+delays?\s+by\s+{number}\s*%",
+        text,
+    )
+    monthly_cost_match = re.search(
+        rf"costs?\s+\$?\s*{number}\s+per\s+month",
+        text,
+    )
+    savings_match = re.search(
+        rf"each\s+prevented\s+late\s+delivery\s+saves?\s+(?:about\s+)?\$?\s*{number}",
+        text,
+    )
+
+    reduction_percent = _parse_numeric_token(reduction_match.group(1)) if reduction_match else None
+    monthly_cost = _parse_numeric_token(monthly_cost_match.group(1)) if monthly_cost_match else None
+    savings_per_prevented = _parse_numeric_token(savings_match.group(1)) if savings_match else None
+
+    if (
+        reduction_percent is not None
+        and 0 <= reduction_percent <= 100
+        and monthly_cost is not None
+        and monthly_cost >= 0
+        and savings_per_prevented is not None
+        and savings_per_prevented > 0
+        and "loading delays" in reasons
+    ):
+        payload["investment_case"] = {
+            "target_reason": "loading delays",
+            "reduction_percent": float(reduction_percent),
+            "monthly_cost": float(monthly_cost),
+            "savings_per_prevented_late_delivery": float(savings_per_prevented),
+            "monthly_weeks_assumption": 4.0,
+        }
+
+    return payload
 
 
 class DeterministicBusinessDataAdapters(
@@ -520,7 +627,9 @@ def run_business_reasoning_step(step_objective: str, task: Any, adapters: Determ
 
     if context.workflow == BusinessWorkflow.LOGISTICS_ANALYSIS:
         if "load approved logistics metrics" in lowered:
-            payload = adapters.load_logistics_data(context)
+            original_message = str(derived.get("original_message") or getattr(task, "objective", ""))
+            inline_payload = _parse_inline_logistics_inputs(original_message)
+            payload = inline_payload or adapters.load_logistics_data(context)
             total = int(payload.get("total_deliveries", 0))
             late = int(payload.get("late_deliveries", 0))
             reasons = dict(payload.get("delay_reasons") or {})
@@ -532,6 +641,10 @@ def run_business_reasoning_step(step_objective: str, task: Any, adapters: Determ
                     "recoverable": False,
                 }
             derived["logistics_metrics"] = payload
+            derived["logistics_metrics_source"] = "user_prompt" if inline_payload is not None else "approved_adapter"
+            investment_case = payload.get("investment_case")
+            if isinstance(investment_case, dict):
+                derived["logistics_investment_case"] = dict(investment_case)
             return {
                 "status": "EXECUTED",
                 "summary": f"Loaded logistics metrics: total={total}, late={late}.",
@@ -556,6 +669,51 @@ def run_business_reasoning_step(step_objective: str, task: Any, adapters: Determ
             top_reasons = [name for name, count in ordered if int(count) == top_count]
             derived["top_delay_reasons"] = top_reasons
             derived["top_delay_count"] = top_count
+
+            investment_case = dict(derived.get("logistics_investment_case") or {})
+            if investment_case:
+                target_reason = str(investment_case.get("target_reason") or "")
+                baseline_target_count = float(reasons.get(target_reason, 0.0))
+                reduction_percent = float(investment_case.get("reduction_percent", 0.0))
+                monthly_cost = float(investment_case.get("monthly_cost", 0.0))
+                savings_per_prevented = float(investment_case.get("savings_per_prevented_late_delivery", 0.0))
+                monthly_weeks = float(investment_case.get("monthly_weeks_assumption", 4.0))
+
+                prevented_per_week = baseline_target_count * (reduction_percent / 100.0)
+                weekly_savings = prevented_per_week * savings_per_prevented
+                monthly_savings = weekly_savings * monthly_weeks
+                net_monthly_benefit = monthly_savings - monthly_cost
+
+                remaining_reasons = {
+                    name: float(count)
+                    for name, count in reasons.items()
+                }
+                if target_reason in remaining_reasons:
+                    remaining_reasons[target_reason] = max(
+                        0.0,
+                        remaining_reasons[target_reason] - prevented_per_week,
+                    )
+
+                derived["logistics_investment_analysis"] = {
+                    "target_reason": target_reason,
+                    "baseline_target_count": baseline_target_count,
+                    "reduction_percent": reduction_percent,
+                    "prevented_per_week": prevented_per_week,
+                    "weekly_savings": weekly_savings,
+                    "monthly_savings": monthly_savings,
+                    "monthly_cost": monthly_cost,
+                    "net_monthly_benefit": net_monthly_benefit,
+                    "savings_per_prevented_late_delivery": savings_per_prevented,
+                    "monthly_weeks_assumption": monthly_weeks,
+                    "expected_remaining_late_per_week": max(0.0, float(late) - prevented_per_week),
+                    "remaining_delay_reasons": remaining_reasons,
+                    "break_even_prevented_per_month": (
+                        monthly_cost / savings_per_prevented
+                        if savings_per_prevented > 0
+                        else None
+                    ),
+                }
+
             return {
                 "status": "EXECUTED",
                 "summary": "Prepared late-delivery rate and grouped delay reasons.",
@@ -563,6 +721,37 @@ def run_business_reasoning_step(step_objective: str, task: Any, adapters: Determ
             }
 
         if "identify highest-risk pattern" in lowered:
+            investment_analysis = dict(derived.get("logistics_investment_analysis") or {})
+            remaining_reasons = dict(investment_analysis.get("remaining_delay_reasons") or {})
+            if remaining_reasons:
+                ordered_remaining = sorted(
+                    remaining_reasons.items(),
+                    key=lambda item: (-float(item[1]), str(item[0]).lower()),
+                )
+                top_count = float(ordered_remaining[0][1])
+                top_reasons = [
+                    name
+                    for name, count in ordered_remaining
+                    if abs(float(count) - top_count) < 1e-9
+                ]
+                derived["post_change_top_delay_reasons"] = top_reasons
+                derived["post_change_top_delay_count"] = top_count
+                if len(top_reasons) > 1:
+                    derived["risk_pattern"] = (
+                        f"After the change, top expected delay causes are tied: {', '.join(top_reasons)} "
+                        f"at {top_count:g} per week."
+                    )
+                else:
+                    derived["risk_pattern"] = (
+                        f"After the change, highest expected delay cause is {top_reasons[0]} "
+                        f"at {top_count:g} per week."
+                    )
+                return {
+                    "status": "EXECUTED",
+                    "summary": str(derived["risk_pattern"]),
+                    "evidence": True,
+                }
+
             top_reasons = list(derived.get("top_delay_reasons") or [])
             if not top_reasons:
                 return {
@@ -598,6 +787,81 @@ def run_business_reasoning_step(step_objective: str, task: Any, adapters: Determ
                     "error_code": "MISSING_RESULT",
                     "recoverable": False,
                 }
+            investment_analysis = dict(derived.get("logistics_investment_analysis") or {})
+            if investment_analysis:
+                prevented_per_week = float(investment_analysis.get("prevented_per_week", 0.0))
+                weekly_savings = float(investment_analysis.get("weekly_savings", 0.0))
+                monthly_savings = float(investment_analysis.get("monthly_savings", 0.0))
+                monthly_cost = float(investment_analysis.get("monthly_cost", 0.0))
+                net_monthly_benefit = float(investment_analysis.get("net_monthly_benefit", 0.0))
+                monthly_weeks = float(investment_analysis.get("monthly_weeks_assumption", 4.0))
+                remaining_top = list(derived.get("post_change_top_delay_reasons") or [])
+                remaining_top_count = float(derived.get("post_change_top_delay_count", 0.0))
+
+                if len(remaining_top) > 1:
+                    remaining_cause_text = (
+                        f"Strongest remaining causes after the change: {', '.join(remaining_top)} "
+                        f"at {remaining_top_count:g} expected late deliveries/week."
+                    )
+                elif remaining_top:
+                    remaining_cause_text = (
+                        f"Strongest remaining cause after the change: {remaining_top[0]} "
+                        f"at {remaining_top_count:g} expected late deliveries/week."
+                    )
+                else:
+                    remaining_cause_text = "No remaining delay cause could be ranked."
+
+                if net_monthly_benefit > 0:
+                    margin_ratio = net_monthly_benefit / monthly_cost if monthly_cost > 0 else 1.0
+                    if margin_ratio <= 0.10:
+                        financial_decision = (
+                            "The investment is slightly financially positive, but it is close to break-even. "
+                            "Proceed only if the savings assumption is credible, preferably with a monitored pilot."
+                        )
+                    else:
+                        financial_decision = "The investment is financially positive under the supplied assumptions."
+                elif abs(net_monthly_benefit) < 1e-9:
+                    financial_decision = "The investment is approximately break-even under the supplied assumptions."
+                else:
+                    financial_decision = "The investment does not break even under the supplied assumptions."
+
+                summary = (
+                    f"Current late-delivery rate: {float(rate):g}%. "
+                    f"Expected prevented late deliveries: {prevented_per_week:g} per week. "
+                    f"Expected weekly savings: {_format_money(weekly_savings)}. "
+                    f"Expected monthly savings ({monthly_weeks:g}-week assumption): {_format_money(monthly_savings)}. "
+                    f"Net monthly benefit after {_format_money(monthly_cost)} cost: {_format_money(net_monthly_benefit)}. "
+                    f"{financial_decision}"
+                )
+
+                derived["business_report"] = {
+                    "executive_summary": "Delivery investment analysis complete.",
+                    "kpis": [
+                        f"Current late-delivery rate: {float(rate):g}%",
+                        f"Expected prevented late deliveries: {prevented_per_week:g} per week",
+                        f"Expected weekly savings: {_format_money(weekly_savings)}",
+                        f"Expected monthly savings ({monthly_weeks:g}-week assumption): {_format_money(monthly_savings)}",
+                        f"Net monthly benefit after {_format_money(monthly_cost)} cost: {_format_money(net_monthly_benefit)}",
+                    ],
+                    "problems_found": [remaining_cause_text],
+                    "risks": [
+                        f"Monthly savings use a {monthly_weeks:g}-week month assumption.",
+                        "Realized savings depend on the supplied savings-per-prevented-delivery estimate.",
+                    ],
+                    "recommendations": [f"Financial decision: {financial_decision}"],
+                    "evidence_references": ["user.prompt.logistics_metrics", "calculator.late_delivery_rate"],
+                    "next_actions": [
+                        "Track prevented late deliveries and realized savings during the first month.",
+                        "Recalculate the decision if loading-delay reduction or per-delivery savings differs materially from the assumptions.",
+                    ],
+                    "summary": summary,
+                }
+                return {
+                    "status": "EXECUTED",
+                    "summary": summary,
+                    "evidence": True,
+                }
+
             top_reasons = list(derived.get("top_delay_reasons") or [])
             if len(top_reasons) > 1:
                 cause_text = f"{top_reasons[0]} and {top_reasons[1]} are tied as top causes"
