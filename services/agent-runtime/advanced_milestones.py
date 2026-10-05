@@ -1521,6 +1521,96 @@ def _resilience_fallback(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _release_readiness(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_checks = payload.get("checks") or []
+    max_checks = max(1, min(int(payload.get("max_checks") or 128), 512))
+
+    if not isinstance(raw_checks, list) or not raw_checks:
+        return AdvancedResult(
+            "release_readiness",
+            AdvancedBoundary.DATA_REQUIRED,
+            "release_checks_required",
+            {},
+            False,
+        )
+
+    selected = raw_checks[:max_checks]
+    seen: set[str] = set()
+    rows: list[dict[str, object]] = []
+    blockers: list[str] = []
+    missing_verified_evidence: list[str] = []
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "release_readiness",
+                AdvancedBoundary.INVALID_INPUT,
+                "release_check_entries_must_be_objects",
+                {},
+                False,
+            )
+
+        check_id = str(raw.get("check_id") or "").strip()
+        category = str(raw.get("category") or "general").strip().lower()
+        required = bool(raw.get("required", True))
+        passed = bool(raw.get("passed", False))
+        verified = bool(raw.get("verified", False))
+
+        if not check_id or check_id in seen:
+            return AdvancedResult(
+                "release_readiness",
+                AdvancedBoundary.INVALID_INPUT,
+                "check_ids_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        seen.add(check_id)
+
+        if required and not passed:
+            blockers.append(check_id)
+        if required and passed and not verified:
+            missing_verified_evidence.append(check_id)
+
+        rows.append(
+            {
+                "check_id": check_id,
+                "category": category,
+                "required": required,
+                "passed": passed,
+                "verified": verified,
+            }
+        )
+
+    if blockers:
+        boundary = AdvancedBoundary.CONFLICT
+        reason = "required_release_checks_failed"
+    elif missing_verified_evidence:
+        boundary = AdvancedBoundary.DATA_REQUIRED
+        reason = "verified_release_evidence_required"
+    else:
+        boundary = AdvancedBoundary.READY
+        reason = "release_readiness_review_ready"
+
+    return AdvancedResult(
+        "release_readiness",
+        boundary,
+        reason,
+        {
+            "check_count": len(rows),
+            "blocker_check_ids": sorted(blockers),
+            "unverified_required_check_ids": sorted(missing_verified_evidence),
+            "checks": rows,
+            "check_limit_enforced": len(raw_checks) <= max_checks,
+            "release_ready": not blockers and not missing_verified_evidence,
+            "deployment_executed": False,
+            "publication_executed": False,
+            "merge_executed": False,
+            "promotion_executed": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -1537,6 +1627,7 @@ _EVALUATORS = {
     "forecast_trend": _forecast_trend,
     "approval_governance": _approval_governance,
     "resilience_fallback": _resilience_fallback,
+    "release_readiness": _release_readiness,
 }
 
 
