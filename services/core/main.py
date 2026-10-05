@@ -128,6 +128,10 @@ from agent_runtime.tool_capability_registry import (
     select_tool as select_registered_tool,
     validate_registry,
 )
+from agent_runtime.platform_manifest import (
+    build_platform_manifest,
+    public_platform_manifest,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -280,7 +284,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.29.0"
+SHY_VERSION = "0.30.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1542,6 +1546,12 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "side_effect_approval_enforcement": True,
             "registry_execution": False,
             "arbitrary_shell_capability": False,
+        },
+        "platform_checkpoint": {
+            "version": "0.30.0",
+            "integrated_manifest": True,
+            "sequence_v020_to_v030_complete": True,
+            "required_disabled_invariants_enforced": True,
         },
     }
 
@@ -3415,6 +3425,17 @@ def startup():
 @app.get("/health")
 async def health():
     return _collect_runtime_health_snapshot()
+
+
+@app.get("/platform/capabilities")
+async def platform_capabilities():
+    manifest = build_platform_manifest(version=SHY_VERSION)
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "platform": public_platform_manifest(manifest),
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.get("/tools/system-health")
