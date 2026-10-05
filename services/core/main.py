@@ -77,6 +77,12 @@ from agent_runtime.voice_computer import (
     public_computer_plan,
     public_voice_metadata,
 )
+from agent_runtime.vision_intelligence import (
+    plan_visual_analysis,
+    public_visual_observation,
+    public_vision_plan,
+    validate_visual_observation,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -229,7 +235,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.22.0"
+SHY_VERSION = "0.23.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1434,6 +1440,14 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "computer_execution": False,
             "state_changing_actions_require_approval": True,
             "arbitrary_shell_execution": False,
+        },
+        "vision_capabilities": {
+            "vision_planning": True,
+            "structured_observation_ingest": True,
+            "raw_image_inference": False,
+            "image_provider_connected": False,
+            "real_person_identity_recognition": False,
+            "visual_provenance_required": True,
         },
     }
 
@@ -2848,6 +2862,26 @@ class ComputerPlanRequest(BaseModel):
     max_steps: int = 8
 
 
+class VisionPlanRequest(BaseModel):
+    prompt: str
+    has_image: bool = False
+    provider_available: bool = False
+
+
+class VisionObservationRequest(BaseModel):
+    source_id: str
+    provider: str
+    mime_type: str
+    width: int
+    height: int
+    summary: str = ""
+    extracted_text: str = ""
+    labels: list[str] = []
+    regions: list[dict[str, Any]] = []
+    contains_people: bool = False
+    provenance_available: bool = True
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3171,6 +3205,58 @@ async def tool_system_health():
         "risk": result.risk,
         "reason": result.reason,
         "output": result.output,
+    }
+
+
+@app.post("/vision/plan")
+async def vision_plan(request: VisionPlanRequest):
+    plan = plan_visual_analysis(
+        request.prompt,
+        has_image=bool(request.has_image),
+        provider_available=bool(request.provider_available),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "vision_plan": public_vision_plan(plan),
+        "raw_image_inference_performed": False,
+        "identity_inference_performed": False,
+        "hidden_reasoning_exposed": False,
+    }
+
+
+@app.post("/vision/observation")
+async def vision_observation(request: VisionObservationRequest):
+    result = validate_visual_observation(
+        source_id=request.source_id,
+        provider=request.provider,
+        mime_type=request.mime_type,
+        width=request.width,
+        height=request.height,
+        summary=request.summary,
+        extracted_text=request.extracted_text,
+        labels=request.labels,
+        regions=request.regions,
+        contains_people=request.contains_people,
+        provenance_available=request.provenance_available,
+    )
+    if not result.accepted or result.observation is None:
+        return {
+            "status": "rejected",
+            "version": SHY_VERSION,
+            "rejected_reason": result.rejected_reason,
+            "observation": None,
+            "identity_inference_performed": False,
+            "hidden_reasoning_exposed": False,
+        }
+
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "rejected_reason": None,
+        "observation": public_visual_observation(result.observation),
+        "identity_inference_performed": False,
+        "hidden_reasoning_exposed": False,
     }
 
 
