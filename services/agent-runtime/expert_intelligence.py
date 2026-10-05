@@ -40,6 +40,12 @@ class ExpertAnswerBoundary(str, Enum):
     AUTHORITATIVE_EVIDENCE_REQUIRED = "AUTHORITATIVE_EVIDENCE_REQUIRED"
 
 
+class ExpertConfidenceBand(str, Enum):
+    LOW = "LOW"
+    MODERATE = "MODERATE"
+    HIGH = "HIGH"
+
+
 @dataclass(frozen=True)
 class ExpertProfile:
     domain: ExpertDomain
@@ -64,6 +70,20 @@ class ExpertDecision:
     confidence_ceiling: float
     matched_signals: tuple[str, ...]
     profile: ExpertProfile
+
+
+@dataclass(frozen=True)
+class ExpertResponseFrame:
+    decision: ExpertAnswerBoundary
+    confidence_band: ExpertConfidenceBand
+    evidence_sources_count: int
+    authoritative_sources_count: int
+    authoritative_sources_sufficient: bool
+    knowledge_boundary: str | None
+    grounding_status: str | None
+    verification_status: str
+    uncertainty_required: bool
+    next_evidence_needed: tuple[str, ...]
 
 
 PROFILES: dict[ExpertDomain, ExpertProfile] = {
@@ -268,6 +288,15 @@ _VERIFICATION_MARKERS = (
 )
 
 
+_AUTHORITATIVE_EXACT_DOMAINS = {
+    "who.int",
+    "finra.org",
+    "europa.eu",
+    "canada.ca",
+    "gov.uk",
+}
+
+
 def _normalize(message: str) -> str:
     return " ".join(str(message or "").lower().split())
 
@@ -276,6 +305,46 @@ def _contains_phrase(text: str, phrase: str) -> bool:
     if " " in phrase or "-" in phrase:
         return phrase in text
     return re.search(rf"\b{re.escape(phrase)}\b", text) is not None
+
+
+def _normalize_domain(value: str) -> str:
+    domain = str(value or "").strip().lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    return domain.split(":", 1)[0]
+
+
+def is_authoritative_research_domain(domain: str) -> bool:
+    normalized = _normalize_domain(domain)
+    if not normalized:
+        return False
+
+    if normalized.endswith(".gov") or normalized.endswith(".mil"):
+        return True
+    if normalized == "gov.uk" or normalized.endswith(".gov.uk"):
+        return True
+    if normalized.endswith(".gov.au"):
+        return True
+    if normalized == "europa.eu" or normalized.endswith(".europa.eu"):
+        return True
+    if normalized == "canada.ca" or normalized.endswith(".canada.ca"):
+        return True
+    if normalized in _AUTHORITATIVE_EXACT_DOMAINS:
+        return True
+    return False
+
+
+def count_authoritative_research_sources(evidence: Iterable[object]) -> int:
+    domains: set[str] = set()
+    for item in evidence or ():
+        if isinstance(item, dict):
+            domain = str(item.get("domain") or item.get("source") or "")
+        else:
+            domain = str(getattr(item, "domain", "") or getattr(item, "source", ""))
+        normalized = _normalize_domain(domain)
+        if normalized and is_authoritative_research_domain(normalized):
+            domains.add(normalized)
+    return len(domains)
 
 
 def _domain_scores(text: str) -> tuple[dict[ExpertDomain, float], dict[ExpertDomain, list[str]]]:
@@ -356,6 +425,7 @@ def select_expert(
     *,
     knowledge_boundary: str | None = None,
     evidence_sources_count: int = 0,
+    authoritative_sources_count: int = 0,
 ) -> ExpertDecision:
     text = _normalize(message)
     domain, domain_confidence, matched_signals = _pick_domain(text)
@@ -365,7 +435,7 @@ def select_expert(
     current_required = any(marker in text for marker in _CURRENT_MARKERS)
     verification_required = profile.verification_required or any(marker in text for marker in _VERIFICATION_MARKERS)
     requires_research = domain == ExpertDomain.RESEARCH or current_required
-    requires_authoritative = risk == ExpertRiskLevel.REGULATED
+    requires_authoritative = risk in {ExpertRiskLevel.HIGH, ExpertRiskLevel.REGULATED}
 
     evidence_requirement = profile.default_evidence_requirement
     if current_required:
@@ -381,7 +451,7 @@ def select_expert(
 
     boundary = _boundary_from_knowledge(knowledge_boundary)
     if boundary is None:
-        if requires_authoritative and evidence_sources_count <= 0:
+        if requires_authoritative and authoritative_sources_count <= 0:
             boundary = ExpertAnswerBoundary.AUTHORITATIVE_EVIDENCE_REQUIRED
         elif requires_research and evidence_sources_count <= 0:
             boundary = ExpertAnswerBoundary.RESEARCH_REQUIRED
@@ -396,7 +466,7 @@ def select_expert(
         confidence_ceiling = min(confidence_ceiling, 0.45)
     elif normalized_boundary in {"DATA_REQUIRED", "INSUFFICIENT_EVIDENCE", "MISSING_KNOWLEDGE"}:
         confidence_ceiling = min(confidence_ceiling, 0.55)
-    elif requires_authoritative and evidence_sources_count <= 0:
+    elif requires_authoritative and authoritative_sources_count <= 0:
         confidence_ceiling = min(confidence_ceiling, 0.5)
     elif requires_research and evidence_sources_count <= 0:
         confidence_ceiling = min(confidence_ceiling, 0.62)
@@ -427,11 +497,13 @@ def apply_expert_response_policy(
     *,
     knowledge_boundary: str | None = None,
     evidence_sources_count: int = 0,
+    authoritative_sources_count: int = 0,
 ) -> tuple[str, ExpertDecision]:
     decision = select_expert(
         message,
         knowledge_boundary=knowledge_boundary,
         evidence_sources_count=evidence_sources_count,
+        authoritative_sources_count=authoritative_sources_count,
     )
 
     normalized_mode = str(response_mode or "direct").strip().lower()
@@ -450,8 +522,111 @@ def apply_expert_response_policy(
     return "direct", decision
 
 
-def public_expert_metadata(decision: ExpertDecision) -> dict[str, object]:
+def _confidence_band(
+    decision: ExpertDecision,
+    *,
+    evidence_sources_count: int,
+    grounding_status: str | None,
+) -> ExpertConfidenceBand:
+    if decision.answer_boundary in {
+        ExpertAnswerBoundary.AUTHORITATIVE_EVIDENCE_REQUIRED,
+        ExpertAnswerBoundary.RESEARCH_REQUIRED,
+        ExpertAnswerBoundary.DATA_REQUIRED,
+        ExpertAnswerBoundary.CLARIFICATION_REQUIRED,
+    }:
+        return ExpertConfidenceBand.LOW
+
+    normalized_grounding = str(grounding_status or "").strip().upper()
+    if (
+        decision.confidence_ceiling >= 0.8
+        and (
+            normalized_grounding == "GROUNDED"
+            or evidence_sources_count >= 2
+            or decision.evidence_requirement in {EvidenceRequirement.NONE, EvidenceRequirement.USER_SUPPLIED}
+        )
+    ):
+        return ExpertConfidenceBand.HIGH
+
+    if decision.confidence_ceiling >= 0.62:
+        return ExpertConfidenceBand.MODERATE
+
+    return ExpertConfidenceBand.LOW
+
+
+def _next_evidence_needed(
+    decision: ExpertDecision,
+    *,
+    authoritative_sources_count: int,
+    verification_status: str,
+) -> tuple[str, ...]:
+    if decision.answer_boundary == ExpertAnswerBoundary.AUTHORITATIVE_EVIDENCE_REQUIRED:
+        return ("authoritative_source",)
+    if decision.answer_boundary == ExpertAnswerBoundary.RESEARCH_REQUIRED:
+        return ("current_external_sources",)
+    if decision.answer_boundary == ExpertAnswerBoundary.DATA_REQUIRED:
+        return ("relevant_authorized_data",)
+    if decision.answer_boundary == ExpertAnswerBoundary.CLARIFICATION_REQUIRED:
+        return ("resolve_conflicting_sources",)
+
+    normalized_verification = str(verification_status or "").strip().upper()
+    if decision.answer_boundary == ExpertAnswerBoundary.VERIFY and normalized_verification != "VERIFIED":
+        return ("independent_verification",)
+
+    if (
+        decision.requires_authoritative_sources
+        and authoritative_sources_count <= 0
+    ):
+        return ("authoritative_source",)
+
+    return ()
+
+
+def build_expert_response_frame(
+    decision: ExpertDecision,
+    *,
+    evidence_sources_count: int = 0,
+    authoritative_sources_count: int = 0,
+    knowledge_boundary: str | None = None,
+    grounding_status: str | None = None,
+    verification_status: str = "NOT_RUN",
+) -> ExpertResponseFrame:
+    authoritative_sufficient = (
+        not decision.requires_authoritative_sources
+        or authoritative_sources_count > 0
+    )
+    band = _confidence_band(
+        decision,
+        evidence_sources_count=max(0, int(evidence_sources_count)),
+        grounding_status=grounding_status,
+    )
+    next_needed = _next_evidence_needed(
+        decision,
+        authoritative_sources_count=max(0, int(authoritative_sources_count)),
+        verification_status=verification_status,
+    )
+    return ExpertResponseFrame(
+        decision=decision.answer_boundary,
+        confidence_band=band,
+        evidence_sources_count=max(0, int(evidence_sources_count)),
+        authoritative_sources_count=max(0, int(authoritative_sources_count)),
+        authoritative_sources_sufficient=authoritative_sufficient,
+        knowledge_boundary=(str(knowledge_boundary) if knowledge_boundary else None),
+        grounding_status=(str(grounding_status) if grounding_status else None),
+        verification_status=str(verification_status or "NOT_RUN"),
+        uncertainty_required=(
+            decision.answer_boundary != ExpertAnswerBoundary.ANSWER
+            or band != ExpertConfidenceBand.HIGH
+        ),
+        next_evidence_needed=next_needed,
+    )
+
+
+def public_expert_metadata(
+    decision: ExpertDecision,
+    response_frame: ExpertResponseFrame | None = None,
+) -> dict[str, object]:
     # Do not expose classifier markers or internal matching rationale.
+    frame = response_frame or build_expert_response_frame(decision)
     return {
         "domain": decision.domain.value,
         "domain_confidence": decision.domain_confidence,
@@ -464,6 +639,18 @@ def public_expert_metadata(decision: ExpertDecision) -> dict[str, object]:
         "confidence_ceiling": decision.confidence_ceiling,
         "expert_role": decision.profile.default_model_role,
         "max_assumptions": decision.profile.max_assumptions,
+        "response_frame": {
+            "decision": frame.decision.value,
+            "confidence_band": frame.confidence_band.value,
+            "evidence_sources_count": frame.evidence_sources_count,
+            "authoritative_sources_count": frame.authoritative_sources_count,
+            "authoritative_sources_sufficient": frame.authoritative_sources_sufficient,
+            "knowledge_boundary": frame.knowledge_boundary,
+            "grounding_status": frame.grounding_status,
+            "verification_status": frame.verification_status,
+            "uncertainty_required": frame.uncertainty_required,
+            "next_evidence_needed": list(frame.next_evidence_needed),
+        },
     }
 
 
