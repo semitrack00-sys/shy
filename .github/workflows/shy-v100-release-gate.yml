@@ -84,3 +84,49 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Browser voice and history acceptance (fixtures)
         run: node acceptance-artifacts/voice-acceptance.cjs
+
+  local_speech:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r services/core/requirements.txt
+      - name: Checkout pinned local speech engine
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: 927cfce34f31707e17f2bff35c349632fb9e2c3a
+          path: .speech-engine
+          persist-credentials: false
+      - name: Build CPU speech server
+        run: |
+          cmake -S .speech-engine -B .speech-engine/build -DGGML_CUDA=OFF -DGGML_NATIVE=OFF
+          cmake --build .speech-engine/build --config Release --target whisper-server -j 2
+      - name: Download multilingual tiny model for one acoustic smoke case
+        working-directory: .speech-engine
+        run: bash models/download-ggml-model.sh tiny
+      - name: Start speech server and verify real audio
+        env:
+          SHY_WHISPER_URL: http://127.0.0.1:8178
+        run: |
+          .speech-engine/build/bin/whisper-server -m .speech-engine/models/ggml-tiny.bin --host 127.0.0.1 --port 8178 -ng > .speech-engine/server.log 2>&1 &
+          speech_pid=$!
+          trap 'kill "$speech_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 60); do
+            if curl --silent http://127.0.0.1:8178/ > /dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then echo "Speech server readiness failed"; exit 1; fi
+          python scripts/check_local_speech.py --audio .speech-engine/samples/jfk.wav --language en --expected-substring "ask not"
+      - name: Speech diagnostics
+        if: failure()
+        run: tail -n 80 .speech-engine/server.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shy-local-speech-smoke
+          path: .validation/local-speech-smoke.json

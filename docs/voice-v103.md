@@ -7,7 +7,8 @@ and speech synthesis APIs; it does not install a speech model in the core.
 ## Use it on the Windows SHY computer
 
 Update and validate the candidate core using the existing isolated Windows guide.
-The current runtime version is 0.103.0. In the matching checkout, run:
+This page describes the v0.103 browser path. The current runtime is v0.105; see
+[local microphone setup](local-voice-v105.md) for the additional audio path. In the matching checkout, run:
 
 ```powershell
 Set-Location C:\SHY-v100\apps\web
@@ -46,7 +47,9 @@ Changing conversations resets session voice settings and cancels queued audio.
 Hiding the page or leaving the component cancels recording/playback. Typed chat
 remains usable when speech is unavailable or permission is denied.
 
-SHY does not receive or persist raw microphone audio. A browser service may process
+The browser-recognition path does not send raw audio to SHY. The optional local
+engine path introduced in v0.104 sends bounded WAV to the core, without core audio
+persistence. A browser service may process
 audio or text externally when permitted. Transcripts are stored with your chat in
 this browser after you send them, using existing history behavior. Local recognition
 is conditional on browser support and language packs; offline operation is not
@@ -62,9 +65,8 @@ interruption, and conversation changes. They use browser API fixtures. The relea
 gate separately validates the packaged core and existing utility endpoints.
 
 Real microphone recognition, installed voices, audio quality, Windows behavior,
-and GPU speech performance must be checked on the target computer. Microphone
-selection, automatic language detection, wake words, and hands-free mode remain
-unimplemented. The full [v0.101–v0.200 roadmap](roadmap-v101-v200.md) records each
+and GPU speech performance must be checked on the target computer. Microphone selection and local-engine automatic language detection are added in
+v0.104–v0.105. Wake words and hands-free mode remain unimplemented. The full [v0.101–v0.200 roadmap](roadmap-v101-v200.md) records each
 feature's actual status.
 
 API references: [SpeechRecognition](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition)

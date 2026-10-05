@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShyVoice } from '@/components/shy-voice';
 import type { ChatMessage } from '@/lib/types';
 import { FakeRecognition, FakeUtterance, fakeWindow } from './voice-fixtures';
+vi.mock('@/components/shy-local-voice', () => ({ ShyLocalVoice: () => null }));
 
 let synthesis: ReturnType<typeof fakeWindow>['synthesis'];
 beforeEach(() => {

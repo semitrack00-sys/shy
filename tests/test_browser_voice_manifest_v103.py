@@ -13,7 +13,7 @@ spec.loader.exec_module(manifest)
 
 class VoiceManifestTests(unittest.TestCase):
     def test_current_voice_sequence_and_core_audio_boundary(self):
-        current = manifest.build_platform_manifest()
+        current = manifest.build_platform_manifest(version="0.103.0")
         self.assertEqual(current.version, "0.103.0")
         self.assertTrue(current.sequence_complete)
         self.assertTrue(current.required_disabled_invariants_hold)
