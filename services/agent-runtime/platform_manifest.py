@@ -39,6 +39,7 @@ _REQUIRED_SEQUENCE = (
     "0.28.0",
     "0.29.0",
     "0.30.0",
+    "0.31.0",
 )
 
 
@@ -60,6 +61,7 @@ _DEFAULT_CAPABILITIES = (
     PlatformCapability("arbitrary_shell_execution", "0.30.0", CapabilityState.DISABLED, "explicitly_denied"),
     PlatformCapability("real_person_identity_recognition", "0.30.0", CapabilityState.DISABLED, "not_supported"),
     PlatformCapability("autonomous_security_policy_rewrite", "0.30.0", CapabilityState.DISABLED, "protected_policy"),
+    PlatformCapability("temporal_intelligence", "0.31.0", CapabilityState.BOUNDED, "planning_only_no_external_schedule_creation"),
 )
 
 
@@ -72,13 +74,13 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 
 def build_platform_manifest(
     *,
-    version: str = "0.30.0",
+    version: str = "0.31.0",
     capabilities: Sequence[PlatformCapability] = _DEFAULT_CAPABILITIES,
 ) -> PlatformManifest:
     current = _version_tuple(version)
     ordered = tuple(sorted(capabilities, key=lambda item: (_version_tuple(item.introduced_version), item.capability_id)))
     introduced = {item.introduced_version for item in ordered if _version_tuple(item.introduced_version) <= current}
-    sequence_complete = all(item in introduced or item == "0.30.0" for item in _REQUIRED_SEQUENCE[:-1])
+    sequence_complete = all(item in introduced for item in _REQUIRED_SEQUENCE)
 
     by_id = {item.capability_id: item for item in ordered}
     required_disabled = (
