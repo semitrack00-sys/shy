@@ -1,6 +1,7 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
+import { searchConversations } from '@/lib/chat-state';
 import type { ConversationThread } from '@/lib/types';
 import { ShyStatus } from './shy-status';
 
@@ -29,6 +30,8 @@ export function ShySidebar({
   health,
   loadingHealth,
 }: ShySidebarProps) {
+  const [query, setQuery] = useState('');
+  const visible = searchConversations(conversations, query);
   return (
     <aside className="shy-sidebar" data-open={open} aria-label="Conversation sidebar">
       <div className="shy-brand">
@@ -62,7 +65,11 @@ export function ShySidebar({
           <h2>History</h2>
         </div>
         <div className="shy-thread-list">
-          {conversations.map((conversation) => (
+          <label htmlFor="shy-history-search">Search conversations</label>
+          <input id="shy-history-search" type="search" value={query} maxLength={200}
+            onChange={event => setQuery(event.target.value)} placeholder="Search titles and messages" />
+          {visible.length === 0 && <p className="shy-muted">No matching conversations.</p>}
+          {visible.map((conversation) => (
             <button
               key={conversation.id}
               type="button"

@@ -1,4 +1,4 @@
-name: SHY v0.100 Release Gate
+name: SHY Current Release Gate
 
 on:
   push:
@@ -81,3 +81,6 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high
+      - run: npx playwright install --with-deps chromium
+      - name: Browser voice and history acceptance (fixtures)
+        run: node acceptance-artifacts/voice-acceptance.cjs

@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -46,7 +47,8 @@ def main() -> int:
         if path.is_file():
             fingerprint.update(relative.encode() + b"\0" + path.read_bytes() + b"\0")
     failed = [x["script"] for x in results if x["status"] != "passed"]
-    report = {"version": "0.100.0", "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "source_sha256": fingerprint.hexdigest(), "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()), "python": sys.version, "script_count": len(results), "passed_count": len(results) - len(failed), "failed_scripts": failed, "excluded": excluded, "results": results, "real_model_quality_measured": False}
+    version = re.search(r'SHY_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)"', (ROOT / "services/core/main.py").read_text()).group(1)
+    report = {"version": version, "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "source_sha256": fingerprint.hexdigest(), "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()), "python": sys.version, "script_count": len(results), "passed_count": len(results) - len(failed), "failed_scripts": failed, "excluded": excluded, "results": results, "real_model_quality_measured": False}
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Release validation: {report['passed_count']}/{len(results)} scripts passed; {len(excluded)} external/versioned scripts excluded.")

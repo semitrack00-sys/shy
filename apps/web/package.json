@@ -1,7 +1,7 @@
 {
   "name": "shy-web",
   "private": true,
-  "version": "0.100.0",
+  "version": "0.103.0",
   "type": "module",
   "scripts": {
     "dev": "next dev",
@@ -28,6 +28,7 @@
     "eslint": "9.39.5",
     "eslint-config-next": "15.5.27",
     "jsdom": "25.0.1",
+    "playwright": "1.61.0",
     "typescript": "5.7.3",
     "vitest": "4.1.11"
   },

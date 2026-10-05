@@ -16,7 +16,7 @@ class RegistryTests(unittest.TestCase):
     def test_fifty_real_handlers_match_manifest_and_versions(self):
         self.assertEqual([x[0] for x in CAPABILITIES], list(range(51, 101)))
         self.assertEqual(len({x[1] for x in CAPABILITIES}), 50)
-        current = manifest.build_platform_manifest()
+        current = manifest.build_platform_manifest(version="0.100.0")
         self.assertEqual(current.version, "0.100.0")
         self.assertTrue(current.sequence_complete)
         self.assertTrue(current.required_disabled_invariants_hold)
