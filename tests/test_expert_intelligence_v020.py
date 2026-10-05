@@ -254,6 +254,43 @@ _assert("matched_signals" not in public_frame, "response frame must not leak cla
 print("public expert response frame: PASS")
 
 
+software_playbook = expert.get_expert_playbook(expert.ExpertDomain.SOFTWARE_ENGINEERING)
+_assert(software_playbook.playbook_id == "software-engineering-v1", "software playbook id must be stable")
+_assert("security" in software_playbook.evaluation_dimensions, "software playbook must evaluate security")
+_assert("testability" in software_playbook.evaluation_dimensions, "software playbook must evaluate testability")
+_assert(any("rollback" in item for item in software_playbook.mandatory_checks), "software playbook must consider rollback")
+print("software expert playbook contract: PASS")
+
+
+logistics_playbook = expert.get_expert_playbook(expert.ExpertDomain.LOGISTICS)
+_assert("throughput" in logistics_playbook.evaluation_dimensions, "logistics playbook must evaluate throughput")
+_assert("service reliability" in logistics_playbook.evaluation_dimensions, "logistics playbook must evaluate service reliability")
+_assert(any("bottleneck" in item for item in logistics_playbook.mandatory_checks), "logistics playbook must identify bottlenecks")
+print("logistics expert playbook contract: PASS")
+
+
+finance_playbook = expert.get_expert_playbook(expert.ExpertDomain.FINANCIAL_ANALYSIS)
+_assert("cash flow" in finance_playbook.evaluation_dimensions, "finance playbook must evaluate cash flow")
+_assert("break-even" in finance_playbook.evaluation_dimensions, "finance playbook must evaluate break-even")
+_assert(any("sensitivity" in item for item in finance_playbook.mandatory_checks), "finance playbook must require sensitivity")
+print("finance expert playbook contract: PASS")
+
+
+guidance = expert.expert_generation_guidance(software)
+_assert("EXPERT PLAYBOOK: SOFTWARE_ENGINEERING" in guidance, "generation guidance must identify the selected domain")
+_assert("correctness" in guidance and "security" in guidance and "testability" in guidance, "generation guidance must contain domain evaluation dimensions")
+_assert("hidden reasoning" in guidance.lower(), "generation guidance must explicitly keep hidden reasoning private")
+_assert("step by step" not in guidance.lower(), "playbook must not request chain-of-thought style output")
+_assert("chain-of-thought" in guidance.lower(), "playbook must explicitly prohibit chain-of-thought exposure")
+print("expert generation guidance safety: PASS")
+
+
+playbook_metadata = expert.public_expert_metadata(software)
+_assert(playbook_metadata.get("playbook_id") == "software-engineering-v1", "public expert metadata must expose stable playbook id")
+_assert("evaluation_dimensions" not in playbook_metadata, "public metadata should stay compact instead of exposing internal prompt details")
+print("public expert playbook metadata: PASS")
+
+
 domains = expert.supported_expert_domains()
 _assert("GENERAL" in domains and "LOGISTICS" in domains and "SOFTWARE_ENGINEERING" in domains, "supported domains should be inspectable")
 _assert(len(domains) == len(set(domains)), "supported domains should not contain duplicates")
