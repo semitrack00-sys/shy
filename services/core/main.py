@@ -88,6 +88,12 @@ from agent_runtime.multimodal_intelligence import (
     fuse_evidence,
     public_fusion_metadata,
 )
+from agent_runtime.goal_orchestration import (
+    GoalMilestone,
+    advance_goal,
+    build_goal_plan,
+    public_goal_plan,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -240,7 +246,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.24.0"
+SHY_VERSION = "0.25.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1462,6 +1468,14 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "max_sources": 32,
             "raw_audio": False,
             "raw_image_inference": False,
+        },
+        "goal_capabilities": {
+            "bounded_planning": True,
+            "dependency_tracking": True,
+            "approval_pauses": True,
+            "resumable_state": True,
+            "persistent_goal_state": False,
+            "unrestricted_autonomy": False,
         },
     }
 
@@ -2910,6 +2924,28 @@ class MultimodalFuseRequest(BaseModel):
     max_sources: int = 12
 
 
+class GoalMilestoneRequest(BaseModel):
+    name: str
+    description: str
+    state_changing: bool = False
+    dependencies: list[int] = []
+
+
+class GoalPlanRequest(BaseModel):
+    objective: str
+    milestones: list[GoalMilestoneRequest]
+    max_steps: int = 12
+
+
+class GoalAdvanceRequest(BaseModel):
+    objective: str
+    milestones: list[GoalMilestoneRequest]
+    max_steps: int = 12
+    completed_step_ids: list[int] = []
+    approved_step_ids: list[int] = []
+    cancel: bool = False
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3234,6 +3270,40 @@ async def tool_system_health():
         "reason": result.reason,
         "output": result.output,
     }
+
+
+def _goal_plan_from_request(objective: str, milestones: list[GoalMilestoneRequest], max_steps: int):
+    return build_goal_plan(
+        objective,
+        tuple(
+            GoalMilestone(
+                name=item.name,
+                description=item.description,
+                state_changing=bool(item.state_changing),
+                dependencies=tuple(int(dep) for dep in item.dependencies),
+            )
+            for item in milestones
+        ),
+        max_steps=max(1, min(int(max_steps), 24)),
+    )
+
+
+@app.post("/goal/plan")
+async def goal_plan(request: GoalPlanRequest):
+    plan = _goal_plan_from_request(request.objective, request.milestones, request.max_steps)
+    return {"status":"ok","version":SHY_VERSION,"goal":public_goal_plan(plan),"execution_performed":False,"hidden_reasoning_exposed":False}
+
+
+@app.post("/goal/advance")
+async def goal_advance(request: GoalAdvanceRequest):
+    plan = _goal_plan_from_request(request.objective, request.milestones, request.max_steps)
+    advanced = advance_goal(
+        plan,
+        completed_step_ids=request.completed_step_ids,
+        approved_step_ids=request.approved_step_ids,
+        cancel=bool(request.cancel),
+    )
+    return {"status":"ok","version":SHY_VERSION,"goal":public_goal_plan(advanced),"execution_performed":False,"hidden_reasoning_exposed":False}
 
 
 @app.post("/multimodal/fuse")
