@@ -53,6 +53,24 @@ from agent_runtime.expert_intelligence import (
     public_expert_metadata,
     select_expert,
 )
+from agent_runtime.decision_intelligence import (
+    CriterionDirection,
+    DecisionCriterion,
+    DecisionFeedback,
+    DecisionOption,
+    DecisionScenario,
+    LearningPolicy,
+    OutcomeVerification,
+    StrategyOption,
+    VerifiedOutcome,
+    analyze_decision,
+    apply_explicit_feedback,
+    compare_strategies,
+    derive_learning_signal,
+    public_decision_metadata,
+    public_learning_metadata,
+    simulate_strategies,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -205,7 +223,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.20.0"
+SHY_VERSION = "0.21.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
