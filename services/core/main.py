@@ -307,7 +307,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.50.0"
+SHY_VERSION = "0.100.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1418,6 +1418,11 @@ app = FastAPI(
     description="SHY AI Core"
 )
 
+from intelligence_api import IntelligenceBodyLimit, router as intelligence_router
+
+app.include_router(intelligence_router)
+app.add_middleware(IntelligenceBodyLimit)
+
 OLLAMA_URL = os.getenv(
     "OLLAMA_URL",
     "http://127.0.0.1:11434"
@@ -1590,6 +1595,13 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "protected_scope_denial": True,
             "task_dispatch": False,
             "permission_expansion": False,
+        },
+        "intelligence_utilities": {
+            "version": SHY_VERSION,
+            "capability_count": 50,
+            "stateless_supplied_data_only": True,
+            "external_execution": False,
+            "persistent_change_applied": False,
         },
         "advanced_capabilities": {
             "available": list(available_advanced_capabilities()),
