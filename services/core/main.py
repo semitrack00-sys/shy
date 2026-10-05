@@ -119,6 +119,15 @@ from agent_runtime.reliability_intelligence import (
     public_calibration_report,
     public_reliability_report,
 )
+from agent_runtime.tool_capability_registry import (
+    ToolCapability as RegisteredToolCapability,
+    ToolPermission as RegistryToolPermission,
+    ToolRisk as RegistryToolRisk,
+    public_tool_registry,
+    public_tool_selection,
+    select_tool as select_registered_tool,
+    validate_registry,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -271,7 +280,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.28.0"
+SHY_VERSION = "0.29.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1525,6 +1534,14 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "self_certification": False,
             "hidden_reasoning_required": False,
             "automatic_self_modification": False,
+        "tool_registry_capabilities": {
+            "capability_selection": True,
+            "scope_filtering": True,
+            "risk_ranking": True,
+            "side_effect_approval_enforcement": True,
+            "registry_execution": False,
+            "arbitrary_shell_capability": False,
+        },
         },
     }
 
@@ -3067,6 +3084,27 @@ class ReliabilityCalibrationRequest(BaseModel):
     max_samples: int = 500
 
 
+class RegisteredToolRequest(BaseModel):
+    tool_id: str
+    capabilities: list[str]
+    permission: str
+    risk: str
+    scopes: list[str]
+    side_effects: bool = False
+    available: bool = True
+
+
+class ToolRegistryValidateRequest(BaseModel):
+    tools: list[RegisteredToolRequest]
+    max_tools: int = 128
+
+
+class ToolRegistrySelectRequest(ToolRegistryValidateRequest):
+    capability: str
+    scope: str
+    max_candidates: int = 8
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3430,6 +3468,61 @@ def _graph_from_request(request: GraphBuildRequest):
         max_nodes=max(1,min(int(request.max_nodes),1000)),
         max_edges=max(1,min(int(request.max_edges),2000)),
     )
+
+
+def _registered_tools_from_request(items: list[RegisteredToolRequest]):
+    try:
+        return tuple(
+            RegisteredToolCapability(
+                tool_id=item.tool_id,
+                capabilities=tuple(item.capabilities),
+                permission=RegistryToolPermission(str(item.permission).strip().upper()),
+                risk=RegistryToolRisk(str(item.risk).strip().upper()),
+                scopes=tuple(item.scopes),
+                side_effects=bool(item.side_effects),
+                available=bool(item.available),
+            )
+            for item in items
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Unsupported tool registry permission or risk.") from exc
+
+
+@app.post("/tool-registry/validate")
+async def tool_registry_validate(request: ToolRegistryValidateRequest):
+    result = validate_registry(
+        _registered_tools_from_request(request.tools),
+        max_tools=max(1, min(int(request.max_tools), 512)),
+    )
+    return {
+        "status": "ok" if result.accepted else "rejected",
+        "version": SHY_VERSION,
+        "registry": public_tool_registry(result),
+        "execution_performed": False,
+        "hidden_reasoning_exposed": False,
+    }
+
+
+@app.post("/tool-registry/select")
+async def tool_registry_select(request: ToolRegistrySelectRequest):
+    registry = validate_registry(
+        _registered_tools_from_request(request.tools),
+        max_tools=max(1, min(int(request.max_tools), 512)),
+    )
+    selection = select_registered_tool(
+        registry,
+        capability=request.capability,
+        scope=request.scope,
+        max_candidates=max(1, min(int(request.max_candidates), 32)),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "registry": public_tool_registry(registry),
+        "selection": public_tool_selection(selection),
+        "execution_performed": False,
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.post("/reliability/evaluate")
