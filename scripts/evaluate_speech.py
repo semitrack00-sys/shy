@@ -100,7 +100,8 @@ def evaluate_cases(cases, max_wer: float, min_cases: int):
                                and wer is not None and wer <= max_wer}
     return {"passed": all(item["passed"] for item in languages.values()), "languages": languages,
             "cases": results, "max_wer_requested": max_wer, "min_cases_per_language": min_cases,
-            "real_audio_inference": True, "gpu_verified": False,
+            "real_audio_inference": any(case["http_status"] == 200 for case in results),
+            "inference_requests_attempted": len(results), "gpu_verified": False,
             "representativeness_independently_verified": False,
             "full_transcripts_and_audio_stored_in_report": False}
 
