@@ -883,6 +883,93 @@ def _compliance_policy(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _incident_triage(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_incidents = payload.get("incidents") or []
+    max_incidents = max(1, min(int(payload.get("max_incidents") or 64), 256))
+
+    if not isinstance(raw_incidents, list) or not raw_incidents:
+        return AdvancedResult(
+            "incident_triage",
+            AdvancedBoundary.DATA_REQUIRED,
+            "incidents_required",
+            {},
+            False,
+        )
+
+    severity_weight = {
+        "LOW": 1,
+        "MEDIUM": 2,
+        "HIGH": 3,
+        "CRITICAL": 4,
+    }
+    selected = raw_incidents[:max_incidents]
+    seen: set[str] = set()
+    rows: list[dict[str, object]] = []
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "incident_triage",
+                AdvancedBoundary.INVALID_INPUT,
+                "incident_entries_must_be_objects",
+                {},
+                False,
+            )
+
+        incident_id = str(raw.get("incident_id") or "").strip()
+        severity = str(raw.get("severity") or "").strip().upper()
+        confidence = max(0.0, min(1.0, float(raw.get("confidence") or 0.0)))
+        affected = max(0, int(raw.get("affected_units") or 0))
+
+        if not incident_id or incident_id in seen:
+            return AdvancedResult(
+                "incident_triage",
+                AdvancedBoundary.INVALID_INPUT,
+                "incident_ids_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        if severity not in severity_weight:
+            return AdvancedResult(
+                "incident_triage",
+                AdvancedBoundary.INVALID_INPUT,
+                "severity_must_be_low_medium_high_or_critical",
+                {"incident_id": incident_id},
+                False,
+            )
+
+        seen.add(incident_id)
+        score = severity_weight[severity] * 1000 + affected * 2 + int(confidence * 100)
+        rows.append(
+            {
+                "incident_id": incident_id,
+                "severity": severity,
+                "confidence": round(confidence, 6),
+                "affected_units": affected,
+                "priority_score": score,
+                "escalation_required": severity in {"HIGH", "CRITICAL"},
+            }
+        )
+
+    ranked = sorted(rows, key=lambda row: (-int(row["priority_score"]), str(row["incident_id"])))
+    return AdvancedResult(
+        "incident_triage",
+        AdvancedBoundary.READY,
+        "incident_triage_ready",
+        {
+            "incident_count": len(ranked),
+            "priority_order": [str(row["incident_id"]) for row in ranked],
+            "incidents": ranked,
+            "incident_limit_enforced": len(raw_incidents) <= max_incidents,
+            "remediation_executed": False,
+            "service_restarted": False,
+            "notification_sent": False,
+            "human_escalation_dispatched": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -892,6 +979,7 @@ _EVALUATORS = {
     "business_operations": _business_operations,
     "financial_planning": _financial_planning,
     "compliance_policy": _compliance_policy,
+    "incident_triage": _incident_triage,
 }
 
 
