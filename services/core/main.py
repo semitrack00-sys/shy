@@ -44,7 +44,7 @@ from tools.gateway import ToolGateway
 from tools.contracts import PermissionLevel, ToolDefinition, ToolRequest
 from agent_runtime.runtime import AgentRuntime
 from agent_runtime.task_engine import TaskEngine
-from agent_runtime.expert_intelligence import public_expert_metadata, select_expert
+from agent_runtime.expert_intelligence import apply_expert_response_policy, public_expert_metadata, select_expert
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -3641,6 +3641,10 @@ async def chat(request: ChatRequest):
         return await _handle_chat_tool_request(request, conversation_id, route, tool_decision)
 
     response_mode = apply_adaptive_response_policy(route, request.message)
+    response_mode, _expert_runtime_decision = apply_expert_response_policy(
+        request.message,
+        response_mode,
+    )
     model_routing_metadata: dict[str, Any] | None = None
 
     if response_mode == "research":
