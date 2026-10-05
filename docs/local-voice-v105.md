@@ -33,11 +33,11 @@ Start the executable from its actual build output location. Visual Studio builds
 normally place it under `build\bin\Release`; other generators may use `build\bin`:
 
 ```powershell
-.\build\bin\Release\whisper-server.exe -m .\models\ggml-base.bin --host 127.0.0.1 --port 8178 -nc
+.\build\bin\Release\whisper-server.exe -m .\models\ggml-base.bin --host 127.0.0.1 --port 8178
 ```
 
-Use the model path actually downloaded. `-nc` prevents prior audio context carrying
-into later requests. Do not enable `--convert`: SHY sends validated PCM WAV, avoiding
+Use the model path actually downloaded. The pinned server defaults to
+`no_context=true`; it does not accept the newer `-nc` CLI flag. Do not enable `--convert`: SHY sends validated PCM WAV, avoiding
 ffmpeg conversion and its temporary files. Keep the server on loopback and run
 without administrator privileges. Review the engine's own logging and retention.
 

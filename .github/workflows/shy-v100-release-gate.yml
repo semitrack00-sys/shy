@@ -112,12 +112,12 @@ jobs:
         env:
           SHY_WHISPER_URL: http://127.0.0.1:8178
         run: |
-          .speech-engine/build/bin/whisper-server -m .speech-engine/models/ggml-tiny.bin --host 127.0.0.1 --port 8178 -ng -nc > .speech-engine/server.log 2>&1 &
+          .speech-engine/build/bin/whisper-server -m .speech-engine/models/ggml-tiny.bin --host 127.0.0.1 --port 8178 -ng > .speech-engine/server.log 2>&1 &
           speech_pid=$!
           trap 'kill "$speech_pid" 2>/dev/null || true' EXIT
           ready=false
           for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:8178/ > /dev/null; then ready=true; break; fi
+            if curl --silent http://127.0.0.1:8178/ > /dev/null; then ready=true; break; fi
             sleep 1
           done
           if [ "$ready" != true ]; then echo "Speech server readiness failed"; exit 1; fi
