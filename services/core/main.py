@@ -1108,14 +1108,25 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
     ollama_connected = False
     database_connected = False
     local_model_available = False
+    installed_ollama_models: set[str] = set()
 
     try:
         async_client = httpx.Client(timeout=5.0)
         with async_client as client:
             response = client.get(f"{OLLAMA_URL}/api/tags")
             ollama_connected = response.is_success
-    except httpx.HTTPError:
+            if ollama_connected:
+                payload = response.json()
+                for item in payload.get("models", []) if isinstance(payload, dict) else []:
+                    if not isinstance(item, dict):
+                        continue
+                    for key in ("name", "model"):
+                        value = str(item.get(key) or "").strip()
+                        if value:
+                            installed_ollama_models.add(value)
+    except (httpx.HTTPError, ValueError, TypeError):
         ollama_connected = False
+        installed_ollama_models = set()
 
     try:
         with connect() as conn:
@@ -1129,15 +1140,20 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
     try:
         local_profile = router.registry.get_model(LOCAL_MODEL)
         provider_health = router.registry.provider_health(local_profile.provider_id)
-        local_model_available = bool(local_profile.enabled) and str(provider_health.status.value) in {
+        registry_available = bool(local_profile.enabled) and str(provider_health.status.value) in {
             "HEALTHY",
             "DEGRADED",
             "UNKNOWN",
         }
+        local_model_available = (
+            ollama_connected
+            and registry_available
+            and LOCAL_MODEL in installed_ollama_models
+        )
     except Exception:
         local_model_available = False
 
-    application_healthy = database_connected and local_model_available
+    application_healthy = database_connected and ollama_connected and local_model_available
     status = "ok" if application_healthy else "degraded"
 
     return {
