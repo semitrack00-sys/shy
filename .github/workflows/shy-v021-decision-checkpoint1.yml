@@ -47,10 +47,13 @@ jobs:
         run: |
           python -m py_compile \
             services/agent-runtime/decision_intelligence.py \
-            tests/test_decision_intelligence_v021.py
+            tests/test_decision_intelligence_v021.py \
+            tests/test_learning_decision_v021.py
 
       - name: Run decision intelligence checkpoint
-        run: python tests/test_decision_intelligence_v021.py
+        run: |
+          python tests/test_decision_intelligence_v021.py
+          python tests/test_learning_decision_v021.py
 
       - name: Run protected regressions
         shell: bash
