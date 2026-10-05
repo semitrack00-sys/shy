@@ -71,6 +71,12 @@ from agent_runtime.decision_intelligence import (
     public_learning_metadata,
     simulate_strategies,
 )
+from agent_runtime.voice_computer import (
+    build_computer_plan,
+    interpret_voice_utterance,
+    public_computer_plan,
+    public_voice_metadata,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -223,7 +229,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.21.0"
+SHY_VERSION = "0.22.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1420,6 +1426,15 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
         },
         "model_routing": _model_routing_health_snapshot(),
         "durable_memory": _durable_memory_health_snapshot(),
+        "interaction_capabilities": {
+            "voice_transcript_interpretation": True,
+            "audio_capture": False,
+            "speech_to_text_provider": False,
+            "computer_planning": True,
+            "computer_execution": False,
+            "state_changing_actions_require_approval": True,
+            "arbitrary_shell_execution": False,
+        },
     }
 
 
@@ -2824,6 +2839,15 @@ class AgentRequest(BaseModel):
     business_id: str | None = None
 
 
+class VoiceInterpretRequest(BaseModel):
+    transcript: str
+
+
+class ComputerPlanRequest(BaseModel):
+    objective: str
+    max_steps: int = 8
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3147,6 +3171,35 @@ async def tool_system_health():
         "risk": result.risk,
         "reason": result.reason,
         "output": result.output,
+    }
+
+
+@app.post("/voice/interpret")
+async def voice_interpret(request: VoiceInterpretRequest):
+    result = interpret_voice_utterance(request.transcript)
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "voice": public_voice_metadata(result),
+        "audio_processed": False,
+        "computer_execution_performed": False,
+        "hidden_reasoning_exposed": False,
+    }
+
+
+@app.post("/computer/plan")
+async def computer_plan(request: ComputerPlanRequest):
+    plan = build_computer_plan(
+        request.objective,
+        max_steps=max(1, min(int(request.max_steps), 12)),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "computer_plan": public_computer_plan(plan),
+        "execution_performed": False,
+        "approval_token_created": False,
+        "hidden_reasoning_exposed": False,
     }
 
 
