@@ -2800,6 +2800,56 @@ class FakeProviderControlRequest(BaseModel):
     health: str | None = None
 
 
+class DecisionCriterionRequest(BaseModel):
+    name: str
+    weight: float
+    direction: str = "HIGHER_IS_BETTER"
+    required: bool = True
+
+
+class DecisionOptionRequest(BaseModel):
+    name: str
+    metrics: dict[str, float]
+    evidence_quality: float = 0.7
+    hard_constraints_satisfied: bool = True
+
+
+class DecisionAnalyzeRequest(BaseModel):
+    criteria: list[DecisionCriterionRequest]
+    options: list[DecisionOptionRequest]
+    evidence_quality: float = 0.7
+
+
+class DecisionScenarioRequest(BaseModel):
+    name: str
+    probability: float
+    option_metric_deltas: dict[str, dict[str, float]]
+
+
+class DecisionSimulateRequest(BaseModel):
+    criteria: list[DecisionCriterionRequest]
+    options: list[DecisionOptionRequest]
+    scenarios: list[DecisionScenarioRequest]
+    max_scenarios: int = 12
+
+
+class LearningEvaluateRequest(BaseModel):
+    decision_id: str
+    strategy_name: str
+    target_criterion: str
+    predicted_score: float
+    observed_score: float
+    verification: str
+    evidence_ids: list[str] = []
+
+
+class DecisionFeedbackPreviewRequest(BaseModel):
+    criteria: list[DecisionCriterionRequest]
+    explicit: bool
+    criterion_adjustments: dict[str, float]
+    note: str = ""
+
+
 class TestingKnowledgeScopeRequest(BaseModel):
     user_id: str | None = None
     workspace_id: str
@@ -2833,6 +2883,56 @@ class TestingKnowledgeRetrieveRequest(BaseModel):
     require_authoritative: bool = False
     requires_external_research: bool = False
     dependency_unavailable: bool = False
+
+
+def _parse_decision_direction(value: str) -> CriterionDirection:
+    normalized = str(value or "").strip().upper()
+    aliases = {
+        "HIGHER_IS_BETTER": CriterionDirection.HIGHER_IS_BETTER,
+        "BENEFIT": CriterionDirection.HIGHER_IS_BETTER,
+        "LOWER_IS_BETTER": CriterionDirection.LOWER_IS_BETTER,
+        "COST": CriterionDirection.LOWER_IS_BETTER,
+    }
+    if normalized not in aliases:
+        raise HTTPException(status_code=400, detail="Unsupported decision criterion direction.")
+    return aliases[normalized]
+
+
+def _criteria_from_request(items: list[DecisionCriterionRequest]) -> tuple[DecisionCriterion, ...]:
+    if not items:
+        raise HTTPException(status_code=400, detail="At least one decision criterion is required.")
+    return tuple(
+        DecisionCriterion(
+            name=item.name,
+            weight=float(item.weight),
+            direction=_parse_decision_direction(item.direction),
+            required=bool(item.required),
+        )
+        for item in items
+    )
+
+
+def _options_from_request(items: list[DecisionOptionRequest]) -> tuple[DecisionOption, ...]:
+    return tuple(
+        DecisionOption(
+            name=item.name,
+            metrics={str(key): float(value) for key, value in item.metrics.items()},
+            hard_constraints_satisfied=bool(item.hard_constraints_satisfied),
+        )
+        for item in items
+    )
+
+
+def _strategy_options_from_request(items: list[DecisionOptionRequest]) -> tuple[StrategyOption, ...]:
+    return tuple(
+        StrategyOption(
+            name=item.name,
+            metrics={str(key): float(value) for key, value in item.metrics.items()},
+            evidence_quality=float(item.evidence_quality),
+            hard_constraints_satisfied=bool(item.hard_constraints_satisfied),
+        )
+        for item in items
+    )
 
 
 def _apply_fake_provider_controls(provider_id: str, mode: str, health: str | None):
@@ -3017,6 +3117,132 @@ async def tool_system_health():
         "risk": result.risk,
         "reason": result.reason,
         "output": result.output,
+    }
+
+
+@app.post("/decision/analyze")
+async def decision_analyze(request: DecisionAnalyzeRequest):
+    criteria = _criteria_from_request(request.criteria)
+    options = _options_from_request(request.options)
+    analysis = analyze_decision(
+        criteria,
+        options,
+        evidence_quality=float(request.evidence_quality),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "decision": public_decision_metadata(analysis),
+        "learning_applied": False,
+        "hidden_reasoning_exposed": False,
+    }
+
+
+@app.post("/decision/simulate")
+async def decision_simulate(request: DecisionSimulateRequest):
+    criteria = _criteria_from_request(request.criteria)
+    options = _strategy_options_from_request(request.options)
+    scenarios = tuple(
+        DecisionScenario(
+            name=item.name,
+            probability=float(item.probability),
+            option_metric_deltas={
+                str(option_name): {
+                    str(metric): float(delta)
+                    for metric, delta in metric_deltas.items()
+                }
+                for option_name, metric_deltas in item.option_metric_deltas.items()
+            },
+        )
+        for item in request.scenarios
+    )
+    simulation = simulate_strategies(
+        options,
+        criteria,
+        scenarios,
+        max_scenarios=max(1, min(int(request.max_scenarios), 50)),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "simulation": {
+            "selected_strategy": simulation.selected_strategy,
+            "confidence": simulation.confidence,
+            "bounded": simulation.bounded,
+            "ranked": [
+                {
+                    "strategy": item.strategy,
+                    "expected_score": item.expected_score,
+                    "best_case_score": item.best_case_score,
+                    "worst_case_score": item.worst_case_score,
+                    "scenario_count": len(item.scenario_scores),
+                }
+                for item in simulation.ranked
+            ],
+        },
+        "learning_applied": False,
+        "hidden_reasoning_exposed": False,
+    }
+
+
+@app.post("/learning/evaluate")
+async def learning_evaluate(request: LearningEvaluateRequest):
+    try:
+        verification = OutcomeVerification(str(request.verification).strip().upper())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Unsupported learning verification value.") from exc
+
+    signal = derive_learning_signal(
+        VerifiedOutcome(
+            decision_id=request.decision_id,
+            strategy_name=request.strategy_name,
+            target_criterion=request.target_criterion,
+            predicted_score=float(request.predicted_score),
+            observed_score=float(request.observed_score),
+            verification=verification,
+            evidence_ids=tuple(str(item) for item in request.evidence_ids if str(item).strip()),
+        ),
+        policy=LearningPolicy(),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "learning": public_learning_metadata(signal),
+        "persistent_change_applied": False,
+        "hidden_reasoning_exposed": False,
+    }
+
+
+@app.post("/decision/feedback-preview")
+async def decision_feedback_preview(request: DecisionFeedbackPreviewRequest):
+    criteria = _criteria_from_request(request.criteria)
+    result = apply_explicit_feedback(
+        criteria,
+        DecisionFeedback(
+            explicit=bool(request.explicit),
+            criterion_adjustments={
+                str(key): float(value)
+                for key, value in request.criterion_adjustments.items()
+            },
+            note=request.note,
+        ),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "applied_in_preview": result.applied,
+        "reason": result.reason,
+        "criteria": [
+            {
+                "name": item.name,
+                "weight": item.weight,
+                "direction": item.direction.value,
+                "required": item.required,
+            }
+            for item in result.criteria
+        ],
+        "persistent_change_applied": False,
+        "hidden_reasoning_exposed": False,
     }
 
 
