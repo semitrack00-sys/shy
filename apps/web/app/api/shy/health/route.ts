@@ -15,7 +15,15 @@ export async function GET() {
     });
   } catch {
     return NextResponse.json(
-      { status: 'error', system: 'SHY', version: '0.11.0', ollama_connected: false, database_connected: false },
+      {
+        status: 'error',
+        system: 'SHY',
+        version: 'unavailable',
+        application_healthy: false,
+        ollama_connected: false,
+        database_connected: false,
+        local_model_available: false,
+      },
       { status: 503 }
     );
   }
