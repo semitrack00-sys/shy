@@ -515,3 +515,24 @@ button {
     width: 100%;
   }
 }
+.shy-voice {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  font-size: 0.875rem;
+}
+
+.shy-voice-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.shy-voice p { margin: 8px 0; }
+.shy-voice details { margin-top: 8px; }
+.shy-voice summary { cursor: pointer; }
+.shy-voice label { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+.shy-voice select { max-width: 100%; padding: 6px; color: inherit; background: var(--panel); }
+.shy-voice input[type='range'] { max-width: 100%; }
+.shy-thread-list input, .shy-settings input {
+  width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--panel-strong); color: var(--text);
+}
+.shy-settings { padding: 16px; border: 1px solid var(--border); border-radius: 12px; margin: 12px; }
+.shy-settings form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

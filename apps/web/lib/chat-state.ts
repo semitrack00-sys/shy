@@ -139,3 +139,16 @@ export function saveStore(storage: Storage | undefined, store: ChatStore): void 
   if (!storage) return;
   storage.setItem(STORAGE_KEY, JSON.stringify(store));
 }
+
+export function searchConversations(conversations: ConversationThread[], query: string): ConversationThread[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return conversations;
+  return conversations.filter(conversation => conversation.title.toLocaleLowerCase().includes(needle)
+    || conversation.messages.some(message => message.content.toLocaleLowerCase().includes(needle)));
+}
+
+export function renameConversation(conversations: ConversationThread[], id: string, title: string): ConversationThread[] {
+  const trimmed = title.trim().slice(0, 100);
+  if (!trimmed) return conversations;
+  return conversations.map(conversation => conversation.id === id ? { ...conversation, title: trimmed } : conversation);
+}

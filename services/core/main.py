@@ -307,7 +307,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.100.0"
+SHY_VERSION = "0.103.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1509,6 +1509,15 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
         },
         "model_routing": _model_routing_health_snapshot(),
         "durable_memory": _durable_memory_health_snapshot(),
+        "browser_voice_capabilities": {
+            "mode": "browser_speech_api",
+            "browser_support_required": True,
+            "microphone_permission_required": True,
+            "remote_speech_requires_session_opt_in": True,
+            "raw_audio_received_by_core": False,
+            "transcript_review_before_send": True,
+            "offline_speech_guaranteed": False,
+        },
         "interaction_capabilities": {
             "voice_transcript_interpretation": True,
             "audio_capture": False,

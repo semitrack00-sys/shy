@@ -109,6 +109,9 @@ _REQUIRED_SEQUENCE = (
     "0.98.0",
     "0.99.0",
     "0.100.0",
+    "0.101.0",
+    "0.102.0",
+    "0.103.0",
 )
 
 
@@ -124,7 +127,7 @@ _DEFAULT_CAPABILITIES = (
     PlatformCapability("knowledge_graph", "0.27.0", CapabilityState.BOUNDED, "scope_and_provenance_required"),
     PlatformCapability("reliability_self_evaluation", "0.28.0", CapabilityState.BOUNDED, "no_self_certification_or_self_modification"),
     PlatformCapability("tool_capability_registry", "0.29.0", CapabilityState.BOUNDED, "selection_only_no_execution"),
-    PlatformCapability("raw_audio_capture", "0.30.0", CapabilityState.DISABLED, "provider_not_connected"),
+    PlatformCapability("raw_audio_capture", "0.30.0", CapabilityState.DISABLED, "core_audio_provider_not_connected_browser_capture_is_separate"),
     PlatformCapability("raw_image_inference", "0.30.0", CapabilityState.DISABLED, "provider_not_connected"),
     PlatformCapability("unrestricted_computer_execution", "0.30.0", CapabilityState.DISABLED, "approval_and_tool_gateway_required"),
     PlatformCapability("arbitrary_shell_execution", "0.30.0", CapabilityState.DISABLED, "explicitly_denied"),
@@ -200,6 +203,9 @@ _DEFAULT_CAPABILITIES = (
     PlatformCapability("release_gate", "0.98.0", CapabilityState.BOUNDED, "supplied_data_only_no_external_execution_or_persistence"),
     PlatformCapability("compatibility_report", "0.99.0", CapabilityState.BOUNDED, "supplied_data_only_no_external_execution_or_persistence"),
     PlatformCapability("evidence_pipeline", "0.100.0", CapabilityState.BOUNDED, "supplied_data_only_no_external_execution_or_persistence"),
+    PlatformCapability("browser_voice_chat", "0.101.0", CapabilityState.BOUNDED, "browser_support_microphone_permission_and_transcript_review_required"),
+    PlatformCapability("voice_interruption", "0.102.0", CapabilityState.BOUNDED, "client_playback_and_capture_cancel_only_no_server_task_cancellation"),
+    PlatformCapability("voice_silence_handling", "0.103.0", CapabilityState.BOUNDED, "browser_speech_end_events_and_30_second_capture_limit"),
 )
 
 
@@ -212,7 +218,7 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 
 def build_platform_manifest(
     *,
-    version: str = "0.100.0",
+    version: str = "0.103.0",
     capabilities: Sequence[PlatformCapability] = _DEFAULT_CAPABILITIES,
 ) -> PlatformManifest:
     current = _version_tuple(version)

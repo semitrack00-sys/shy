@@ -1,7 +1,7 @@
 {
   "name": "shy-web",
   "private": true,
-  "version": "0.100.0",
+  "version": "0.103.0",
   "type": "module",
   "scripts": {
     "dev": "next dev",

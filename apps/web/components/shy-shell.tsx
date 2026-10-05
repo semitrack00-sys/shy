@@ -3,11 +3,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FRONTEND_API_BASE } from '@/lib/config';
 import { buildAgentRequest, parseShyAgentResponse, parseShyHealthResponse } from '@/lib/shy-api';
-import { createEmptyConversation, createInitialStore, makeAssistantMessage, makeFailureMessage, makeUserMessage, patchConversationResponse, updateConversationFromMessage, upsertConversation, loadStore, saveStore } from '@/lib/chat-state';
+import { createEmptyConversation, createInitialStore, makeAssistantMessage, makeFailureMessage, makeUserMessage, patchConversationResponse, updateConversationFromMessage, upsertConversation, loadStore, saveStore, renameConversation } from '@/lib/chat-state';
 import type { ChatStore, ConversationThread, ShyHealthResponse } from '@/lib/types';
 import { ShyComposer } from './shy-composer';
 import { ShyMessage } from './shy-message';
 import { ShySidebar } from './shy-sidebar';
+import { ShyVoice } from './shy-voice';
 
 function sortByUpdatedAt(conversations: ConversationThread[]): ConversationThread[] {
   return [...conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -207,6 +208,20 @@ export function ShyShell() {
         </header>
 
         <section className="shy-content">
+          {settingsOpen && <section className="shy-settings" aria-label="Conversation settings">
+            <form key={activeConversation?.id + activeConversation?.title} onSubmit={event => {
+              event.preventDefault();
+              const title = String(new FormData(event.currentTarget).get('title') ?? '');
+              if (activeConversation) setStore(current => ({ ...current,
+                conversations: renameConversation(current.conversations, activeConversation.id, title) }));
+            }}>
+              <label htmlFor="shy-conversation-title">Conversation title</label>
+              <input id="shy-conversation-title" name="title" defaultValue={activeConversation?.title ?? ''} maxLength={100} required />
+              <button className="shy-button" type="submit">Save title</button>
+            </form>
+            <p className="shy-muted">History and titles are saved in this browser. Voice permissions are session-only.</p>
+            <button className="shy-button" type="button" onClick={() => setSettingsOpen(false)}>Close settings</button>
+          </section>}
           {activeConversation && activeConversation.messages.length > 0 ? (
             <div className="shy-messages" aria-live="polite">
               {activeConversation.messages.map((message) => (
@@ -222,6 +237,9 @@ export function ShyShell() {
           )}
 
           <div className="shy-composer-shell">
+            <ShyVoice key={activeConversation?.id} conversationId={activeConversation?.id ?? null}
+              disabled={isSending} onTranscript={text => setComposerValue(current => current.trim() ? `${current.trim()} ${text}` : text)}
+              reply={activeConversation?.messages.filter(message => message.role === 'assistant').at(-1)} />
             <ShyComposer value={composerValue} onChange={setComposerValue} onSend={() => void submitMessage(composerValue)} disabled={isSending} />
           </div>
         </section>

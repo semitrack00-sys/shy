@@ -1,4 +1,4 @@
-name: SHY v0.100 Release Gate
+name: SHY Current Release Gate
 
 on:
   push:

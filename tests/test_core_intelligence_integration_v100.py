@@ -17,7 +17,7 @@ class CoreIntegrationTests(unittest.TestCase):
     def test_core_startup_manifest_and_pipeline(self):
         with TestClient(main.app) as client:
             manifest = client.get("/platform/capabilities").json()
-            self.assertEqual(manifest["version"], "0.100.0")
+            self.assertEqual(manifest["version"], main.SHY_VERSION)
             self.assertTrue(manifest["platform"]["sequence_complete"])
             self.assertTrue(manifest["platform"]["required_disabled_invariants_hold"])
             self.assertEqual(client.get("/intelligence/capabilities").json()["capability_count"], 50)
