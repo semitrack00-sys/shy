@@ -46,7 +46,9 @@ jobs:
           python -m compileall -q services/core services/agent-runtime services/model-router
 
       - name: Run current milestone contract
-        run: python tests/test_current_milestone.py
+        run: |
+          python tests/test_current_milestone.py
+          python tests/test_platform_sequence_current.py
 
       - name: Run protected regressions
         run: |
