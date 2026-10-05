@@ -726,6 +726,8 @@ def _run_cognitive_deterministic_response(
                     if knowledge_result.conflicts
                     else ()
                 ),
+                evidence_sources_count=knowledge_result.source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -764,6 +766,8 @@ def _run_cognitive_deterministic_response(
                     if knowledge_result.conflicts
                     else ()
                 ),
+                evidence_sources_count=knowledge_result.source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -803,6 +807,8 @@ def _run_cognitive_deterministic_response(
                     if knowledge_result.conflicts
                     else ()
                 ),
+                evidence_sources_count=knowledge_result.source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -842,6 +848,8 @@ def _run_cognitive_deterministic_response(
                     if knowledge_result.conflicts
                     else ()
                 ),
+                evidence_sources_count=knowledge_result.source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -865,6 +873,8 @@ def _run_cognitive_deterministic_response(
                 model_roles_used=("REASONING", "VERIFIER"),
                 decomposition_count_override=0,
                 uncertainty_flags_override=classify_uncertainty({"project_mercury_database": UncertaintyType.UNKNOWN}),
+                evidence_sources_count=knowledge_result.source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
