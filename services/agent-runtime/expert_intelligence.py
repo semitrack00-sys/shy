@@ -161,6 +161,7 @@ _DOMAIN_MARKERS: dict[ExpertDomain, tuple[tuple[str, float], ...]] = {
         ("github", 1.7),
         ("deploy", 1.5),
         ("database schema", 1.8),
+        ("database architecture", 2.2),
         ("software architecture", 2.4),
         ("unit test", 1.8),
     ),
