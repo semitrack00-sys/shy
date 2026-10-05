@@ -224,19 +224,51 @@ jobs:
           print("release pre-restart knowledge ingest: PASS", knowledge_id)
           PY
 
-          kill "$(cat /tmp/shy-release-api.pid)"
+          old_pid="$(cat /tmp/shy-release-api.pid)"
+          kill "$old_pid"
+
+          for i in $(seq 1 50); do
+            if ! kill -0 "$old_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 0.2
+          done
+          if kill -0 "$old_pid" 2>/dev/null; then
+            echo "Old SHY API process did not stop cleanly"
+            exit 1
+          fi
 
           cd services/core
           nohup python -m uvicorn main:app --host 127.0.0.1 --port 8019 >/tmp/shy-release-api-restart.log 2>&1 &
-          echo $! >/tmp/shy-release-api.pid
+          new_pid=$!
+          echo "$new_pid" >/tmp/shy-release-api.pid
           cd ../..
 
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8019/health >/dev/null; then
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$new_pid" 2>/dev/null; then
+              echo "Restarted SHY API process exited before readiness"
+              cat /tmp/shy-release-api-restart.log
+              exit 1
+            fi
+            if curl -fsS http://127.0.0.1:8019/health >/tmp/shy-restart-health.json; then
+              python - <<'PY'
+          import json
+          payload = json.load(open("/tmp/shy-restart-health.json", "r", encoding="utf-8"))
+          assert payload["version"] == "0.19.0"
+          assert payload["application_healthy"] is True
+          print("release restarted API readiness: PASS")
+          PY
+              ready=1
               break
             fi
-            sleep 1
+            sleep 0.5
           done
+          if [ "$ready" -ne 1 ]; then
+            echo "Restarted SHY API did not become ready"
+            cat /tmp/shy-release-api-restart.log
+            exit 1
+          fi
 
           python - <<'PY'
           import httpx
