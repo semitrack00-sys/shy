@@ -1182,6 +1182,84 @@ def _change_impact(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _experiment_causal(payload: Mapping[str, object]) -> AdvancedResult:
+    control = payload.get("control") or {}
+    treatment = payload.get("treatment") or {}
+
+    if not isinstance(control, dict) or not isinstance(treatment, dict):
+        return AdvancedResult(
+            "experiment_causal",
+            AdvancedBoundary.INVALID_INPUT,
+            "control_and_treatment_must_be_objects",
+            {},
+            False,
+        )
+
+    required = ("mean", "sample_size")
+    if any(key not in control for key in required) or any(key not in treatment for key in required):
+        return AdvancedResult(
+            "experiment_causal",
+            AdvancedBoundary.DATA_REQUIRED,
+            "group_mean_and_sample_size_required",
+            {},
+            False,
+        )
+
+    control_mean = float(control.get("mean") or 0.0)
+    treatment_mean = float(treatment.get("mean") or 0.0)
+    control_n = int(control.get("sample_size") or 0)
+    treatment_n = int(treatment.get("sample_size") or 0)
+
+    if control_n <= 0 or treatment_n <= 0:
+        return AdvancedResult(
+            "experiment_causal",
+            AdvancedBoundary.INVALID_INPUT,
+            "positive_sample_sizes_required",
+            {},
+            False,
+        )
+
+    absolute_effect = treatment_mean - control_mean
+    relative_lift = (absolute_effect / control_mean) if control_mean != 0 else None
+    randomized = bool(payload.get("randomized", False))
+    verified_design = bool(payload.get("verified_design", False))
+    confounders = [
+        str(item).strip()
+        for item in (payload.get("known_confounders") or [])[:32]
+        if str(item).strip()
+    ]
+
+    causal_support = randomized and verified_design and not confounders
+    interpretation = (
+        "CAUSAL_EVIDENCE_SUPPORTED"
+        if causal_support
+        else "ASSOCIATION_ONLY"
+    )
+
+    return AdvancedResult(
+        "experiment_causal",
+        AdvancedBoundary.READY,
+        "experiment_analysis_ready",
+        {
+            "control_mean": round(control_mean, 6),
+            "treatment_mean": round(treatment_mean, 6),
+            "control_sample_size": control_n,
+            "treatment_sample_size": treatment_n,
+            "absolute_effect": round(absolute_effect, 6),
+            "relative_lift": round(relative_lift, 6) if relative_lift is not None else None,
+            "randomized": randomized,
+            "verified_design": verified_design,
+            "known_confounders": confounders,
+            "causal_interpretation": interpretation,
+            "causal_claim_supported": causal_support,
+            "experiment_launched": False,
+            "traffic_randomized": False,
+            "participants_enrolled": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -1194,6 +1272,7 @@ _EVALUATORS = {
     "incident_triage": _incident_triage,
     "resource_capacity": _resource_capacity,
     "change_impact": _change_impact,
+    "experiment_causal": _experiment_causal,
 }
 
 
