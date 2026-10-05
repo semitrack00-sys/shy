@@ -324,7 +324,19 @@ def _risk_level(text: str) -> ExpertRiskLevel:
         return ExpertRiskLevel.REGULATED
     if any(marker in text for marker in _HIGH_STAKES_FINANCE_MARKERS):
         return ExpertRiskLevel.HIGH
-    if any(marker in text for marker in ("recommend", "diagnose", "root cause", "should i", "is it worth")):
+    if any(
+        marker in text
+        for marker in (
+            "recommend",
+            "diagnose",
+            "root cause",
+            "should i",
+            "whether i should",
+            "should buy",
+            "should purchase",
+            "is it worth",
+        )
+    ):
         return ExpertRiskLevel.MEDIUM
     return ExpertRiskLevel.LOW
 
