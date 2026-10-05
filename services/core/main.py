@@ -94,6 +94,12 @@ from agent_runtime.goal_orchestration import (
     build_goal_plan,
     public_goal_plan,
 )
+from agent_runtime.preference_learning import (
+    PreferenceScope,
+    PreferenceUpdate,
+    evaluate_preference,
+    public_preference_metadata,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -246,7 +252,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.25.0"
+SHY_VERSION = "0.26.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1476,6 +1482,13 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "resumable_state": True,
             "persistent_goal_state": False,
             "unrestricted_autonomy": False,
+        },
+        "preference_capabilities": {
+            "explicit_preferences": True,
+            "implicit_profiling": False,
+            "sensitive_profile_learning": False,
+            "policy_learning": False,
+            "persistent_preference_storage": False,
         },
     }
 
@@ -2946,6 +2959,14 @@ class GoalAdvanceRequest(BaseModel):
     cancel: bool = False
 
 
+class PreferenceEvaluateRequest(BaseModel):
+    scope: str = "USER"
+    key: str
+    value: str
+    explicit: bool = False
+    confidence: float = 1.0
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3286,6 +3307,31 @@ def _goal_plan_from_request(objective: str, milestones: list[GoalMilestoneReques
         ),
         max_steps=max(1, min(int(max_steps), 24)),
     )
+
+
+@app.post("/preferences/evaluate")
+async def preferences_evaluate(request: PreferenceEvaluateRequest):
+    try:
+        scope = PreferenceScope(str(request.scope).strip().upper())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Unsupported preference scope.") from exc
+
+    result = evaluate_preference(
+        PreferenceUpdate(
+            scope=scope,
+            key=request.key,
+            value=request.value,
+            explicit=bool(request.explicit),
+            confidence=float(request.confidence),
+        )
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "preference": public_preference_metadata(result),
+        "persistent_change_applied": False,
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.post("/goal/plan")
