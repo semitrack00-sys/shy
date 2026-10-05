@@ -58,6 +58,15 @@ class ExpertProfile:
 
 
 @dataclass(frozen=True)
+class ExpertPlaybook:
+    playbook_id: str
+    domain: ExpertDomain
+    evaluation_dimensions: tuple[str, ...]
+    mandatory_checks: tuple[str, ...]
+    answer_priorities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ExpertDecision:
     domain: ExpertDomain
     domain_confidence: float
@@ -149,6 +158,83 @@ PROFILES: dict[ExpertDomain, ExpertProfile] = {
         default_evidence_requirement=EvidenceRequirement.EXTERNAL_CURRENT,
         verification_required=True,
         max_assumptions=1,
+    ),
+}
+
+
+PLAYBOOKS: dict[ExpertDomain, ExpertPlaybook] = {
+    ExpertDomain.GENERAL: ExpertPlaybook(
+        playbook_id="general-v1",
+        domain=ExpertDomain.GENERAL,
+        evaluation_dimensions=("accuracy", "relevance", "clarity", "uncertainty"),
+        mandatory_checks=("separate known facts from assumptions", "avoid unsupported claims"),
+        answer_priorities=("answer the question directly", "state material uncertainty"),
+    ),
+    ExpertDomain.LOGISTICS: ExpertPlaybook(
+        playbook_id="logistics-v1",
+        domain=ExpertDomain.LOGISTICS,
+        evaluation_dimensions=("throughput", "service reliability", "cost", "capacity", "safety and compliance"),
+        mandatory_checks=(
+            "quantify baseline and expected change when data allows",
+            "identify the dominant bottleneck and residual causes",
+            "check operational constraints and implementation risk",
+        ),
+        answer_priorities=("decision impact", "key operating metrics", "residual risks", "next operational action"),
+    ),
+    ExpertDomain.SOFTWARE_ENGINEERING: ExpertPlaybook(
+        playbook_id="software-engineering-v1",
+        domain=ExpertDomain.SOFTWARE_ENGINEERING,
+        evaluation_dimensions=("correctness", "reliability", "security", "maintainability", "testability", "deployment impact"),
+        mandatory_checks=(
+            "respect stated architecture and compatibility constraints",
+            "consider failure modes and rollback",
+            "identify the tests or evidence needed to verify the recommendation",
+        ),
+        answer_priorities=("recommended approach", "major tradeoffs", "verification plan", "operational risk"),
+    ),
+    ExpertDomain.FINANCIAL_ANALYSIS: ExpertPlaybook(
+        playbook_id="financial-analysis-v1",
+        domain=ExpertDomain.FINANCIAL_ANALYSIS,
+        evaluation_dimensions=("revenue", "cost", "cash flow", "return", "break-even", "downside"),
+        mandatory_checks=(
+            "keep units and time periods consistent",
+            "separate supplied numbers from assumptions",
+            "test material sensitivity before a recommendation",
+        ),
+        answer_priorities=("calculation", "economic interpretation", "sensitivity", "financial risk"),
+    ),
+    ExpertDomain.BUSINESS_STRATEGY: ExpertPlaybook(
+        playbook_id="business-strategy-v1",
+        domain=ExpertDomain.BUSINESS_STRATEGY,
+        evaluation_dimensions=("customer value", "market", "unit economics", "execution", "competition", "risk"),
+        mandatory_checks=(
+            "anchor the recommendation to the stated objective and constraints",
+            "compare realistic alternatives",
+            "identify measurable leading indicators",
+        ),
+        answer_priorities=("strategic choice", "why it fits", "execution risks", "measurable next actions"),
+    ),
+    ExpertDomain.DATA_ANALYSIS: ExpertPlaybook(
+        playbook_id="data-analysis-v1",
+        domain=ExpertDomain.DATA_ANALYSIS,
+        evaluation_dimensions=("data quality", "distribution", "effect size", "uncertainty", "validation"),
+        mandatory_checks=(
+            "check units, missingness, and obvious outliers",
+            "distinguish correlation from causation",
+            "state sample or measurement limitations",
+        ),
+        answer_priorities=("result", "strength of evidence", "uncertainty", "validation needed"),
+    ),
+    ExpertDomain.RESEARCH: ExpertPlaybook(
+        playbook_id="research-v1",
+        domain=ExpertDomain.RESEARCH,
+        evaluation_dimensions=("source authority", "recency", "source diversity", "coverage", "contradictions"),
+        mandatory_checks=(
+            "tie factual claims to retrieved evidence",
+            "preserve unresolved source conflicts",
+            "separate evidence from inference",
+        ),
+        answer_priorities=("evidence-backed finding", "source limitations", "conflicts", "remaining evidence gaps"),
     ),
 }
 
@@ -621,6 +707,27 @@ def build_expert_response_frame(
     )
 
 
+def get_expert_playbook(domain: ExpertDomain) -> ExpertPlaybook:
+    return PLAYBOOKS.get(domain, PLAYBOOKS[ExpertDomain.GENERAL])
+
+
+def expert_generation_guidance(decision: ExpertDecision) -> str:
+    playbook = get_expert_playbook(decision.domain)
+    dimensions = "; ".join(playbook.evaluation_dimensions)
+    checks = "; ".join(playbook.mandatory_checks)
+    priorities = "; ".join(playbook.answer_priorities)
+    return (
+        f"EXPERT PLAYBOOK: {decision.domain.value} ({playbook.playbook_id}). "
+        f"Evaluate using: {dimensions}. "
+        f"Required checks: {checks}. "
+        f"Answer priorities: {priorities}. "
+        f"Respect the expert answer boundary {decision.answer_boundary.value} and confidence ceiling "
+        f"{decision.confidence_ceiling:.2f}. Do not invent evidence, project facts, citations, tool results, "
+        "or actions. Do not expose hidden reasoning or chain-of-thought; provide only conclusions, supporting "
+        "facts, assumptions, uncertainty, and verification needs that are appropriate for the user."
+    )
+
+
 def public_expert_metadata(
     decision: ExpertDecision,
     response_frame: ExpertResponseFrame | None = None,
@@ -639,6 +746,7 @@ def public_expert_metadata(
         "confidence_ceiling": decision.confidence_ceiling,
         "expert_role": decision.profile.default_model_role,
         "max_assumptions": decision.profile.max_assumptions,
+        "playbook_id": get_expert_playbook(decision.domain).playbook_id,
         "response_frame": {
             "decision": frame.decision.value,
             "confidence_band": frame.confidence_band.value,
