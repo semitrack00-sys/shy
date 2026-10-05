@@ -1142,13 +1142,19 @@ def _run_cognitive_deterministic_response(
             for row in knowledge_result.records[:4]:
                 known_facts.append(row.content)
 
-            assistant = (
-                "Retrieved knowledge indicates the current Project Atlas constraints include: "
-                + "; ".join(known_facts)
-                + ". Based on those constraints, keep a consistency-first architecture and avoid changes that weaken transactional guarantees. "
-                "Assumptions separated from retrieved facts: expected growth profile and future workload variance. "
-                "Uncertainty: the preferred architecture could change if workload variability or team scale changes materially."
-            )
+            if knowledge_result.conflicts:
+                assistant = (
+                    "I found conflicting authorized Project Atlas knowledge, so I cannot safely make a definitive architecture recommendation yet. "
+                    "Resolve the conflicting source claims first; I can then evaluate the architecture against the reconciled constraints."
+                )
+            else:
+                assistant = (
+                    "Retrieved knowledge indicates the current Project Atlas constraints include: "
+                    + "; ".join(known_facts)
+                    + ". Based on those constraints, keep a consistency-first architecture and avoid changes that weaken transactional guarantees. "
+                    "Assumptions separated from retrieved facts: expected growth profile and future workload variance. "
+                    "Uncertainty: the preferred architecture could change if workload variability or team scale changes materially."
+                )
             metadata = _build_cognitive_public_metadata(
                 message,
                 response_mode="verify",
@@ -1163,7 +1169,13 @@ def _run_cognitive_deterministic_response(
                 ),
                 model_roles_used=("REASONING", "VERIFIER"),
                 decomposition_count_override=len(decomposition.steps),
-                uncertainty_flags_override=classify_uncertainty({"growth_assumption": UncertaintyType.UNCERTAIN}),
+                uncertainty_flags_override=(
+                    classify_uncertainty({"project_atlas_knowledge": UncertaintyType.UNCERTAIN})
+                    if knowledge_result.conflicts
+                    else classify_uncertainty({"growth_assumption": UncertaintyType.UNCERTAIN})
+                ),
+                evidence_sources_count=knowledge_result.source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -1197,6 +1209,25 @@ def _run_cognitive_deterministic_response(
             )
             metadata["memory_references_used"] = 1
             return assistant, metadata
+
+        assistant = (
+            "I do not currently have sufficient authorized Project Atlas knowledge to make a reliable architecture recommendation. "
+            "Additional project data is required before I can evaluate the current design."
+        )
+        metadata = _build_cognitive_public_metadata(
+            message,
+            response_mode="verify",
+            model_routing_metadata=model_routing_metadata,
+            verifier_invoked=True,
+            verification_status=VerificationStatus.INSUFFICIENT_EVIDENCE.value,
+            model_roles_used=("REASONING", "VERIFIER"),
+            decomposition_count_override=len(decomposition.steps),
+            uncertainty_flags_override=classify_uncertainty({"project_atlas_knowledge": UncertaintyType.UNKNOWN}),
+            evidence_sources_count=knowledge_result.source_count,
+            knowledge_boundary=knowledge_result.knowledge_boundary.value,
+        )
+        metadata.update(_knowledge_metadata_payload(knowledge_result))
+        return assistant, metadata
 
     if complexity == CognitiveComplexity.STANDARD and "compare" in lowered:
         assistant = (
