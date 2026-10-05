@@ -51,6 +51,7 @@ _REQUIRED_SEQUENCE = (
     "0.40.0",
     "0.41.0",
     "0.42.0",
+    "0.43.0",
 )
 
 
@@ -84,6 +85,7 @@ _DEFAULT_CAPABILITIES = (
     PlatformCapability("financial_planning", "0.40.0", CapabilityState.BOUNDED, "scenario_math_only_no_transactions_or_personalized_trades"),
     PlatformCapability("compliance_policy", "0.41.0", CapabilityState.BOUNDED, "evidence_gap_analysis_only_no_certification_or_policy_change"),
     PlatformCapability("incident_triage", "0.42.0", CapabilityState.BOUNDED, "ranking_only_no_remediation_restart_or_notification"),
+    PlatformCapability("resource_capacity", "0.43.0", CapabilityState.BOUNDED, "analysis_only_no_provisioning_hiring_purchase_or_reallocation"),
 )
 
 
@@ -96,7 +98,7 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 
 def build_platform_manifest(
     *,
-    version: str = "0.42.0",
+    version: str = "0.43.0",
     capabilities: Sequence[PlatformCapability] = _DEFAULT_CAPABILITIES,
 ) -> PlatformManifest:
     current = _version_tuple(version)
