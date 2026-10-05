@@ -1059,6 +1059,129 @@ def _resource_capacity(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _change_impact(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_components = payload.get("components") or []
+    raw_changed = payload.get("changed_component_ids") or []
+    max_components = max(1, min(int(payload.get("max_components") or 256), 1000))
+
+    if not isinstance(raw_components, list) or not raw_components:
+        return AdvancedResult(
+            "change_impact",
+            AdvancedBoundary.DATA_REQUIRED,
+            "components_required",
+            {},
+            False,
+        )
+    if not isinstance(raw_changed, list) or not raw_changed:
+        return AdvancedResult(
+            "change_impact",
+            AdvancedBoundary.DATA_REQUIRED,
+            "changed_component_ids_required",
+            {},
+            False,
+        )
+
+    selected = raw_components[:max_components]
+    components: dict[str, dict[str, object]] = {}
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "change_impact",
+                AdvancedBoundary.INVALID_INPUT,
+                "component_entries_must_be_objects",
+                {},
+                False,
+            )
+        component_id = str(raw.get("component_id") or "").strip()
+        if not component_id or component_id in components:
+            return AdvancedResult(
+                "change_impact",
+                AdvancedBoundary.INVALID_INPUT,
+                "component_ids_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        criticality = int(raw.get("criticality") or 1)
+        if criticality < 1 or criticality > 5:
+            return AdvancedResult(
+                "change_impact",
+                AdvancedBoundary.INVALID_INPUT,
+                "criticality_must_be_between_1_and_5",
+                {"component_id": component_id},
+                False,
+            )
+        dependencies = tuple(str(item).strip() for item in (raw.get("dependencies") or []) if str(item).strip())
+        components[component_id] = {
+            "dependencies": dependencies,
+            "criticality": criticality,
+        }
+
+    for component_id, row in components.items():
+        unknown = [dep for dep in row["dependencies"] if dep not in components]
+        if unknown:
+            return AdvancedResult(
+                "change_impact",
+                AdvancedBoundary.INVALID_INPUT,
+                "unknown_component_dependency",
+                {"component_id": component_id, "unknown_dependencies": unknown},
+                False,
+            )
+
+    changed = {str(item).strip() for item in raw_changed if str(item).strip()}
+    unknown_changed = sorted(changed - set(components))
+    if unknown_changed:
+        return AdvancedResult(
+            "change_impact",
+            AdvancedBoundary.INVALID_INPUT,
+            "unknown_changed_components",
+            {"unknown_changed_components": unknown_changed},
+            False,
+        )
+
+    reverse: dict[str, set[str]] = {component_id: set() for component_id in components}
+    for component_id, row in components.items():
+        for dep in row["dependencies"]:
+            reverse[dep].add(component_id)
+
+    impacted = set(changed)
+    frontier = set(changed)
+    while frontier:
+        next_frontier: set[str] = set()
+        for component_id in frontier:
+            for dependent in reverse[component_id]:
+                if dependent not in impacted:
+                    impacted.add(dependent)
+                    next_frontier.add(dependent)
+        frontier = next_frontier
+
+    ranked = sorted(
+        impacted,
+        key=lambda component_id: (-int(components[component_id]["criticality"]), component_id),
+    )
+    max_criticality = max(int(components[item]["criticality"]) for item in impacted)
+    risk = "HIGH" if max_criticality >= 5 or len(impacted) > max(3, len(components) // 2) else ("MEDIUM" if max_criticality >= 3 else "LOW")
+
+    return AdvancedResult(
+        "change_impact",
+        AdvancedBoundary.READY,
+        "change_impact_analysis_ready",
+        {
+            "changed_component_ids": sorted(changed),
+            "impacted_component_ids": ranked,
+            "blast_radius_count": len(impacted),
+            "total_component_count": len(components),
+            "max_criticality": max_criticality,
+            "risk_level": risk,
+            "component_limit_enforced": len(raw_components) <= max_components,
+            "code_changed": False,
+            "configuration_changed": False,
+            "migration_executed": False,
+            "deployment_executed": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -1070,6 +1193,7 @@ _EVALUATORS = {
     "compliance_policy": _compliance_policy,
     "incident_triage": _incident_triage,
     "resource_capacity": _resource_capacity,
+    "change_impact": _change_impact,
 }
 
 
