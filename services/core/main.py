@@ -307,7 +307,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.0"
+SHY_VERSION = "0.105.1"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1420,10 +1420,13 @@ app = FastAPI(
 
 from intelligence_api import IntelligenceBodyLimit, router as intelligence_router
 from voice_api import VoiceBodyLimit, router as voice_router, provider_url as speech_provider_url
+from memory_controls import MemoryBodyLimit, router as memory_controls_router
 
 app.include_router(intelligence_router)
 app.add_middleware(IntelligenceBodyLimit)
 app.include_router(voice_router)
+app.include_router(memory_controls_router)
+app.add_middleware(MemoryBodyLimit)
 app.add_middleware(VoiceBodyLimit)
 
 OLLAMA_URL = os.getenv(
@@ -1512,6 +1515,15 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
         },
         "model_routing": _model_routing_health_snapshot(),
         "durable_memory": _durable_memory_health_snapshot(),
+        "saved_memory_controls": {
+            "list_review_correct_delete": True,
+            "explicit_save_confirmation_required": True,
+            "stale_review_rejected": True,
+            "scope": "existing_local_user",
+            "authenticated": False,
+            "deletion_removes_original_chat": False,
+            "automatic_chat_promotion_unchanged": True,
+        },
         "browser_voice_capabilities": {
             "mode": "browser_speech_api",
             "browser_support_required": True,

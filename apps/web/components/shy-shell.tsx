@@ -9,6 +9,8 @@ import { ShyComposer } from './shy-composer';
 import { ShyMessage } from './shy-message';
 import { ShySidebar } from './shy-sidebar';
 import { ShyVoice } from './shy-voice';
+import { ShyMemoryManager } from './shy-memory-manager';
+import { ShyConversationSummary } from './shy-conversation-summary';
 
 function sortByUpdatedAt(conversations: ConversationThread[]): ConversationThread[] {
   return [...conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -207,7 +209,7 @@ export function ShyShell() {
           </div>
         </header>
 
-        <section className="shy-content">
+        <section className="shy-content" data-settings-open={settingsOpen}>
           {settingsOpen && <section className="shy-settings" aria-label="Conversation settings">
             <form key={activeConversation?.id + activeConversation?.title} onSubmit={event => {
               event.preventDefault();
@@ -220,6 +222,8 @@ export function ShyShell() {
               <button className="shy-button" type="submit">Save title</button>
             </form>
             <p className="shy-muted">History and titles are saved in this browser. Voice permissions are session-only.</p>
+            {activeConversation && <ShyConversationSummary conversation={activeConversation} />}
+            <ShyMemoryManager />
             <button className="shy-button" type="button" onClick={() => setSettingsOpen(false)}>Close settings</button>
           </section>}
           {activeConversation && activeConversation.messages.length > 0 ? (
