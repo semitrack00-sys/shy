@@ -30,6 +30,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://shy:shy_local_dev@127.0.0.1:5432/shy
       SHY_LOCAL_MODEL: qwen3.5:4b
+      SHY_API_BASE_URL: http://127.0.0.1:8019
 
     steps:
       - name: Checkout
@@ -64,3 +65,28 @@ jobs:
           python tests/test_memory_relevance.py
           python tests/test_research_synthesis.py
           python tests/test_adaptive_chat.py
+
+      - name: Start SHY v0.19 API
+        shell: bash
+        run: |
+          set -e
+          cd services/core
+          nohup python -m uvicorn main:app --host 127.0.0.1 --port 8019 >/tmp/shy-gate3-api.log 2>&1 &
+          echo $! >/tmp/shy-gate3-api.pid
+          cd ../..
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8019/health >/tmp/shy-health.json; then
+              cat /tmp/shy-health.json
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/shy-gate3-api.log
+          exit 1
+
+      - name: Run live user-facing Gate 3
+        run: python tests/test_user_reasoning_live_v019.py
+
+      - name: Show API log on failure
+        if: failure()
+        run: cat /tmp/shy-gate3-api.log || true
