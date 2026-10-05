@@ -4,7 +4,7 @@ import re
 import sys
 import types
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -508,6 +508,125 @@ def _solve_single_variable_linear_equation(message: str) -> dict[str, float] | N
         "target": target,
         "solution": solution,
     }
+
+
+def _normalize_basic_user_question(message: str) -> str:
+    text = " ".join(str(message or "").lower().split())
+    text = text.replace("to day", "today")
+    text = text.replace("what's", "whats")
+    text = text.replace("today's", "todays")
+    if len(text.split()) <= 12:
+        text = re.sub(r"\bvan\b", "can", text)
+    return re.sub(r"[^a-z0-9:+\-/ ]+", "", text).strip()
+
+
+def _client_local_now(request: "ChatRequest") -> tuple[datetime, str]:
+    raw_offset = request.client_utc_offset_minutes
+    offset_minutes = 0
+    if raw_offset is not None:
+        try:
+            candidate = int(raw_offset)
+        except (TypeError, ValueError):
+            candidate = 0
+        if -840 <= candidate <= 840:
+            offset_minutes = candidate
+
+    tz = timezone(timedelta(minutes=offset_minutes))
+    local_now = datetime.now(timezone.utc).astimezone(tz)
+    timezone_label = str(request.client_timezone or "").strip()
+    if not timezone_label:
+        sign = "+" if offset_minutes >= 0 else "-"
+        absolute = abs(offset_minutes)
+        timezone_label = f"UTC{sign}{absolute // 60:02d}:{absolute % 60:02d}"
+    return local_now, timezone_label
+
+
+def _run_basic_system_response(
+    request: "ChatRequest",
+) -> tuple[str, dict[str, Any], str] | None:
+    normalized = _normalize_basic_user_question(request.message)
+    if not normalized:
+        return None
+
+    date_markers = (
+        "what day is today",
+        "whats day is today",
+        "what is today",
+        "what date is today",
+        "what is todays date",
+        "whats todays date",
+        "todays date",
+        "date today",
+        "current date",
+    )
+    time_markers = (
+        "what time is it",
+        "whats the time",
+        "what is the time",
+        "current time",
+        "time now",
+    )
+
+    wants_date = any(marker in normalized for marker in date_markers)
+    wants_time = any(marker in normalized for marker in time_markers)
+    if wants_date or wants_time:
+        local_now, timezone_label = _client_local_now(request)
+        if wants_date and wants_time:
+            assistant = (
+                f"It is {local_now.strftime('%A, %B')} {local_now.day}, {local_now.year}, "
+                f"{local_now.strftime('%-I:%M %p')} ({timezone_label})."
+            )
+        elif wants_time:
+            assistant = f"The current time is {local_now.strftime('%-I:%M %p')} ({timezone_label})."
+        else:
+            assistant = f"Today is {local_now.strftime('%A, %B')} {local_now.day}, {local_now.year}."
+
+        metadata = _build_cognitive_public_metadata(
+            request.message,
+            response_mode="direct",
+            model_routing_metadata=None,
+            verifier_invoked=True,
+            verification_status=VerificationStatus.VERIFIED.value,
+            model_roles_used=("SHY_CORE",),
+            decomposition_count_override=0,
+            uncertainty_flags_override=(),
+        )
+        return assistant, metadata, "current_datetime"
+
+    capability_phrases = (
+        "what can you do",
+        "what you can do",
+        "what do you do",
+        "what are you able to do",
+        "what are your capabilities",
+        "your capabilities",
+    )
+    if len(normalized.split()) <= 12 and any(phrase in normalized for phrase in capability_phrases):
+        research_line = (
+            "I can also research current public information when SHY's research provider is configured."
+            if research_service is not None
+            else "Web research is supported when SHY's research provider is configured."
+        )
+        assistant = (
+            "I can chat and reason, solve deterministic calculations, analyze business, logistics, and finance problems, "
+            "run bounded multi-step workflows, remember useful information, and retrieve durable scoped knowledge from PostgreSQL "
+            "with provenance, conflict handling, and isolation. I can use approved read-only tools for system health, database, "
+            f"and file tasks. {research_line} "
+            "I do not have unrestricted shell access or permission to perform external side effects outside SHY's approved tool and approval policies."
+        )
+        metadata = _build_cognitive_public_metadata(
+            request.message,
+            response_mode="direct",
+            model_routing_metadata=None,
+            verifier_invoked=False,
+            verification_status=VerificationStatus.NOT_RUN.value,
+            model_roles_used=("SHY_CORE",),
+            decomposition_count_override=0,
+            uncertainty_flags_override=(),
+        )
+        return assistant, metadata, "capabilities"
+
+    return None
 
 
 def _extract_memory_items(history: list[dict[str, Any]], workspace_id: str, business_id: str) -> tuple[dict[str, Any], ...]:
@@ -2546,6 +2665,8 @@ class ChatRequest(BaseModel):
     user_id: str | None = None
     workspace_id: str | None = None
     business_id: str | None = None
+    client_utc_offset_minutes: int | None = None
+    client_timezone: str | None = None
 
 
 class SyntheticApprovalRequest(BaseModel):
@@ -3406,6 +3527,47 @@ async def chat(request: ChatRequest):
             status_code=503,
             detail=f"SHY memory unavailable: {exc}"
         )
+
+    basic_system_response = _run_basic_system_response(request)
+    if basic_system_response is not None:
+        assistant_message, cognitive_metadata, basic_kind = basic_system_response
+        try:
+            save_message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=assistant_message,
+                model="shy-core",
+                provider="shy-core",
+                task_type="system",
+            )
+        except psycopg.Error as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"SHY response generated but memory save failed: {exc}"
+            )
+
+        return {
+            "assistant": "SHY",
+            "status": "RESPOND",
+            "message": assistant_message,
+            "conversation_id": str(conversation_id),
+            "model": "shy-core",
+            "provider": "shy-core",
+            "task_type": "system",
+            "routing_reason": f"Deterministic SHY core response: {basic_kind}.",
+            "adaptive_mode": "direct",
+            "execution_mode": "DIRECT",
+            "tool_decision": {"decision": "NO_TOOL"},
+            "approval_required": False,
+            "tool_selected": None,
+            "permission": None,
+            "execution_status": "NOT_REQUESTED",
+            "verifier_invoked": basic_kind == "current_datetime",
+            "research_invoked": False,
+            "hidden_reasoning_exposed": False,
+            "model_routing": None,
+            "cognitive": cognitive_metadata,
+        }
 
     linear_equation = _solve_single_variable_linear_equation(request.message)
     if linear_equation is not None:
