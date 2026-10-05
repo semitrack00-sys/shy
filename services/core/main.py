@@ -144,6 +144,12 @@ from agent_runtime.condition_intelligence import (
     evaluate_conditions,
     public_condition_batch,
 )
+from agent_runtime.collaboration_intelligence import (
+    DelegationPermission,
+    DelegationTask,
+    plan_delegation,
+    public_delegation_plan,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -296,7 +302,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.32.0"
+SHY_VERSION = "0.33.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1571,6 +1577,14 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "missing_metric_boundary": True,
             "continuous_monitoring": False,
             "notification_sending": False,
+        },
+        "collaboration_capabilities": {
+            "bounded_delegation_planning": True,
+            "dependency_validation": True,
+            "approval_required_state_changes": True,
+            "protected_scope_denial": True,
+            "task_dispatch": False,
+            "permission_expansion": False,
         },
         "platform_checkpoint": {
             "version": "0.30.0",
@@ -3140,6 +3154,20 @@ class ToolRegistrySelectRequest(ToolRegistryValidateRequest):
     max_candidates: int = 8
 
 
+class DelegationTaskRequest(BaseModel):
+    task_id: str
+    role: str
+    objective: str
+    scope: str
+    permission: str
+    dependencies: list[str] = []
+
+
+class DelegationPlanRequest(BaseModel):
+    tasks: list[DelegationTaskRequest]
+    max_tasks: int = 32
+
+
 class ConditionRuleRequest(BaseModel):
     rule_id: str
     metric: str
@@ -3565,6 +3593,37 @@ def _registered_tools_from_request(items: list[RegisteredToolRequest]):
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Unsupported tool registry permission or risk.") from exc
+
+
+@app.post("/collaboration/plan")
+async def collaboration_plan(request: DelegationPlanRequest):
+    try:
+        tasks = tuple(
+            DelegationTask(
+                task_id=item.task_id,
+                role=item.role,
+                objective=item.objective,
+                scope=item.scope,
+                permission=DelegationPermission(str(item.permission).strip().upper()),
+                dependencies=tuple(item.dependencies),
+            )
+            for item in request.tasks
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Unsupported delegation permission.") from exc
+
+    plan = plan_delegation(
+        tasks,
+        max_tasks=max(1, min(int(request.max_tasks), 64)),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "delegation": public_delegation_plan(plan),
+        "dispatch_performed": False,
+        "permissions_expanded": False,
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.post("/conditions/evaluate")
