@@ -67,13 +67,37 @@ export function parseShyHealthResponse(value: unknown): ShyHealthResponse {
     system: value.system,
     version: value.version,
     local_model: toOptionalString(value.local_model),
+    application_healthy: typeof value.application_healthy === 'boolean' ? value.application_healthy : undefined,
     ollama_connected: typeof value.ollama_connected === 'boolean' ? value.ollama_connected : undefined,
     database_connected: typeof value.database_connected === 'boolean' ? value.database_connected : undefined,
+    local_model_available: typeof value.local_model_available === 'boolean' ? value.local_model_available : undefined,
   };
 }
 
-export function buildAgentRequest(message: string, conversationId?: string | null) {
-  return conversationId ? { message, conversation_id: conversationId } : { message };
+export function buildAgentRequest(
+  message: string,
+  conversationId?: string | null,
+  clientUtcOffsetMinutes?: number,
+  clientTimezone?: string
+) {
+  const body: {
+    message: string;
+    conversation_id?: string;
+    client_utc_offset_minutes?: number;
+    client_timezone?: string;
+  } = { message };
+
+  if (conversationId) {
+    body.conversation_id = conversationId;
+  }
+  if (typeof clientUtcOffsetMinutes === 'number' && Number.isFinite(clientUtcOffsetMinutes)) {
+    body.client_utc_offset_minutes = Math.trunc(clientUtcOffsetMinutes);
+  }
+  if (typeof clientTimezone === 'string' && clientTimezone.trim()) {
+    body.client_timezone = clientTimezone.trim();
+  }
+
+  return body;
 }
 
 export function formatConversationTitle(message: string): string {

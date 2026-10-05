@@ -35,19 +35,30 @@ describe('SHY API parsing', () => {
     const health = parseShyHealthResponse({
       status: 'ok',
       system: 'SHY',
-      version: '0.11.0',
+      version: '0.19.0',
       local_model: 'qwen3.5:4b',
+      application_healthy: true,
       ollama_connected: true,
       database_connected: true,
+      local_model_available: true,
     });
 
     expect(health.system).toBe('SHY');
+    expect(health.version).toBe('0.19.0');
+    expect(health.application_healthy).toBe(true);
     expect(health.ollama_connected).toBe(true);
+    expect(health.local_model_available).toBe(true);
   });
 
-  it('builds request bodies with optional conversation ids', () => {
+  it('builds request bodies with conversation and browser time context', () => {
     expect(buildAgentRequest('Hello')).toEqual({ message: 'Hello' });
     expect(buildAgentRequest('Hello', 'conv-1')).toEqual({ message: 'Hello', conversation_id: 'conv-1' });
+    expect(buildAgentRequest('What day is today?', 'conv-1', -420, 'America/Los_Angeles')).toEqual({
+      message: 'What day is today?',
+      conversation_id: 'conv-1',
+      client_utc_offset_minutes: -420,
+      client_timezone: 'America/Los_Angeles',
+    });
   });
 
   it('formats conversation titles', () => {
