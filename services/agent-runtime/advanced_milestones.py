@@ -1417,6 +1417,110 @@ def _approval_governance(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _resilience_fallback(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_candidates = payload.get("candidates") or []
+    max_candidates = max(1, min(int(payload.get("max_candidates") or 32), 128))
+
+    if not isinstance(raw_candidates, list) or not raw_candidates:
+        return AdvancedResult(
+            "resilience_fallback",
+            AdvancedBoundary.DATA_REQUIRED,
+            "fallback_candidates_required",
+            {},
+            False,
+        )
+
+    selected = raw_candidates[:max_candidates]
+    seen: set[str] = set()
+    rows: list[dict[str, object]] = []
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "resilience_fallback",
+                AdvancedBoundary.INVALID_INPUT,
+                "fallback_entries_must_be_objects",
+                {},
+                False,
+            )
+
+        candidate_id = str(raw.get("candidate_id") or "").strip()
+        priority = int(raw.get("priority") or 100)
+        healthy = bool(raw.get("healthy", False))
+        eligible = bool(raw.get("fallback_eligible", True))
+
+        if not candidate_id or candidate_id in seen:
+            return AdvancedResult(
+                "resilience_fallback",
+                AdvancedBoundary.INVALID_INPUT,
+                "candidate_ids_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        if priority < 0:
+            return AdvancedResult(
+                "resilience_fallback",
+                AdvancedBoundary.INVALID_INPUT,
+                "priority_must_be_nonnegative",
+                {"candidate_id": candidate_id},
+                False,
+            )
+
+        seen.add(candidate_id)
+        rows.append(
+            {
+                "candidate_id": candidate_id,
+                "priority": priority,
+                "healthy": healthy,
+                "fallback_eligible": eligible,
+            }
+        )
+
+    ordered = sorted(rows, key=lambda row: (int(row["priority"]), str(row["candidate_id"])))
+    healthy_eligible = [
+        row for row in ordered
+        if bool(row["healthy"]) and bool(row["fallback_eligible"])
+    ]
+
+    if not healthy_eligible:
+        return AdvancedResult(
+            "resilience_fallback",
+            AdvancedBoundary.DATA_REQUIRED,
+            "no_healthy_eligible_fallback",
+            {
+                "candidate_count": len(rows),
+                "candidate_limit_enforced": len(raw_candidates) <= max_candidates,
+                "failover_executed": False,
+                "traffic_switched": False,
+                "service_restarted": False,
+                "configuration_changed": False,
+            },
+            False,
+        )
+
+    primary = healthy_eligible[0]
+    fallback_chain = [str(row["candidate_id"]) for row in healthy_eligible[1:]]
+    degraded = any(not bool(row["healthy"]) for row in ordered)
+
+    return AdvancedResult(
+        "resilience_fallback",
+        AdvancedBoundary.READY,
+        "fallback_plan_ready",
+        {
+            "selected_primary": str(primary["candidate_id"]),
+            "fallback_chain": fallback_chain,
+            "degraded_input_state": degraded,
+            "candidate_count": len(rows),
+            "candidate_limit_enforced": len(raw_candidates) <= max_candidates,
+            "failover_executed": False,
+            "traffic_switched": False,
+            "service_restarted": False,
+            "configuration_changed": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -1432,6 +1536,7 @@ _EVALUATORS = {
     "experiment_causal": _experiment_causal,
     "forecast_trend": _forecast_trend,
     "approval_governance": _approval_governance,
+    "resilience_fallback": _resilience_fallback,
 }
 
 
