@@ -45,6 +45,7 @@ from tools.contracts import PermissionLevel, ToolDefinition, ToolRequest
 from agent_runtime.runtime import AgentRuntime
 from agent_runtime.task_engine import TaskEngine
 from agent_runtime.expert_intelligence import (
+    ExpertAnswerBoundary,
     apply_expert_response_policy,
     build_expert_response_frame,
     count_authoritative_research_sources,
@@ -3719,9 +3720,57 @@ async def chat(request: ChatRequest):
     )
     model_routing_metadata: dict[str, Any] | None = None
 
+    research_evidence_count = 0
+    research_authoritative_source_count = 0
+
     if response_mode == "research":
         try:
             research_result = await run_research_pipeline(request.message)
+            research_evidence = tuple(getattr(research_result, "evidence", ()) or ())
+            research_evidence_count = len(research_evidence)
+            research_authoritative_source_count = count_authoritative_research_sources(research_evidence)
+            post_research_expert = select_expert(
+                request.message,
+                evidence_sources_count=research_evidence_count,
+                authoritative_sources_count=research_authoritative_source_count,
+            )
+
+            if post_research_expert.answer_boundary == ExpertAnswerBoundary.AUTHORITATIVE_EVIDENCE_REQUIRED:
+                cognitive_metadata = _build_cognitive_public_metadata(
+                    request.message,
+                    response_mode="research",
+                    model_routing_metadata=None,
+                    evidence_sources_count=research_evidence_count,
+                    authoritative_sources_count=research_authoritative_source_count,
+                    verification_status=VerificationStatus.INSUFFICIENT_EVIDENCE.value,
+                )
+                return {
+                    "assistant": "SHY",
+                    "status": "FAILED",
+                    "message": (
+                        "I found research evidence, but it does not include an authoritative source required "
+                        "for this high-stakes or regulated request. I won’t present a definitive recommendation "
+                        "until authoritative evidence is available."
+                    ),
+                    "conversation_id": str(conversation_id),
+                    "model": route.model,
+                    "provider": route.provider,
+                    "task_type": route.task_type,
+                    "routing_reason": route.reason,
+                    "adaptive_mode": "research",
+                    "execution_mode": "RESEARCH",
+                    "tool_decision": {"decision": "NO_TOOL"},
+                    "approval_required": False,
+                    "tool_selected": None,
+                    "permission": None,
+                    "execution_status": "NOT_REQUESTED",
+                    "verifier_invoked": True,
+                    "research_invoked": True,
+                    "hidden_reasoning_exposed": False,
+                    "safe_failure": "authoritative_evidence_required",
+                    "cognitive": cognitive_metadata,
+                }
+
             assistant_message = await generate_research_response(
                 message=request.message,
                 research_result=research_result,
@@ -3733,6 +3782,7 @@ async def chat(request: ChatRequest):
                 response_mode="research",
                 model_routing_metadata=None,
                 evidence_sources_count=0,
+                authoritative_sources_count=0,
                 verification_status=VerificationStatus.INSUFFICIENT_EVIDENCE.value,
             )
             return {
@@ -3810,10 +3860,6 @@ async def chat(request: ChatRequest):
             detail=f"SHY response generated but memory save failed: {exc}"
         )
 
-    research_evidence_count = 0
-    if response_mode == "research":
-        research_evidence_count = max(1, len(getattr(research_result, "evidence", []) or []))
-
     verification_status = VerificationStatus.NOT_RUN.value
     if response_mode == "verify":
         verification_status = VerificationStatus.PARTIALLY_VERIFIED.value
@@ -3826,6 +3872,7 @@ async def chat(request: ChatRequest):
             response_mode=response_mode,
             model_routing_metadata=model_routing_metadata,
             evidence_sources_count=research_evidence_count,
+            authoritative_sources_count=research_authoritative_source_count,
             verification_status=verification_status,
             critic_invoked=False,
             verifier_invoked=response_mode == "verify",
