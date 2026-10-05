@@ -32,6 +32,7 @@ jobs:
       SHY_LOCAL_MODEL: qwen3.5:4b
       OLLAMA_URL: http://127.0.0.1:11434
       SHY_API_BASE_URL: http://127.0.0.1:8020
+      SHY_ENABLE_KNOWLEDGE_TEST_HOOKS: '1'
 
     steps:
       - name: Checkout
