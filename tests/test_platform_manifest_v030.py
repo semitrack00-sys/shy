@@ -5,7 +5,7 @@ s=importlib.util.spec_from_file_location("p",P);p=importlib.util.module_from_spe
 def a(c,m):
     if not c: raise AssertionError(m)
 
-m=p.build_platform_manifest()
+m=p.build_platform_manifest(version="0.30.0")
 a(m.version=="0.30.0",m)
 a(m.sequence_complete is True,m)
 a(m.required_disabled_invariants_hold is True,m)
@@ -25,7 +25,7 @@ tampered=list(m.capabilities)
 for i,item in enumerate(tampered):
     if item.capability_id=="arbitrary_shell_execution":
         tampered[i]=p.PlatformCapability(item.capability_id,item.introduced_version,p.CapabilityState.ACTIVE,item.safety_boundary)
-bad=p.build_platform_manifest(capabilities=tuple(tampered))
+bad=p.build_platform_manifest(version="0.30.0",capabilities=tuple(tampered))
 a(bad.required_disabled_invariants_hold is False,bad)
 print("platform invariant tamper detection: PASS")
 
