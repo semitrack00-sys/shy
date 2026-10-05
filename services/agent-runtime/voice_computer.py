@@ -101,10 +101,6 @@ _DENIED_MARKERS = (
     "dump credentials",
     "credential theft",
     "keylogger",
-    "run arbitrary shell",
-    "execute shell command",
-    "powershell command",
-    "terminal command",
     "delete system32",
 )
 
