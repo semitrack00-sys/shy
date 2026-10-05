@@ -458,11 +458,133 @@ def _code_repository(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+_RESEARCH_AUTHORITY = {
+    "PRIMARY": 4,
+    "AUTHORITATIVE": 3,
+    "SECONDARY": 2,
+    "COMMUNITY": 1,
+    "UNKNOWN": 0,
+}
+
+
+def _research_orchestration(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_sources = payload.get("sources") or []
+    current_required = bool(payload.get("current_required", False))
+    max_sources = max(1, min(int(payload.get("max_sources") or 16), 64))
+    max_age_days = max(0, min(int(payload.get("max_age_days") or 30), 3650))
+
+    if not isinstance(raw_sources, list) or not raw_sources:
+        return AdvancedResult(
+            "research_orchestration",
+            AdvancedBoundary.DATA_REQUIRED,
+            "research_sources_required",
+            {"external_fetch_performed": False},
+            False,
+        )
+
+    ranked: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for raw in raw_sources[:max_sources]:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "research_orchestration",
+                AdvancedBoundary.INVALID_INPUT,
+                "source_entries_must_be_objects",
+                {"external_fetch_performed": False},
+                False,
+            )
+
+        source_id = str(raw.get("source_id") or "").strip()
+        if not source_id or source_id in seen:
+            return AdvancedResult(
+                "research_orchestration",
+                AdvancedBoundary.INVALID_INPUT,
+                "source_ids_must_be_unique_and_nonempty",
+                {"external_fetch_performed": False},
+                False,
+            )
+        seen.add(source_id)
+
+        if not bool(raw.get("provenance_available", False)):
+            return AdvancedResult(
+                "research_orchestration",
+                AdvancedBoundary.DATA_REQUIRED,
+                "source_provenance_required",
+                {"source_id": source_id, "external_fetch_performed": False},
+                False,
+            )
+
+        authority = str(raw.get("authority") or "UNKNOWN").strip().upper()
+        if authority not in _RESEARCH_AUTHORITY:
+            authority = "UNKNOWN"
+
+        age_days = int(raw.get("age_days") or 0)
+        if age_days < 0:
+            return AdvancedResult(
+                "research_orchestration",
+                AdvancedBoundary.INVALID_INPUT,
+                "source_age_days_must_be_nonnegative",
+                {"source_id": source_id, "external_fetch_performed": False},
+                False,
+            )
+
+        ranked.append(
+            {
+                "source_id": source_id,
+                "authority": authority,
+                "authority_score": _RESEARCH_AUTHORITY[authority],
+                "age_days": age_days,
+                "fresh": age_days <= max_age_days,
+                "claim": _norm(raw.get("claim")),
+            }
+        )
+
+    ranked.sort(key=lambda item: (-int(item["authority_score"]), int(item["age_days"]), str(item["source_id"])))
+    fresh = [item for item in ranked if bool(item["fresh"])]
+    authoritative_count = sum(1 for item in ranked if int(item["authority_score"]) >= 3)
+    claims = {str(item["claim"]) for item in ranked if str(item["claim"])}
+
+    if current_required and not fresh:
+        return AdvancedResult(
+            "research_orchestration",
+            AdvancedBoundary.DATA_REQUIRED,
+            "fresh_current_sources_required",
+            {
+                "source_count": len(ranked),
+                "fresh_source_count": 0,
+                "authoritative_source_count": authoritative_count,
+                "external_fetch_performed": False,
+            },
+            False,
+        )
+
+    boundary = AdvancedBoundary.CONFLICT if len(claims) > 1 else AdvancedBoundary.READY
+    reason = "conflicting_source_claims" if boundary == AdvancedBoundary.CONFLICT else "research_plan_ready"
+
+    return AdvancedResult(
+        "research_orchestration",
+        boundary,
+        reason,
+        {
+            "selected_source_ids": [str(item["source_id"]) for item in ranked],
+            "source_count": len(ranked),
+            "fresh_source_count": len(fresh),
+            "authoritative_source_count": authoritative_count,
+            "current_required": current_required,
+            "source_limit_enforced": len(raw_sources) <= max_sources,
+            "external_fetch_performed": False,
+            "source_content_returned": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
     "data_workspace": _data_workspace,
     "code_repository": _code_repository,
+    "research_orchestration": _research_orchestration,
 }
 
 
