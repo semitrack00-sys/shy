@@ -325,10 +325,144 @@ def _data_workspace(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _safe_repo_path(value: object) -> str | None:
+    raw = str(value or "").strip().replace("\\", "/")
+    if not raw or raw.startswith("/") or (len(raw) > 2 and raw[1] == ":"):
+        return None
+    parts = [part for part in raw.split("/") if part not in {"", "."}]
+    if not parts or any(part == ".." for part in parts):
+        return None
+    return "/".join(parts)
+
+
+def _code_repository(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_files = payload.get("files") or []
+    raw_changed = payload.get("changed_paths") or []
+    max_files = max(1, min(int(payload.get("max_files") or 300), 1000))
+    max_impacted = max(1, min(int(payload.get("max_impacted") or 100), 300))
+
+    if not isinstance(raw_files, list) or not raw_files:
+        return AdvancedResult(
+            "code_repository",
+            AdvancedBoundary.DATA_REQUIRED,
+            "repository_files_required",
+            {},
+            False,
+        )
+    if not isinstance(raw_changed, list):
+        return AdvancedResult(
+            "code_repository",
+            AdvancedBoundary.INVALID_INPUT,
+            "changed_paths_must_be_a_list",
+            {},
+            False,
+        )
+
+    selected = raw_files[:max_files]
+    graph: dict[str, tuple[str, ...]] = {}
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "code_repository",
+                AdvancedBoundary.INVALID_INPUT,
+                "file_entries_must_be_objects",
+                {},
+                False,
+            )
+        path = _safe_repo_path(raw.get("path"))
+        if path is None or path in graph:
+            return AdvancedResult(
+                "code_repository",
+                AdvancedBoundary.PROTECTED_TARGET,
+                "unsafe_or_duplicate_repository_path",
+                {},
+                False,
+            )
+
+        raw_deps = raw.get("dependencies") or []
+        if not isinstance(raw_deps, list):
+            return AdvancedResult(
+                "code_repository",
+                AdvancedBoundary.INVALID_INPUT,
+                "dependencies_must_be_a_list",
+                {"path": path},
+                False,
+            )
+        deps: list[str] = []
+        for dep in raw_deps[:128]:
+            safe = _safe_repo_path(dep)
+            if safe is None:
+                return AdvancedResult(
+                    "code_repository",
+                    AdvancedBoundary.PROTECTED_TARGET,
+                    "unsafe_dependency_path",
+                    {"path": path},
+                    False,
+                )
+            deps.append(safe)
+        graph[path] = tuple(dict.fromkeys(deps))
+
+    changed: list[str] = []
+    for raw in raw_changed[:max_impacted]:
+        safe = _safe_repo_path(raw)
+        if safe is None:
+            return AdvancedResult(
+                "code_repository",
+                AdvancedBoundary.PROTECTED_TARGET,
+                "unsafe_changed_path",
+                {},
+                False,
+            )
+        if safe not in graph:
+            return AdvancedResult(
+                "code_repository",
+                AdvancedBoundary.DATA_REQUIRED,
+                "changed_path_not_in_repository_snapshot",
+                {"changed_path": safe},
+                False,
+            )
+        changed.append(safe)
+
+    reverse: dict[str, set[str]] = {path: set() for path in graph}
+    for path, deps in graph.items():
+        for dep in deps:
+            if dep in reverse:
+                reverse[dep].add(path)
+
+    impacted = set(changed)
+    frontier = list(changed)
+    while frontier and len(impacted) < max_impacted:
+        current = frontier.pop(0)
+        for dependent in sorted(reverse.get(current, ())):
+            if dependent not in impacted:
+                impacted.add(dependent)
+                frontier.append(dependent)
+                if len(impacted) >= max_impacted:
+                    break
+
+    return AdvancedResult(
+        "code_repository",
+        AdvancedBoundary.READY,
+        "repository_impact_analysis_ready",
+        {
+            "file_count_profiled": len(graph),
+            "changed_paths": sorted(set(changed)),
+            "impacted_paths": sorted(impacted),
+            "file_limit_enforced": len(raw_files) <= max_files,
+            "impact_limit_enforced": len(impacted) < max_impacted or not frontier,
+            "raw_file_content_returned": False,
+            "code_execution_performed": False,
+            "repository_write_performed": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
     "data_workspace": _data_workspace,
+    "code_repository": _code_repository,
 }
 
 
