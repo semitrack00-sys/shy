@@ -1,9 +1,7 @@
 name: SHY v0.50 Final Release Gate
 
 on:
-  push:
-    branches:
-      - codex/shy-v0.50-integrated-platform
+  # Historical gate: run manually against a v0.50 ref, never newer releases.
   workflow_dispatch:
 
 permissions:

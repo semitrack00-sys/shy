@@ -2,9 +2,9 @@ name: SHY v0.100 Release Gate
 
 on:
   push:
-    branches: [codex/shy-v0.100-verified-platform]
+    branches: [codex/shy-v0.100-verified-platform, codex/shy-v0.50-integrated-platform, main]
   pull_request:
-    branches: [codex/shy-v0.50-integrated-platform]
+    branches: [codex/shy-v0.50-integrated-platform, main]
   workflow_dispatch:
 
 permissions:
