@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BrowserVoice, VOICE_LANGUAGES, type VoiceState, type VoiceWindow } from '@/lib/browser-voice';
 import type { ChatMessage } from '@/lib/types';
+import { ShyLocalVoice } from './shy-local-voice';
 
 export function ShyVoice({ conversationId, disabled, onTranscript, reply }: {
   conversationId: string | null;
@@ -21,6 +22,8 @@ export function ShyVoice({ conversationId, disabled, onTranscript, reply }: {
   const [volume, setVolume] = useState(1);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURI] = useState('');
+  const [localActive, setLocalActive] = useState(false);
+  const [cancelSignal, setCancelSignal] = useState(0);
   const lastReply = useRef(reply?.id);
 
   useEffect(() => {
@@ -50,13 +53,13 @@ export function ShyVoice({ conversationId, disabled, onTranscript, reply }: {
   }, [disabled]);
 
   useEffect(() => {
-    if (disabled) return;
+    if (disabled || localActive) return;
     if (reply?.id === lastReply.current) return;
     lastReply.current = reply?.id;
     if (readReplies && reply && reply.status !== 'failed') {
       controller.current?.speak(reply.content, language, rate, volume, voiceURI, allowBrowserService);
     }
-  }, [reply, disabled, readReplies, language, rate, volume, voiceURI, allowBrowserService]);
+  }, [reply, disabled, localActive, readReplies, language, rate, volume, voiceURI, allowBrowserService]);
 
   useEffect(() => {
     const stop = () => { if (document.hidden) controller.current?.cancel(); };
@@ -67,15 +70,15 @@ export function ShyVoice({ conversationId, disabled, onTranscript, reply }: {
   return (
     <section className="shy-voice" aria-label="Voice conversation">
       <div className="shy-voice-actions">
-        <button className="shy-button" type="button" disabled={disabled || !supported}
+        <button className="shy-button" type="button" disabled={disabled || localActive || !supported}
           aria-pressed={state.listening} onClick={() => state.listening
             ? controller.current?.stopListening()
             : controller.current?.start(language, allowBrowserService, onTranscript)}>
           {state.listening ? 'Finish recording' : 'Speak to SHY'}
         </button>
-        <button className="shy-button" type="button" disabled={!state.listening && !state.speaking}
-          onClick={() => controller.current?.cancel()}>Stop voice</button>
-        <button className="shy-button" type="button" disabled={!reply || disabled || !synthesisSupported}
+        <button className="shy-button" type="button" disabled={!state.listening && !state.speaking && !localActive}
+          onClick={() => { controller.current?.cancel(); setCancelSignal(value => value + 1); }}>Stop voice</button>
+        <button className="shy-button" type="button" disabled={!reply || disabled || localActive || !synthesisSupported}
           onClick={() => reply && controller.current?.speak(reply.content, language, rate, volume, voiceURI, allowBrowserService)}>
           Read latest reply
         </button>
@@ -107,6 +110,8 @@ export function ShyVoice({ conversationId, disabled, onTranscript, reply }: {
         <label>Volume<input type="range" min="0" max="1" step="0.1" value={volume}
           onChange={event => setVolume(Number(event.target.value))} /></label>
       </details>
+      <ShyLocalVoice disabled={disabled} onTranscript={onTranscript} onStart={() => controller.current?.cancel()}
+        onActivity={setLocalActive} cancelSignal={cancelSignal} />
     </section>
   );
 }

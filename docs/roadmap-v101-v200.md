@@ -1,19 +1,20 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.103.0. A future number must not be added
+shipped. The current implementation is v0.105.0. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
 Status meanings: **Implemented** = code and automated tests exist, with the stated
-runtime conditions; **Implemented early** = available in v0.103 but its planned
+runtime conditions; **Implemented early** = available ahead of its planned number but its planned
 release number has not been issued; **Partial** = only some required behavior is
 implemented; **Blocked** = the next sequential milestone needs a concrete missing
 prerequisite; **Planned** = not implemented by this release.
 
 Browser voice requires compatible APIs and permission. Local recognition depends
 on browser language packs. Remote browser speech requires session-only opt-in.
-No audio model is installed in the SHY core. No real microphone, Haitian Creole
+The core has an optional bounded local Whisper HTTP adapter; no model is installed
+in the core image. No real microphone, Haitian Creole
 speech quality, Windows execution, wake-word behavior, or GPU speech latency has
 been measured by CI. Automated voice tests use fixtures, not acoustic recordings.
 
@@ -22,10 +23,10 @@ been measured by CI. Automated voice tests use fixtures, not acoustic recordings
 | v0.101 | Push-to-talk, transcription, spoken replies | Implemented: browser-dependent; transcript review before Send |
 | v0.102 | Stop speaking and interrupt voice playback | Implemented: client audio cancellation; server chat is not cancelled |
 | v0.103 | Silence handling and recording limit | Implemented: browser speech-end events and 30-second limit; no custom VAD model |
-| v0.104 | Microphone selection and audio diagnostics | Blocked: Web Speech does not accept a selected audio stream; local ASR path needed |
-| v0.105 | Voice, speed, and volume controls | Implemented early in v0.103; installed voice availability varies |
-| v0.106 | English, French, Haitian Creole speech evaluation | Planned: needs recordings, speech engine, and target hardware |
-| v0.107 | Language selection and automatic detection | Partial: manual selection exists; automatic detection absent |
+| v0.104 | Microphone selection and audio diagnostics | Implemented: selected microphone, PCM WAV capture, level meter; configured local engine required |
+| v0.105 | Voice, speed, and volume controls | Implemented: installed voice availability varies |
+| v0.106 | English, French, Haitian Creole speech evaluation | Blocked: representative recordings and target-hardware quality measurements required |
+| v0.107 | Language selection and automatic detection | Implemented early in v0.105: manual selection and local-engine auto detection; language quality unmeasured |
 | v0.108 | Optional Hey SHY wake phrase | Planned |
 | v0.109 | Hands-free conversation mode | Planned |
 | v0.110 | Voice reliability, latency, privacy benchmarks | Planned: target microphone and hardware required |
@@ -122,12 +123,12 @@ been measured by CI. Automated voice tests use fixtures, not acoustic recordings
 
 ## Next sequential prerequisite
 
-v0.104 requires a real audio-to-text provider accepting captured microphone audio,
-plus target-device validation. Browser SpeechRecognition selects its own input;
-enumerating devices alone would not implement microphone selection. The current
-core has neither a local speech model nor an audio upload/transcription endpoint.
-Add and test that path before marking v0.104 complete. Never treat a mocked
-transcription, a UI control alone, or a configured but untested provider as proof.
+v0.106 requires genuine representative recordings and quality measurements for
+English, French, and Haitian Creole. The v0.105 speech adapter supports selected
+microphone streams when a local Whisper server is configured. Configuration is
+not proof of availability or accuracy. A single English acoustic smoke case is
+not a multilingual benchmark, a microphone test, or GPU performance evidence.
+See [local speech setup](local-voice-v105.md) for the executable integration path.
 
 ## Release evidence
 

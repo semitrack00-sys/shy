@@ -307,7 +307,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.103.0"
+SHY_VERSION = "0.105.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1419,9 +1419,12 @@ app = FastAPI(
 )
 
 from intelligence_api import IntelligenceBodyLimit, router as intelligence_router
+from voice_api import VoiceBodyLimit, router as voice_router, provider_url as speech_provider_url
 
 app.include_router(intelligence_router)
 app.add_middleware(IntelligenceBodyLimit)
+app.include_router(voice_router)
+app.add_middleware(VoiceBodyLimit)
 
 OLLAMA_URL = os.getenv(
     "OLLAMA_URL",
@@ -1517,6 +1520,14 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "raw_audio_received_by_core": False,
             "transcript_review_before_send": True,
             "offline_speech_guaranteed": False,
+        },
+        "local_speech_capabilities": {
+            "configured": speech_provider_url() is not None,
+            "provider_ready": None,
+            "bounded_audio_upload": True,
+            "audio_persisted_by_core": False,
+            "max_seconds": 30,
+            "system_microphone_capture": False,
         },
         "interaction_capabilities": {
             "voice_transcript_interpretation": True,

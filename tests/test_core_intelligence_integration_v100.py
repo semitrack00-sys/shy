@@ -21,6 +21,9 @@ class CoreIntegrationTests(unittest.TestCase):
             self.assertTrue(manifest["platform"]["sequence_complete"])
             self.assertTrue(manifest["platform"]["required_disabled_invariants_hold"])
             self.assertEqual(client.get("/intelligence/capabilities").json()["capability_count"], 50)
+            speech = client.get("/voice/status").json()
+            self.assertFalse(speech["audio_persisted"])
+            self.assertIsNone(speech["provider_ready"])
             response = client.post("/intelligence/evaluate", json={"capability": "evidence_pipeline", "payload": {"query": "solar kit", "scope": "user-a", "now": "2026-10-05T00:00:00Z", "passages": [{"id": "p1", "scope": "user-a", "source_id": "doc1", "observed_at": "2026-10-05T00:00:00Z", "text": "solar kit costs 100 USD"}, {"id": "foreign", "scope": "user-b", "source_id": "private", "observed_at": "2026-10-05T00:00:00Z", "text": "solar kit confidential"}]}})
             self.assertEqual(response.status_code, 200, response.text)
             result = response.json()["payload"]
