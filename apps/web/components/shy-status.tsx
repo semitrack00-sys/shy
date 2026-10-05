@@ -17,6 +17,12 @@ export function ShyStatus({ health, loading }: ShyStatusProps) {
       </div>
       <div className="shy-status-grid">
         <div className="shy-status-row">
+          <span>Runtime</span>
+          <strong className={health?.application_healthy ? 'shy-status-good' : 'shy-status-bad'}>
+            {health?.application_healthy ? 'Healthy' : loading ? 'Loading…' : 'Degraded'}
+          </strong>
+        </div>
+        <div className="shy-status-row">
           <span>Core version</span>
           <strong>{health?.version ?? (loading ? 'Loading…' : '—')}</strong>
         </div>
