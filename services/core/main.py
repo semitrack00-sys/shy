@@ -49,6 +49,7 @@ from agent_runtime.expert_intelligence import (
     apply_expert_response_policy,
     build_expert_response_frame,
     count_authoritative_research_sources,
+    expert_generation_guidance,
     public_expert_metadata,
     select_expert,
 )
@@ -1894,7 +1895,10 @@ async def _generate_intelligence_response_internal(
     role: ModelRole | None = None,
     privacy_requirement: PrivacyClass | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    generation_expert = select_expert(message)
+    expert_guidance = expert_generation_guidance(generation_expert)
+    effective_system_prompt = f"{SYSTEM_PROMPT.strip()}\n\n{expert_guidance}"
+    messages = [{"role": "system", "content": effective_system_prompt}]
     for item in history:
         messages.append({"role": item["role"], "content": item["content"]})
     messages.append({"role": "user", "content": message})
@@ -1978,8 +1982,11 @@ async def _generate_intelligence_response_internal(
                 model_request = ModelRequest(
                     messages=tuple(ModelMessage(role=item["role"], content=item["content"]) for item in messages),
                     capability=routing_decision.required_capability,
-                    system_instruction=SYSTEM_PROMPT,
-                    metadata={},
+                    system_instruction=effective_system_prompt,
+                    metadata={
+                        "expert_domain": generation_expert.domain.value,
+                        "expert_playbook_id": generation_expert.profile.domain.value,
+                    },
                 )
                 response = provider.generate(request=model_request, model_id=model_id)
                 if str(getattr(response, "status", "")).upper() != "OK":
