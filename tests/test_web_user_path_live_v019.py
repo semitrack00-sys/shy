@@ -5,6 +5,7 @@ import httpx
 
 
 WEB_BASE_URL = os.getenv("SHY_WEB_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
+EXPECTED_VERSION = os.getenv("SHY_EXPECTED_VERSION", "0.19.0")
 TIMEOUT = 120.0
 
 
@@ -27,7 +28,7 @@ def main():
     health = httpx.get(f"{WEB_BASE_URL}/api/shy/health", timeout=TIMEOUT)
     _assert(health.status_code == 200, f"web health proxy expected 200, got {health.status_code}: {health.text}")
     health_payload = health.json()
-    _assert(health_payload.get("version") == "0.19.0", "web health proxy must expose v0.19.0")
+    _assert(health_payload.get("version") == EXPECTED_VERSION, f"web health proxy must expose {EXPECTED_VERSION}")
     _assert(health_payload.get("application_healthy") is True, "web health proxy must expose truthful healthy state")
     _assert(health_payload.get("ollama_connected") is True, "web health proxy must expose Ollama state")
     _assert(health_payload.get("local_model_available") is True, "web health proxy must expose configured model state")
