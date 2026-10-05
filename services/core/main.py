@@ -1534,6 +1534,7 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "self_certification": False,
             "hidden_reasoning_required": False,
             "automatic_self_modification": False,
+        },
         "tool_registry_capabilities": {
             "capability_selection": True,
             "scope_filtering": True,
@@ -1541,7 +1542,6 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "side_effect_approval_enforcement": True,
             "registry_execution": False,
             "arbitrary_shell_capability": False,
-        },
         },
     }
 
