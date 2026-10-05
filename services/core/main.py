@@ -744,7 +744,9 @@ def _run_cognitive_deterministic_response(
                     else ()
                 ),
                 evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
                 knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -784,7 +786,9 @@ def _run_cognitive_deterministic_response(
                     else ()
                 ),
                 evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
                 knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -825,7 +829,9 @@ def _run_cognitive_deterministic_response(
                     else ()
                 ),
                 evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
                 knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -866,7 +872,9 @@ def _run_cognitive_deterministic_response(
                     else ()
                 ),
                 evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
                 knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -891,7 +899,9 @@ def _run_cognitive_deterministic_response(
                 decomposition_count_override=0,
                 uncertainty_flags_override=classify_uncertainty({"project_mercury_database": UncertaintyType.UNKNOWN}),
                 evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
                 knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -1192,7 +1202,9 @@ def _run_cognitive_deterministic_response(
                     else classify_uncertainty({"growth_assumption": UncertaintyType.UNCERTAIN})
                 ),
                 evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
                 knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
