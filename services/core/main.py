@@ -138,6 +138,12 @@ from agent_runtime.temporal_intelligence import (
     preview_recurrence,
     public_temporal_plan,
 )
+from agent_runtime.condition_intelligence import (
+    ConditionOperator,
+    ConditionRule,
+    evaluate_conditions,
+    public_condition_batch,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -290,7 +296,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.31.0"
+SHY_VERSION = "0.32.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1559,6 +1565,12 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "deadline_conflict_detection": True,
             "bounded_recurrence_preview": True,
             "external_schedule_creation": False,
+        },
+        "condition_capabilities": {
+            "bounded_rule_evaluation": True,
+            "missing_metric_boundary": True,
+            "continuous_monitoring": False,
+            "notification_sending": False,
         },
         "platform_checkpoint": {
             "version": "0.30.0",
@@ -3128,6 +3140,19 @@ class ToolRegistrySelectRequest(ToolRegistryValidateRequest):
     max_candidates: int = 8
 
 
+class ConditionRuleRequest(BaseModel):
+    rule_id: str
+    metric: str
+    operator: str
+    threshold: float
+
+
+class ConditionEvaluateRequest(BaseModel):
+    metrics: dict[str, float]
+    rules: list[ConditionRuleRequest]
+    max_rules: int = 64
+
+
 class TemporalTaskRequest(BaseModel):
     task_id: str
     duration_minutes: int
@@ -3540,6 +3565,36 @@ def _registered_tools_from_request(items: list[RegisteredToolRequest]):
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Unsupported tool registry permission or risk.") from exc
+
+
+@app.post("/conditions/evaluate")
+async def conditions_evaluate(request: ConditionEvaluateRequest):
+    try:
+        rules = tuple(
+            ConditionRule(
+                rule_id=item.rule_id,
+                metric=item.metric,
+                operator=ConditionOperator(str(item.operator).strip().upper()),
+                threshold=float(item.threshold),
+            )
+            for item in request.rules
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Unsupported condition operator.") from exc
+
+    batch = evaluate_conditions(
+        {str(key): float(value) for key, value in request.metrics.items()},
+        rules,
+        max_rules=max(1, min(int(request.max_rules), 128)),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "conditions": public_condition_batch(batch),
+        "monitoring_started": False,
+        "notification_sent": False,
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.post("/temporal/plan")
