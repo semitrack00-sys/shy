@@ -83,6 +83,25 @@ Show:
 
     print("SHY v0.19 user-facing delivery investment reasoning: PASS")
 
+    equation_response = httpx.post(
+        f"{BASE_URL}/chat",
+        json={
+            "message": "Solve 2x - 4 + 4 = 9",
+            "workspace_id": "v019-user-reasoning-ws",
+            "business_id": "v019-user-reasoning-biz",
+            "user_id": "v019-user-reasoning-user",
+        },
+        timeout=TIMEOUT,
+    )
+    _assert(equation_response.status_code == 200, f"equation chat expected 200, got {equation_response.status_code}: {equation_response.text}")
+    equation_payload = equation_response.json()
+    _assert(equation_payload.get("status") == "RESPOND", "equation request must RESPOND")
+    equation_text = str(equation_payload.get("message", "")).lower()
+    _assert("x = 4.5" in equation_text, "linear equation answer must be x = 4.5")
+    _assert("solution is 5" not in equation_text, "final answer must not contradict the verified calculation")
+    _assert("2x = 9" in equation_text, "linear equation simplification must be consistent")
+    print("SHY v0.19 linear-equation consistency: PASS")
+
 
 if __name__ == "__main__":
     main()
