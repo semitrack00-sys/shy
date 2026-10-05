@@ -288,6 +288,7 @@ def _build_cognitive_public_metadata(
     hypotheses_considered: int = 0,
     decomposition_count_override: int | None = None,
     uncertainty_flags_override: tuple[str, ...] | None = None,
+    knowledge_boundary: str | None = None,
 ) -> dict[str, Any]:
     complexity = classify_complexity(
         message,
@@ -344,6 +345,7 @@ def _build_cognitive_public_metadata(
     roles_used = list(model_roles_used) if model_roles_used else [metadata.model_role]
     expert_decision = select_expert(
         message,
+        knowledge_boundary=knowledge_boundary,
         evidence_sources_count=evidence_sources_count,
     )
 
