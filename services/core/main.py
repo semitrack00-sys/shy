@@ -571,13 +571,14 @@ def _run_basic_system_response(
     wants_time = any(marker in normalized for marker in time_markers)
     if wants_date or wants_time:
         local_now, timezone_label = _client_local_now(request)
+        local_time_text = local_now.strftime("%I:%M %p").lstrip("0")
         if wants_date and wants_time:
             assistant = (
                 f"It is {local_now.strftime('%A, %B')} {local_now.day}, {local_now.year}, "
-                f"{local_now.strftime('%-I:%M %p')} ({timezone_label})."
+                f"{local_time_text} ({timezone_label})."
             )
         elif wants_time:
-            assistant = f"The current time is {local_now.strftime('%-I:%M %p')} ({timezone_label})."
+            assistant = f"The current time is {local_time_text} ({timezone_label})."
         else:
             assistant = f"Today is {local_now.strftime('%A, %B')} {local_now.day}, {local_now.year}."
 
