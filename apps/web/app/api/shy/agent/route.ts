@@ -4,7 +4,7 @@ import { getBackendBaseUrl } from '@/lib/config';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
-    const response = await fetch(`${getBackendBaseUrl()}/agent`, {
+    const response = await fetch(`${getBackendBaseUrl()}/chat`, {
       method: 'POST',
       cache: 'no-store',
       headers: {
