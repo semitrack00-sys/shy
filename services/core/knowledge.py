@@ -1,12 +1,163 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ModuleNotFoundError:  # pragma: no cover - dependency is expected in runtime
+    psycopg = None
+    dict_row = None
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://shy:shy_local_dev@127.0.0.1:5432/shy",
+)
+
+
+def connect() -> Any:
+    if psycopg is None or dict_row is None:
+        raise RuntimeError("psycopg unavailable")
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def ensure_knowledge_schema() -> None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS knowledge_records (
+                    knowledge_id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL,
+                    workspace_id TEXT NOT NULL,
+                    business_id TEXT,
+                    allow_public BOOLEAN NOT NULL DEFAULT FALSE,
+                    subject TEXT NOT NULL,
+                    source_type TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    normalized_content TEXT NOT NULL,
+                    source_title TEXT,
+                    source_timestamp TIMESTAMPTZ,
+                    observed_at TIMESTAMPTZ NOT NULL,
+                    effective_from TIMESTAMPTZ,
+                    effective_to TIMESTAMPTZ,
+                    confidence REAL NOT NULL,
+                    freshness TEXT NOT NULL,
+                    authority TEXT NOT NULL,
+                    sensitivity TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    provenance_source_type TEXT NOT NULL,
+                    provenance_source_id TEXT NOT NULL,
+                    provenance_source_title TEXT,
+                    provenance_source_timestamp TIMESTAMPTZ,
+                    provenance_authority TEXT NOT NULL,
+                    provenance_retrieved_at TIMESTAMPTZ NOT NULL,
+                    provenance_content_hash TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE knowledge_records
+                ADD COLUMN IF NOT EXISTS business_key TEXT GENERATED ALWAYS AS (COALESCE(business_id, '')) STORED
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS knowledge_chunks (
+                    chunk_id TEXT PRIMARY KEY,
+                    knowledge_id UUID NOT NULL REFERENCES knowledge_records(knowledge_id) ON DELETE CASCADE,
+                    order_index INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    normalized_content TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS knowledge_relationships (
+                    relationship_id UUID PRIMARY KEY,
+                    knowledge_id UUID NOT NULL REFERENCES knowledge_records(knowledge_id) ON DELETE CASCADE,
+                    related_knowledge_id UUID NOT NULL REFERENCES knowledge_records(knowledge_id) ON DELETE CASCADE,
+                    relationship_type TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (knowledge_id, related_knowledge_id, relationship_type)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_records_dedupe_key
+                ON knowledge_records (user_id, workspace_id, business_key, allow_public, subject, source_id, content_hash)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_records_scope_order
+                ON knowledge_records (user_id, workspace_id, business_key, updated_at DESC)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_records_subject
+                ON knowledge_records (user_id, workspace_id, business_key, subject)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_records_source_id
+                ON knowledge_records (user_id, workspace_id, business_key, source_id)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_records_content_hash
+                ON knowledge_records (user_id, workspace_id, business_key, content_hash)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_records_scope_status
+                ON knowledge_records (user_id, workspace_id, business_key, status)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_records_freshness_updated
+                ON knowledge_records (user_id, workspace_id, business_key, freshness, updated_at DESC)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_knowledge
+                ON knowledge_chunks (knowledge_id, order_index)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_relationships_knowledge_id
+                ON knowledge_relationships (knowledge_id, relationship_type)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_knowledge_relationships_related_id
+                ON knowledge_relationships (related_knowledge_id, relationship_type)
+                """
+            )
 
 
 class KnowledgeStatus(str, Enum):
@@ -76,6 +227,9 @@ class KnowledgeScope:
     workspace_id: str
     business_id: str | None = None
     allow_public: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "user_id", uuid.UUID(str(self.user_id)))
 
 
 @dataclass(frozen=True)
@@ -362,6 +516,496 @@ def _scope_specificity(target: KnowledgeScope, candidate: KnowledgeScope) -> flo
 
 def _source_is_authoritative(authority: AuthorityLevel) -> bool:
     return authority in {AuthorityLevel.PRIMARY, AuthorityLevel.AUTHORITATIVE, AuthorityLevel.TRUSTED}
+
+
+class PostgresKnowledgeStore:
+    def __init__(
+        self,
+        *,
+        max_chunk_chars: int = 320,
+        overlap_chars: int = 48,
+        max_retrieval_results: int = 8,
+        max_context_chars: int = 2600,
+        max_sources: int = 8,
+        max_chunks: int = 24,
+    ):
+        self._records: dict[uuid.UUID, KnowledgeRecord] = {}
+        self._max_chunk_chars = max_chunk_chars
+        self._overlap_chars = overlap_chars
+        self._max_retrieval_results = max_retrieval_results
+        self._max_context_chars = max_context_chars
+        self._max_sources = max_sources
+        self._max_chunks = max_chunks
+        ensure_knowledge_schema()
+        self._refresh_cache()
+
+    def _refresh_cache(self) -> None:
+        self._records = {}
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM knowledge_records
+                    ORDER BY updated_at DESC, knowledge_id
+                    """
+                )
+                rows = cur.fetchall()
+                if not rows:
+                    return
+
+                cur.execute(
+                    "SELECT * FROM knowledge_chunks ORDER BY knowledge_id, order_index"
+                )
+                chunks_by_record: dict[str, list[KnowledgeChunk]] = {}
+                for chunk_row in cur.fetchall():
+                    record_id = str(chunk_row["knowledge_id"])
+                    chunks_by_record.setdefault(record_id, []).append(
+                        KnowledgeChunk(
+                            chunk_id=chunk_row["chunk_id"],
+                            order_index=int(chunk_row["order_index"]),
+                            content=chunk_row["content"],
+                            normalized_content=chunk_row["normalized_content"],
+                            content_hash=chunk_row["content_hash"],
+                        )
+                    )
+
+                for row in rows:
+                    record_id = uuid.UUID(str(row["knowledge_id"]))
+                    scope = KnowledgeScope(
+                        user_id=row["user_id"],
+                        workspace_id=row["workspace_id"],
+                        business_id=row["business_id"],
+                        allow_public=bool(row["allow_public"]),
+                    )
+                    provenance = KnowledgeProvenance(
+                        source_type=KnowledgeSourceType(row["provenance_source_type"]),
+                        source_id=row["provenance_source_id"],
+                        source_title=row["provenance_source_title"],
+                        source_timestamp=row["provenance_source_timestamp"],
+                        authority=AuthorityLevel(row["provenance_authority"]),
+                        retrieved_at=row["provenance_retrieved_at"],
+                        content_hash=row["provenance_content_hash"],
+                    )
+                    record = KnowledgeRecord(
+                        knowledge_id=record_id,
+                        scope=scope,
+                        source_type=KnowledgeSourceType(row["source_type"]),
+                        source_id=row["source_id"],
+                        subject=row["subject"],
+                        content=row["content"],
+                        normalized_content=row["normalized_content"],
+                        source_title=row["source_title"],
+                        source_timestamp=row["source_timestamp"],
+                        observed_at=row["observed_at"],
+                        effective_from=row["effective_from"],
+                        effective_to=row["effective_to"],
+                        confidence=float(row["confidence"]),
+                        freshness=KnowledgeFreshness(row["freshness"]),
+                        authority=AuthorityLevel(row["authority"]),
+                        sensitivity=KnowledgeSensitivity(row["sensitivity"]),
+                        status=KnowledgeStatus(row["status"]),
+                        provenance=provenance,
+                        content_hash=row["content_hash"],
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                        chunks=tuple(chunks_by_record.get(str(record_id), ())),
+                    )
+                    self._records[record_id] = record
+
+    def _persist_snapshot(self) -> None:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM knowledge_relationships")
+                cur.execute("DELETE FROM knowledge_chunks")
+                cur.execute("DELETE FROM knowledge_records")
+
+                for record in sorted(self._records.values(), key=lambda row: (row.updated_at, str(row.knowledge_id)), reverse=True):
+                    cur.execute(
+                        """
+                        INSERT INTO knowledge_records (
+                            knowledge_id, user_id, workspace_id, business_id, allow_public,
+                            subject, source_type, source_id, content, normalized_content,
+                            source_title, source_timestamp, observed_at, effective_from, effective_to,
+                            confidence, freshness, authority, sensitivity, status,
+                            provenance_source_type, provenance_source_id, provenance_source_title,
+                            provenance_source_timestamp, provenance_authority, provenance_retrieved_at,
+                            provenance_content_hash, content_hash, created_at, updated_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            record.knowledge_id,
+                            record.scope.user_id,
+                            record.scope.workspace_id,
+                            record.scope.business_id,
+                            record.scope.allow_public,
+                            record.subject,
+                            record.source_type.value,
+                            record.source_id,
+                            record.content,
+                            record.normalized_content,
+                            record.source_title,
+                            record.source_timestamp,
+                            record.observed_at,
+                            record.effective_from,
+                            record.effective_to,
+                            float(record.confidence),
+                            record.freshness.value,
+                            record.authority.value,
+                            record.sensitivity.value,
+                            record.status.value,
+                            record.provenance.source_type.value,
+                            record.provenance.source_id,
+                            record.provenance.source_title,
+                            record.provenance.source_timestamp,
+                            record.provenance.authority.value,
+                            record.provenance.retrieved_at,
+                            record.provenance.content_hash,
+                            record.content_hash,
+                            record.created_at,
+                            record.updated_at,
+                        ),
+                    )
+                    for chunk in record.chunks:
+                        cur.execute(
+                            """
+                            INSERT INTO knowledge_chunks (
+                                chunk_id, knowledge_id, order_index, content,
+                                normalized_content, content_hash
+                            ) VALUES (%s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                chunk.chunk_id,
+                                record.knowledge_id,
+                                chunk.order_index,
+                                chunk.content,
+                                chunk.normalized_content,
+                                chunk.content_hash,
+                            ),
+                        )
+
+    def list_records(self, scope: KnowledgeScope | None = None) -> list[KnowledgeRecord]:
+        self._refresh_cache()
+        return InMemoryKnowledgeStore.list_records(self, scope)
+
+    def get_record(self, knowledge_id: uuid.UUID) -> KnowledgeRecord | None:
+        self._refresh_cache()
+        return InMemoryKnowledgeStore.get_record(self, knowledge_id)
+
+    def _scope_visible(self, query_scope: KnowledgeScope, record_scope: KnowledgeScope) -> bool:
+        return InMemoryKnowledgeStore._scope_visible(self, query_scope, record_scope)
+
+    def _ranking_score(
+        self,
+        query_tokens: tuple[str, ...],
+        record: KnowledgeRecord,
+        target_scope: KnowledgeScope,
+        now: datetime,
+    ) -> float:
+        return InMemoryKnowledgeStore._ranking_score(self, query_tokens, record, target_scope, now)
+
+    def _detect_conflicts(self, rows: list[KnowledgeRecord]) -> tuple[KnowledgeConflict, ...]:
+        return InMemoryKnowledgeStore._detect_conflicts(self, rows)
+
+    def _knowledge_boundary(
+        self,
+        rows: list[KnowledgeRecord],
+        conflicts: tuple[KnowledgeConflict, ...],
+        *,
+        requires_external_research: bool,
+        dependency_unavailable: bool,
+    ) -> KnowledgeBoundary:
+        return InMemoryKnowledgeStore._knowledge_boundary(
+            self,
+            rows,
+            conflicts,
+            requires_external_research=requires_external_research,
+            dependency_unavailable=dependency_unavailable,
+        )
+
+    def _grounding_status(
+        self,
+        rows: list[KnowledgeRecord],
+        conflicts: tuple[KnowledgeConflict, ...],
+    ) -> GroundingStatus:
+        return InMemoryKnowledgeStore._grounding_status(self, rows, conflicts)
+
+    def reset(self) -> None:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM knowledge_relationships")
+                cur.execute("DELETE FROM knowledge_chunks")
+                cur.execute("DELETE FROM knowledge_records")
+        self._records = {}
+
+    def ingest_text(
+        self,
+        *,
+        scope: KnowledgeScope,
+        source_type: KnowledgeSourceType,
+        source_id: str,
+        subject: str,
+        content: str,
+        source_title: str | None = None,
+        source_timestamp: datetime | None = None,
+        observed_at: datetime | None = None,
+        effective_from: datetime | None = None,
+        effective_to: datetime | None = None,
+        confidence: float = 0.7,
+        authority: AuthorityLevel = AuthorityLevel.USER_PROVIDED,
+        sensitivity: KnowledgeSensitivity = KnowledgeSensitivity.INTERNAL,
+        correction: bool = False,
+    ) -> KnowledgeIngestionResult:
+        self._refresh_cache()
+        before = set(self._records)
+        result = InMemoryKnowledgeStore.ingest_text(
+            self,
+            scope=scope,
+            source_type=source_type,
+            source_id=source_id,
+            subject=subject,
+            content=content,
+            source_title=source_title,
+            source_timestamp=source_timestamp,
+            observed_at=observed_at,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            confidence=confidence,
+            authority=authority,
+            sensitivity=sensitivity,
+            correction=correction,
+        )
+        if result.accepted and result.created:
+            created = result.created[0]
+            with connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO knowledge_records (
+                            knowledge_id, user_id, workspace_id, business_id, allow_public,
+                            subject, source_type, source_id, content, normalized_content,
+                            source_title, source_timestamp, observed_at, effective_from, effective_to,
+                            confidence, freshness, authority, sensitivity, status,
+                            provenance_source_type, provenance_source_id, provenance_source_title,
+                            provenance_source_timestamp, provenance_authority, provenance_retrieved_at,
+                            provenance_content_hash, content_hash, created_at, updated_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (user_id, workspace_id, business_key, allow_public, subject, source_id, content_hash) DO NOTHING
+                        RETURNING knowledge_id
+                        """,
+                        (
+                            created.knowledge_id,
+                            created.scope.user_id,
+                            created.scope.workspace_id,
+                            created.scope.business_id,
+                            created.scope.allow_public,
+                            created.subject,
+                            created.source_type.value,
+                            created.source_id,
+                            created.content,
+                            created.normalized_content,
+                            created.source_title,
+                            created.source_timestamp,
+                            created.observed_at,
+                            created.effective_from,
+                            created.effective_to,
+                            float(created.confidence),
+                            created.freshness.value,
+                            created.authority.value,
+                            created.sensitivity.value,
+                            created.status.value,
+                            created.provenance.source_type.value,
+                            created.provenance.source_id,
+                            created.provenance.source_title,
+                            created.provenance.source_timestamp,
+                            created.provenance.authority.value,
+                            created.provenance.retrieved_at,
+                            created.provenance.content_hash,
+                            created.content_hash,
+                            created.created_at,
+                            created.updated_at,
+                        ),
+                    )
+                    inserted = cur.fetchone()
+                    if inserted is not None:
+                        for chunk in created.chunks:
+                            cur.execute(
+                                """
+                                INSERT INTO knowledge_chunks (
+                                    chunk_id, knowledge_id, order_index, content,
+                                    normalized_content, content_hash
+                                ) VALUES (%s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (chunk_id) DO NOTHING
+                                """,
+                                (
+                                    chunk.chunk_id,
+                                    created.knowledge_id,
+                                    chunk.order_index,
+                                    chunk.content,
+                                    chunk.normalized_content,
+                                    chunk.content_hash,
+                                ),
+                            )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT knowledge_id
+                            FROM knowledge_records
+                            WHERE user_id=%s AND workspace_id=%s AND COALESCE(business_id, '')=%s
+                              AND allow_public=%s AND subject=%s AND source_id=%s AND content_hash=%s
+                            ORDER BY updated_at DESC
+                            LIMIT 1
+                            """,
+                            (
+                                created.scope.user_id,
+                                created.scope.workspace_id,
+                                created.scope.business_id or "",
+                                created.scope.allow_public,
+                                created.subject,
+                                created.source_id,
+                                created.content_hash,
+                            ),
+                        )
+                        duplicate = cur.fetchone()
+                        if duplicate is not None:
+                            result = KnowledgeIngestionResult(
+                                True,
+                                None,
+                                (),
+                                uuid.UUID(str(duplicate["knowledge_id"])),
+                            )
+
+            if correction:
+                created_ids = set(self._records) - before
+                superseded_ids = [record_id for record_id in before if record_id in self._records and self._records[record_id].status == KnowledgeStatus.SUPERSEDED]
+                for old_id in superseded_ids:
+                    old_record = self._records.get(old_id)
+                    if old_record is None:
+                        continue
+                    new_id = next(iter(created_ids), None)
+                    with connect() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                """
+                                UPDATE knowledge_records
+                                SET status = %s,
+                                    effective_to = %s,
+                                    updated_at = %s
+                                WHERE knowledge_id = %s
+                                """,
+                                (
+                                    old_record.status.value,
+                                    old_record.effective_to,
+                                    old_record.updated_at,
+                                    old_id,
+                                ),
+                            )
+                            if new_id is not None:
+                                cur.execute(
+                                    """
+                                    INSERT INTO knowledge_relationships (relationship_id, knowledge_id, related_knowledge_id, relationship_type)
+                                    VALUES (%s, %s, %s, %s)
+                                    ON CONFLICT (knowledge_id, related_knowledge_id, relationship_type) DO NOTHING
+                                    """,
+                                    (uuid.uuid4(), old_id, new_id, "SUPERSEDED_BY"),
+                                )
+        self._refresh_cache()
+        return result
+
+    def ingest_structured_record(
+        self,
+        *,
+        scope: KnowledgeScope,
+        source_type: KnowledgeSourceType,
+        source_id: str,
+        subject: str,
+        record: dict[str, Any],
+        source_title: str | None = None,
+        source_timestamp: datetime | None = None,
+        authority: AuthorityLevel = AuthorityLevel.TRUSTED,
+        confidence: float = 0.75,
+    ) -> KnowledgeIngestionResult:
+        return self.ingest_text(
+            scope=scope,
+            source_type=source_type,
+            source_id=source_id,
+            subject=subject,
+            content="; ".join(f"{key}={record[key]}" for key in sorted(record.keys())),
+            source_title=source_title,
+            source_timestamp=source_timestamp,
+            authority=authority,
+            confidence=confidence,
+        )
+
+    def ingest_memory_record(
+        self,
+        *,
+        scope: KnowledgeScope,
+        source_id: str,
+        subject: str,
+        content: str,
+        source_title: str | None = None,
+        confidence: float = 0.68,
+    ) -> KnowledgeIngestionResult:
+        return self.ingest_text(
+            scope=scope,
+            source_type=KnowledgeSourceType.MEMORY,
+            source_id=source_id,
+            subject=subject,
+            content=content,
+            source_title=source_title,
+            authority=AuthorityLevel.USER_PROVIDED,
+            confidence=confidence,
+        )
+
+    def ingest_tool_output(
+        self,
+        *,
+        scope: KnowledgeScope,
+        tool_name: str,
+        source_id: str,
+        subject: str,
+        output: dict[str, Any],
+        source_timestamp: datetime | None = None,
+        confidence: float = 0.8,
+    ) -> KnowledgeIngestionResult:
+        flattened = "; ".join(f"{key}={output[key]}" for key in sorted(output.keys()))
+        return self.ingest_text(
+            scope=scope,
+            source_type=KnowledgeSourceType.TOOL,
+            source_id=source_id,
+            subject=subject,
+            content=flattened,
+            source_title=tool_name,
+            source_timestamp=source_timestamp,
+            authority=AuthorityLevel.AUTHORITATIVE,
+            confidence=confidence,
+        )
+
+    def retrieve(
+        self,
+        *,
+        query_text: str,
+        scope: KnowledgeScope,
+        max_results: int | None = None,
+        max_context_chars: int | None = None,
+        max_sources: int | None = None,
+        require_authoritative: bool = False,
+        requires_external_research: bool = False,
+        dependency_unavailable: bool = False,
+    ) -> KnowledgeRetrievalResult:
+        self._refresh_cache()
+        return InMemoryKnowledgeStore.retrieve(
+            self,
+            query_text=query_text,
+            scope=scope,
+            max_results=max_results,
+            max_context_chars=max_context_chars,
+            max_sources=max_sources,
+            require_authoritative=require_authoritative,
+            requires_external_research=requires_external_research,
+            dependency_unavailable=dependency_unavailable,
+        )
 
 
 class InMemoryKnowledgeStore:

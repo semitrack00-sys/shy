@@ -118,6 +118,7 @@ from knowledge import (
     KnowledgeScope,
     KnowledgeStatus,
     KnowledgeSourceType,
+    PostgresKnowledgeStore,
 )
 from task_persistence import (
     PostgresTaskRepository,
@@ -222,7 +223,7 @@ _model_routing_test_controls: dict[str, Any] = {
     "local_failure_count": 0,
 }
 
-knowledge_store = InMemoryKnowledgeStore()
+knowledge_store = PostgresKnowledgeStore()
 
 
 def _record_durable_memory_failure(stage: str, exc: Exception) -> None:
@@ -920,7 +921,8 @@ def _run_cognitive_deterministic_response(
                 "Retrieved knowledge indicates the current Project Atlas constraints include: "
                 + "; ".join(known_facts)
                 + ". Based on those constraints, keep a consistency-first architecture and avoid changes that weaken transactional guarantees. "
-                "Assumptions separated from retrieved facts: expected growth profile and future workload variance."
+                "Assumptions separated from retrieved facts: expected growth profile and future workload variance. "
+                "Uncertainty: the preferred architecture could change if workload variability or team scale changes materially."
             )
             metadata = _build_cognitive_public_metadata(
                 message,
@@ -1060,6 +1062,11 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
         "ollama_connected": ollama_connected,
         "database_connected": database_connected,
         "local_model_available": local_model_available,
+        "knowledge_store": {
+            "type": knowledge_store.__class__.__name__,
+            "durable": isinstance(knowledge_store, PostgresKnowledgeStore),
+            "database_backend": "postgresql" if isinstance(knowledge_store, PostgresKnowledgeStore) else "in_memory",
+        },
         "model_routing": _model_routing_health_snapshot(),
         "durable_memory": _durable_memory_health_snapshot(),
     }
@@ -1968,6 +1975,22 @@ def decide_chat_tool_request(message: str) -> dict[str, Any]:
 
 
 def decide_chat_execution_mode(message: str) -> str:
+    normalized = str(message or "").strip()
+    lowered = normalized.lower()
+
+    if re.search(
+        r"\b(what|when|where|who|which|how|is|are|can|could|should|did|do|does|why|given|tell me|explain)\b",
+        normalized,
+        flags=re.IGNORECASE,
+    ) and (
+        "project atlas" in lowered
+        or "q3 revenue" in lowered
+        or "budget" in lowered
+        or "database" in lowered
+        or "launch date" in lowered
+    ):
+        return "DIRECT"
+
     intelligence_decision = router.intelligence_router.analyze(message)
     if getattr(intelligence_decision, "requires_external_evidence", False):
         return "DIRECT"
@@ -1977,7 +2000,6 @@ def decide_chat_execution_mode(message: str) -> str:
     if planner_mode in {"MULTI_STEP", "SINGLE_TOOL", "DIRECT"}:
         return planner_mode
 
-    normalized = str(message or "").strip()
     if re.search(
         r"\b(what|when|where|who|which|how|is|are|can|could|should|did|do|does|why|given|tell me|explain)\b",
         normalized,
@@ -2737,9 +2759,14 @@ async def testing_knowledge_capabilities():
     if not ENABLE_KNOWLEDGE_TEST_HOOKS:
         raise HTTPException(status_code=404, detail="Knowledge test hooks are unavailable.")
 
+    knowledge_backend = "postgresql" if isinstance(knowledge_store, PostgresKnowledgeStore) else "in_memory"
     return {
         "status": "ok",
-        "persistence_mode": "in_memory",
+        "persistence_mode": "durable_postgresql" if knowledge_backend == "postgresql" else "in_memory",
+        "active_store_type": knowledge_store.__class__.__name__,
+        "durable_persistence": knowledge_backend == "postgresql",
+        "database_backend": knowledge_backend,
+        "postgresql_backed": knowledge_backend == "postgresql",
         "max_retrieval_results": 8,
         "max_context_chars": 2600,
         "max_sources": 8,

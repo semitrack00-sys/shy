@@ -99,7 +99,10 @@ def main():
     capabilities = _safe_get("/testing/knowledge/capabilities")
     _assert(capabilities is not None and capabilities.status_code == 200, "knowledge test hooks must be enabled")
     caps = capabilities.json()
-    _assert(caps.get("persistence_mode") == "in_memory", "checkpoint persistence mode must be in_memory")
+    _assert(caps.get("database_backend") == "postgresql", "active knowledge store must be PostgreSQL-backed")
+    _assert(caps.get("postgresql_backed") is True, "knowledge store must report durable PostgreSQL persistence")
+    _assert(caps.get("active_store_type") == "PostgresKnowledgeStore", "active knowledge store type must be PostgresKnowledgeStore")
+    print("DURABLE KNOWLEDGE STORE: PostgreSQL")
 
     _reset_store()
 
@@ -333,10 +336,11 @@ def main():
     _assert(all(item.get("provenance", {}).get("content_hash") for item in grounded.get("records", [])), "provenance content hash required")
     print("grounding + citation integrity: PASS")
 
-    # 17. Restart/non-durability classification (checkpoint truth).
-    # Live test asserts capabilities; operator runbook performs actual restart sequence.
-    _assert(caps.get("persistence_mode") == "in_memory", "checkpoint must classify store as non-durable")
-    print("restart persistence classification: EXPECTED CHECKPOINT GAP: NON-DURABLE KNOWLEDGE STORE")
+    # 17. Restart/durable classification (checkpoint truth).
+    # Live runtime must report the active durable PostgreSQL-backed knowledge store.
+    _assert(caps.get("database_backend") == "postgresql", "checkpoint must classify knowledge store as PostgreSQL-backed")
+    _assert(caps.get("durable_persistence") is True, "checkpoint must confirm durable persistence capability")
+    print("restart persistence classification: PASS: DURABLE KNOWLEDGE STORE: PostgreSQL")
 
     # 18. Memory vs knowledge separation (no automatic merge).
     mem_scope = _scope("mem-vs-know-ws", "mem-vs-know-biz", "mem-vs-know-user")
