@@ -44,6 +44,7 @@ from tools.gateway import ToolGateway
 from tools.contracts import PermissionLevel, ToolDefinition, ToolRequest
 from agent_runtime.runtime import AgentRuntime
 from agent_runtime.task_engine import TaskEngine
+from agent_runtime.expert_intelligence import public_expert_metadata, select_expert
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -341,6 +342,10 @@ def _build_cognitive_public_metadata(
         decomposition_count = max(0, int(decomposition_count_override))
 
     roles_used = list(model_roles_used) if model_roles_used else [metadata.model_role]
+    expert_decision = select_expert(
+        message,
+        evidence_sources_count=evidence_sources_count,
+    )
 
     return {
         "cognitive_mode": metadata.cognitive_mode,
@@ -359,6 +364,7 @@ def _build_cognitive_public_metadata(
         "model_role": metadata.model_role,
         "selected_provider": metadata.selected_provider,
         "executed_provider": metadata.executed_provider,
+        "expert": public_expert_metadata(expert_decision),
     }
 
 
