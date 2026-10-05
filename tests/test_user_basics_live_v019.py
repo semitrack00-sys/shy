@@ -5,6 +5,7 @@ import httpx
 
 
 BASE_URL = os.getenv("SHY_API_BASE_URL", "http://127.0.0.1:8019").rstrip("/")
+EXPECTED_VERSION = os.getenv("SHY_EXPECTED_VERSION", "0.19.0")
 TIMEOUT = 60.0
 
 
