@@ -11,6 +11,7 @@ class Approval:
     tool_name: str
     arguments_hash: str
     expires_at: float
+    scope: str | None = None
     used: bool = False
 
 
@@ -46,6 +47,7 @@ class ApprovalStore:
         tool_name: str,
         arguments: dict,
         ttl_seconds: int = 300,
+        scope: str | None = None,
     ) -> Approval:
 
         token = secrets.token_urlsafe(32)
@@ -55,6 +57,7 @@ class ApprovalStore:
             tool_name=tool_name,
             arguments_hash=self.hash_arguments(arguments),
             expires_at=time.time() + ttl_seconds,
+            scope=scope,
         )
 
         self._approvals[token] = approval
@@ -65,6 +68,7 @@ class ApprovalStore:
         token: str,
         tool_name: str,
         arguments: dict,
+        scope: str | None = None,
     ) -> bool:
 
         approval = self._approvals.get(token)
@@ -82,6 +86,9 @@ class ApprovalStore:
             return False
 
         if approval.arguments_hash != self.hash_arguments(arguments):
+            return False
+
+        if approval.scope != scope:
             return False
 
         approval.used = True

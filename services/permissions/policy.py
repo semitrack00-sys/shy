@@ -2,6 +2,13 @@
 from enum import Enum
 
 
+class PermissionLevel(str, Enum):
+    READ_ONLY = "READ_ONLY"
+    SAFE_WRITE = "SAFE_WRITE"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+    FORBIDDEN = "FORBIDDEN"
+
+
 class Decision(str, Enum):
     ALLOW = "ALLOW"
     APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
@@ -16,58 +23,96 @@ class RiskLevel(str, Enum):
 
 
 @dataclass(frozen=True)
-class ToolPolicy:
+class ToolPermission:
     tool_name: str
     risk: RiskLevel
     decision: Decision
     reason: str
+    level: PermissionLevel = PermissionLevel.READ_ONLY
+
+
+@dataclass(frozen=True)
+class ToolPolicy(ToolPermission):
+    pass
 
 
 POLICIES = {
-    # Safe, read-only operations
     "system.health": ToolPolicy(
         tool_name="system.health",
         risk=RiskLevel.LOW,
         decision=Decision.ALLOW,
         reason="Read-only health information.",
+        level=PermissionLevel.READ_ONLY,
     ),
     "memory.read": ToolPolicy(
         tool_name="memory.read",
         risk=RiskLevel.LOW,
         decision=Decision.ALLOW,
         reason="Read-only access to authorized SHY memory.",
+        level=PermissionLevel.READ_ONLY,
     ),
     "web.search": ToolPolicy(
         tool_name="web.search",
         risk=RiskLevel.LOW,
         decision=Decision.ALLOW,
         reason="Read-only public information retrieval.",
+        level=PermissionLevel.READ_ONLY,
     ),
-
-    # External side effects require human approval
+    "calculator": ToolPolicy(
+        tool_name="calculator",
+        risk=RiskLevel.LOW,
+        decision=Decision.ALLOW,
+        reason="Deterministic local arithmetic and percentage calculations.",
+        level=PermissionLevel.READ_ONLY,
+    ),
+    "datetime.now": ToolPolicy(
+        tool_name="datetime.now",
+        risk=RiskLevel.LOW,
+        decision=Decision.ALLOW,
+        reason="Read-only system time information.",
+        level=PermissionLevel.READ_ONLY,
+    ),
+    "file.read": ToolPolicy(
+        tool_name="file.read",
+        risk=RiskLevel.MEDIUM,
+        decision=Decision.ALLOW,
+        reason="Read-only access to approved SHY files only.",
+        level=PermissionLevel.READ_ONLY,
+    ),
+    "database.read": ToolPolicy(
+        tool_name="database.read",
+        risk=RiskLevel.MEDIUM,
+        decision=Decision.ALLOW,
+        reason="Read-only access to approved database metadata and safe summaries.",
+        level=PermissionLevel.READ_ONLY,
+    ),
     "message.send": ToolPolicy(
         tool_name="message.send",
-        risk=RiskLevel.HIGH,
-        decision=Decision.APPROVAL_REQUIRED,
-        reason="Sending a message creates an external side effect.",
+        risk=RiskLevel.CRITICAL,
+        decision=Decision.DENY,
+        reason="message.send is unavailable in SHY v0.13.",
+        level=PermissionLevel.FORBIDDEN,
     ),
     "file.delete": ToolPolicy(
         tool_name="file.delete",
-        risk=RiskLevel.HIGH,
-        decision=Decision.APPROVAL_REQUIRED,
-        reason="Deleting data is destructive.",
+        risk=RiskLevel.CRITICAL,
+        decision=Decision.DENY,
+        reason="file.delete is unavailable in SHY v0.13.",
+        level=PermissionLevel.FORBIDDEN,
     ),
     "production.deploy": ToolPolicy(
         tool_name="production.deploy",
         risk=RiskLevel.CRITICAL,
-        decision=Decision.APPROVAL_REQUIRED,
-        reason="Production deployment can affect live systems.",
+        decision=Decision.DENY,
+        reason="production.deploy is unavailable in SHY v0.13.",
+        level=PermissionLevel.FORBIDDEN,
     ),
     "money.spend": ToolPolicy(
         tool_name="money.spend",
         risk=RiskLevel.CRITICAL,
-        decision=Decision.APPROVAL_REQUIRED,
-        reason="Financial transactions require explicit human approval.",
+        decision=Decision.DENY,
+        reason="money.spend is unavailable in SHY v0.13.",
+        level=PermissionLevel.FORBIDDEN,
     ),
 }
 
@@ -77,14 +122,10 @@ UNKNOWN_TOOL_POLICY = ToolPolicy(
     risk=RiskLevel.CRITICAL,
     decision=Decision.DENY,
     reason="Unknown tools are denied by default.",
+    level=PermissionLevel.FORBIDDEN,
 )
 
 
 def evaluate_tool(tool_name: str) -> ToolPolicy:
-    """
-    Return SHY's policy for a requested tool.
-
-    Security invariant:
-    Unknown tools fail closed and are denied.
-    """
+    """Return SHY's policy for a requested tool."""
     return POLICIES.get(tool_name, UNKNOWN_TOOL_POLICY)

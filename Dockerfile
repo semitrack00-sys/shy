@@ -5,19 +5,13 @@ WORKDIR /app
 COPY services/core/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY services/core/main.py .
-COPY services/core/memory.py .
-COPY services/model-router/app/router.py ./model_router/router.py
-
-COPY services/permissions/policy.py ./permissions/policy.py
-COPY services/permissions/approvals.py ./permissions/approvals.py
-COPY services/tools/gateway.py ./tools/gateway.py
-
-COPY services/agent-runtime/planner.py ./agent_runtime/planner.py
-COPY services/agent-runtime/runtime.py ./agent_runtime/runtime.py
-
-COPY services/research/web_search.py ./research/web_search.py
-COPY services/research/tavily.py ./research/tavily.py
+COPY services/core/ ./
+COPY services/core/intelligence_types.py ./core/intelligence_types.py
+COPY services/model-router/app/ ./model_router/
+COPY services/permissions/ ./permissions/
+COPY services/tools/ ./tools/
+COPY services/agent-runtime/ ./agent_runtime/
+COPY services/research/ ./research/
 
 RUN touch ./model_router/__init__.py
 RUN touch ./permissions/__init__.py

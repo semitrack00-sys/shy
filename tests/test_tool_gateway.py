@@ -21,7 +21,7 @@ gateway = module.ToolGateway()
 
 execution_count = {
     "health": 0,
-    "message": 0,
+    "approval": 0,
 }
 
 
@@ -30,8 +30,8 @@ def health_tool():
     return {"status": "healthy"}
 
 
-def message_tool(recipient, message):
-    execution_count["message"] += 1
+def approval_tool(recipient, message):
+    execution_count["approval"] += 1
     return {
         "sent": True,
         "recipient": recipient,
@@ -40,7 +40,33 @@ def message_tool(recipient, message):
 
 
 gateway.register("system.health", health_tool)
-gateway.register("message.send", message_tool)
+gateway.register(
+    module.ToolDefinition(
+        tool_id="approval.tool",
+        name="approval.tool",
+        description="Synthetic approval-gated tool for deterministic tests.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "recipient": {"type": "string"},
+                "message": {"type": "string"},
+            },
+            "required": ["recipient", "message"],
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "sent": {"type": "boolean"},
+                "recipient": {"type": "string"},
+                "message": {"type": "string"},
+            },
+            "required": ["sent", "recipient", "message"],
+        },
+        permission_level=module.PermissionLevel.APPROVAL_REQUIRED,
+        timeout_seconds=2.0,
+    ),
+    approval_tool,
+)
 
 
 safe = gateway.execute("system.health")
@@ -56,39 +82,39 @@ arguments = {
 }
 
 blocked = gateway.execute(
-    "message.send",
+    "approval.tool",
     arguments,
 )
 
 assert blocked.status == "AWAITING_APPROVAL"
-assert execution_count["message"] == 0
+assert execution_count["approval"] == 0
 print("without approval: BLOCKED")
 
 
 approval = gateway.approvals.create(
-    "message.send",
+    "approval.tool",
     arguments,
 )
 
 approved = gateway.execute(
-    "message.send",
+    "approval.tool",
     arguments,
     approval_token=approval.token,
 )
 
 assert approved.status == "EXECUTED"
-assert execution_count["message"] == 1
+assert execution_count["approval"] == 1
 print("valid one-time approval: EXECUTED")
 
 
 reused = gateway.execute(
-    "message.send",
+    "approval.tool",
     arguments,
     approval_token=approval.token,
 )
 
 assert reused.status == "INVALID_APPROVAL"
-assert execution_count["message"] == 1
+assert execution_count["approval"] == 1
 print("approval reuse: BLOCKED")
 
 
@@ -98,19 +124,28 @@ changed_arguments = {
 }
 
 approval2 = gateway.approvals.create(
-    "message.send",
+    "approval.tool",
     arguments,
 )
 
 changed = gateway.execute(
-    "message.send",
+    "approval.tool",
     changed_arguments,
     approval_token=approval2.token,
 )
 
 assert changed.status == "INVALID_APPROVAL"
-assert execution_count["message"] == 1
+assert execution_count["approval"] == 1
 print("changed action: BLOCKED")
+
+
+production_denied = gateway.execute(
+    "message.send",
+    arguments,
+)
+
+assert production_denied.status == "DENIED"
+print("production message.send: DENIED")
 
 
 unknown = gateway.execute(
@@ -123,7 +158,7 @@ print("unknown tool: DENIED")
 
 try:
     gateway.execute(
-        "message.send",
+        "approval.tool",
         arguments,
         human_approved=True,
     )

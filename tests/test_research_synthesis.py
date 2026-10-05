@@ -126,7 +126,7 @@ agent_runtime_package = types.ModuleType("agent_runtime")
 agent_runtime_package.__path__ = []
 sys.modules["agent_runtime"] = agent_runtime_package
 
-for module_name in ("planner", "runtime"):
+for module_name in ("planner", "runtime", "task_engine"):
     module_path = services / "agent-runtime" / f"{module_name}.py"
     module_spec = importlib.util.spec_from_file_location(
         f"agent_runtime.{module_name}",
@@ -216,10 +216,143 @@ asyncio.run(
 core.httpx.AsyncClient = original_async_client
 
 assert captured_payloads[0].get("think") is False
-assert "think" not in captured_payloads[1]
+assert captured_payloads[1].get("think") is False
 
 print("research synthesis think=false payload: PASS")
-print("normal intelligence payload unchanged: PASS")
+print("normal intelligence think=false payload: PASS")
+
+original_generate_intelligence_response = core.generate_intelligence_response
+
+
+try:
+    core._extract_model_content({"message": {"content": ""}})
+    raise AssertionError("Empty general-model content was not rejected.")
+except core.HTTPException:
+    print("empty general model content rejection: PASS")
+
+
+try:
+    core._extract_model_content({"message": {"content": "   \n\t  "}})
+    raise AssertionError("Whitespace-only general-model content was not rejected.")
+except core.HTTPException:
+    print("whitespace-only general model content rejection: PASS")
+
+
+assert core._extract_model_content({"message": {"content": "  final content  "}}) == "final content"
+print("non-empty general model content preserved: PASS")
+
+
+class SequencedHTTPResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+class SequencedAsyncClient:
+    responses = []
+    request_payloads = []
+
+    def __init__(self, timeout=None):
+        self.timeout = timeout
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def post(self, url, json):
+        SequencedAsyncClient.request_payloads.append(json)
+        if not SequencedAsyncClient.responses:
+            raise AssertionError("No sequenced response configured for test")
+        return SequencedHTTPResponse(SequencedAsyncClient.responses.pop(0))
+
+
+original_async_client_for_retry = core.httpx.AsyncClient
+core.httpx.AsyncClient = SequencedAsyncClient
+
+
+class RetryRouteForGeneralChat:
+    model = "qwen3.5:4b"
+    provider = "local"
+    task_type = "chat"
+
+
+SequencedAsyncClient.responses = [
+    {
+        "message": {
+            "content": "   ",
+            "thinking": "internal-only reasoning"
+        }
+    },
+    {
+        "message": {
+            "content": "Medical billing code 99213 usually refers to an established patient office visit.",
+            "thinking": "internal-only reasoning"
+        }
+    },
+]
+SequencedAsyncClient.request_payloads = []
+
+recovered_response = asyncio.run(
+    core.generate_intelligence_response(
+        message="Explain what medical billing code 99213 means.",
+        history=[],
+        route=RetryRouteForGeneralChat(),
+    )
+)
+
+assert recovered_response.strip() != ""
+assert "internal-only reasoning" not in recovered_response
+assert len(SequencedAsyncClient.request_payloads) == 2
+assert SequencedAsyncClient.request_payloads[0].get("think") is False
+assert SequencedAsyncClient.request_payloads[1].get("think") is False
+
+print("bounded retry recovery for empty general response: PASS")
+print("hidden thinking never becomes public response: PASS")
+
+
+SequencedAsyncClient.responses = [
+    {
+        "message": {
+            "content": "   ",
+            "thinking": "internal"
+        }
+    },
+    {
+        "message": {
+            "content": "\n\t",
+            "thinking": "internal"
+        }
+    },
+]
+SequencedAsyncClient.request_payloads = []
+
+try:
+    asyncio.run(
+        core.generate_intelligence_response(
+            message="Explain what medical billing code 99213 means.",
+            history=[],
+            route=RetryRouteForGeneralChat(),
+        )
+    )
+    raise AssertionError("Exhausted retry did not fail safely.")
+except core.HTTPException as exc:
+    assert exc.status_code == 503
+    assert "empty response" in str(exc.detail).lower()
+
+assert len(SequencedAsyncClient.request_payloads) == 2
+print("exhausted bounded retry fails safely: PASS")
+
+core.httpx.AsyncClient = original_async_client_for_retry
+
+
+core.generate_intelligence_response = original_generate_intelligence_response
 
 
 class FakeRuntime:
@@ -518,7 +651,7 @@ health_result = SimpleNamespace(
     tool_status="EXECUTED",
     output={
         "system": "SHY",
-        "core_version": "0.9.0",
+        "core_version": "0.12.0",
         "status": "healthy",
     },
 )

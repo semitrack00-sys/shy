@@ -68,9 +68,11 @@ export function ShyShell() {
       setHealth({
         status: 'error',
         system: 'SHY',
-        version: '0.9.0',
+        version: 'unavailable',
+        application_healthy: false,
         ollama_connected: false,
         database_connected: false,
+        local_model_available: false,
       });
     } finally {
       setHealthLoading(false);
@@ -127,7 +129,14 @@ export function ShyShell() {
       const response = await fetch(`${FRONTEND_API_BASE}/agent`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(buildAgentRequest(trimmed, nextConversation.conversationId)),
+        body: JSON.stringify(
+          buildAgentRequest(
+            trimmed,
+            nextConversation.conversationId,
+            -new Date().getTimezoneOffset(),
+            Intl.DateTimeFormat().resolvedOptions().timeZone
+          )
+        ),
       });
 
       const parsed = parseShyAgentResponse(await response.json());

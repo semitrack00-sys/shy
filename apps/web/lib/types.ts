@@ -1,4 +1,4 @@
-export type ShyAgentStatus = 'RESPOND' | 'TOOL_RESULT' | 'FAILED' | 'AWAITING_APPROVAL' | 'INVALID_APPROVAL' | 'DENIED' | 'UNAVAILABLE';
+export type ShyAgentStatus = 'RESPOND' | 'TOOL_RESULT' | 'FAILED' | 'AWAITING_APPROVAL' | 'INVALID_APPROVAL' | 'DENIED' | 'UNAVAILABLE' | 'BLOCKED' | 'CANCELLED';
 
 export interface ShyResearchSource {
   number: number;
@@ -33,8 +33,10 @@ export interface ShyHealthResponse {
   system: string;
   version: string;
   local_model?: string;
+  application_healthy?: boolean;
   ollama_connected?: boolean;
   database_connected?: boolean;
+  local_model_available?: boolean;
 }
 
 export type MessageRole = 'user' | 'assistant';
