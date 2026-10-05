@@ -858,7 +858,7 @@ def run_business_reasoning_step(step_objective: str, task: Any, adapters: Determ
                 }
                 return {
                     "status": "EXECUTED",
-                    "summary": summary,
+                    "summary": "Prepared delivery investment analysis from supplied metrics and deterministic calculator output.",
                     "evidence": True,
                 }
 
