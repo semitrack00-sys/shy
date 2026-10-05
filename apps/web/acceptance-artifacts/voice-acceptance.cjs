@@ -45,6 +45,7 @@ let browser;
   await page.goto('http://127.0.0.1:3000');
   await page.getByRole('button', { name: 'Speak to SHY' }).click();
   await page.evaluate(() => window.voiceFixture.recognition.onresult({ results: [{ isFinal: true, 0: { transcript: 'Hello SHY from a voice fixture' } }] }));
+  await page.waitForFunction(() => document.querySelector('#shy-composer-input').value === 'Hello SHY from a voice fixture');
   assert.equal(await page.getByLabel('Message SHY', { exact: true }).inputValue(), 'Hello SHY from a voice fixture');
   assert.equal(submitted, 0, 'voice transcript must not be auto-submitted');
   await page.getByText('Voice settings and privacy', { exact: true }).click();
