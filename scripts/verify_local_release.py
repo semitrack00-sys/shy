@@ -44,7 +44,7 @@ def request_json(base_url, path, payload=None, expected_status=200):
             raise VerificationError(f"{path}: invalid JSON response") from exc
 
 
-def verify(base_url, examples_path, expected_version="0.105.1", wait_seconds=60, require_model=False):
+def verify(base_url, examples_path, expected_version="0.105.2", wait_seconds=60, require_model=False):
     parts = urlsplit(base_url)
     require(parts.scheme == "http" and parts.hostname in {"localhost", "127.0.0.1", "::1"}
             and not parts.username and not parts.password and parts.path in {"", "/"}
@@ -97,7 +97,7 @@ def verify(base_url, examples_path, expected_version="0.105.1", wait_seconds=60,
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://127.0.0.1:8000")
-    parser.add_argument("--expected-version", default="0.105.1")
+    parser.add_argument("--expected-version", default="0.105.2")
     parser.add_argument("--wait-seconds", type=float, default=60)
     parser.add_argument("--require-model", action="store_true", help="Also require Ollama and configured model availability; does not test inference")
     parser.add_argument("--examples", type=Path, default=Path(__file__).resolve().parents[1] / "docs/examples/intelligence-v100.json")

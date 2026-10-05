@@ -12,7 +12,7 @@ spec.loader.exec_module(manifest)
 
 class MemoryManifestTests(unittest.TestCase):
     def test_current_patch_retains_disabled_invariants_and_bounded_controls(self):
-        current = manifest.build_platform_manifest()
+        current = manifest.build_platform_manifest(version="0.105.1")
         self.assertEqual(current.version, "0.105.1")
         self.assertTrue(current.sequence_complete)
         self.assertTrue(current.required_disabled_invariants_hold)

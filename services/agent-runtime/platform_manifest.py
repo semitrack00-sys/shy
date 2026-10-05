@@ -212,6 +212,7 @@ _DEFAULT_CAPABILITIES = (
     PlatformCapability("voice_output_controls", "0.105.0", CapabilityState.BOUNDED, "browser_voice_rate_volume_controls_installed_voices_required"),
     PlatformCapability("conversation_summary", "0.105.1", CapabilityState.BOUNDED, "browser_local_bounded_excerpts_no_generated_facts_or_completion_inference"),
     PlatformCapability("reviewed_memory_controls", "0.105.1", CapabilityState.BOUNDED, "existing_local_user_explicit_confirmation_revision_check_no_multiuser_authentication"),
+    PlatformCapability("ordinary_chat_context_budget", "0.105.2", CapabilityState.BOUNDED, "hard_character_and_message_budgets_including_fallback_not_unlimited_context_or_token_guarantee"),
 )
 
 
@@ -224,7 +225,7 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 
 def build_platform_manifest(
     *,
-    version: str = "0.105.1",
+    version: str = "0.105.2",
     capabilities: Sequence[PlatformCapability] = _DEFAULT_CAPABILITIES,
 ) -> PlatformManifest:
     current = _version_tuple(version)

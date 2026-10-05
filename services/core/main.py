@@ -307,7 +307,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.1"
+SHY_VERSION = "0.105.2"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1421,6 +1421,7 @@ app = FastAPI(
 from intelligence_api import IntelligenceBodyLimit, router as intelligence_router
 from voice_api import VoiceBodyLimit, router as voice_router, provider_url as speech_provider_url
 from memory_controls import MemoryBodyLimit, router as memory_controls_router
+from context_budget import bound_context
 
 app.include_router(intelligence_router)
 app.add_middleware(IntelligenceBodyLimit)
@@ -1523,6 +1524,14 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "authenticated": False,
             "deletion_removes_original_chat": False,
             "automatic_chat_promotion_unchanged": True,
+        },
+        "ordinary_chat_context_limits": {
+            "durable_memory_max_chars": 1200,
+            "history_max_chars": 3200,
+            "fallback_uses_same_limits": True,
+            "clipped_excerpts_are_marked": True,
+            "character_limits_are_not_token_limits": True,
+            "current_request_size_limited_by_this_budget": False,
         },
         "browser_voice_capabilities": {
             "mode": "browser_speech_api",
@@ -1850,13 +1859,14 @@ def _load_memory_history_for_message(message: str, conversation_id: uuid.UUID, u
 
     if selection.selected_messages:
         history = _filter_prompt_safe_messages([dict(item) for item in selection.selected_messages])
-        return durable_messages + history, bool(durable_messages or history)
-
-    history = _filter_prompt_safe_messages(load_messages(conversation_id))
-    memory_used = bool(durable_messages)
-    if history:
-        return durable_messages + history, True
-    return durable_messages, memory_used
+    else:
+        history = _filter_prompt_safe_messages(load_messages(conversation_id))
+    # A selector's first oversized record and the recent-history fallback must
+    # obey the same hard bounds before reaching any model provider.
+    durable = bound_context(durable_messages, max_chars=1200, max_messages=4)
+    recent = bound_context(history, max_chars=3200, max_messages=20)
+    combined = list(durable.messages) + list(recent.messages)
+    return combined, bool(combined)
 
 
 def _normalize_research_text(value: Any) -> str:

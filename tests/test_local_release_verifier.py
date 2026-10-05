@@ -29,11 +29,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         mode = self.server.mode
         if self.path == "/health":
-            self.respond({"version": "0.50.0" if mode == "old" else "0.105.1",
+            self.respond({"version": "0.50.0" if mode == "old" else "0.105.2",
                           "database_connected": mode != "database",
                           "ollama_connected": False, "local_model_available": False})
         elif self.path == "/platform/capabilities":
-            self.respond({"version": "0.105.1", "platform": {"sequence_complete": True,
+            self.respond({"version": "0.105.2", "platform": {"sequence_complete": True,
                           "required_disabled_invariants_hold": mode != "invariants"}})
         elif self.path == "/intelligence/capabilities":
             self.respond({"capability_count": 50, "external_execution": False,
