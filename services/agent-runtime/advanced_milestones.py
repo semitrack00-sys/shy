@@ -790,6 +790,99 @@ def _financial_planning(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _compliance_policy(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_requirements = payload.get("requirements") or []
+    raw_evidence = payload.get("evidence_ids") or []
+    max_requirements = max(1, min(int(payload.get("max_requirements") or 64), 256))
+
+    if not isinstance(raw_requirements, list) or not raw_requirements:
+        return AdvancedResult(
+            "compliance_policy",
+            AdvancedBoundary.DATA_REQUIRED,
+            "compliance_requirements_required",
+            {},
+            False,
+        )
+
+    if not isinstance(raw_evidence, list):
+        return AdvancedResult(
+            "compliance_policy",
+            AdvancedBoundary.INVALID_INPUT,
+            "evidence_ids_must_be_a_list",
+            {},
+            False,
+        )
+
+    evidence = {str(item).strip() for item in raw_evidence if str(item).strip()}
+    selected = raw_requirements[:max_requirements]
+    seen: set[str] = set()
+    rows: list[dict[str, object]] = []
+    mandatory_missing: list[str] = []
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "compliance_policy",
+                AdvancedBoundary.INVALID_INPUT,
+                "requirement_entries_must_be_objects",
+                {},
+                False,
+            )
+
+        requirement_id = str(raw.get("requirement_id") or "").strip()
+        if not requirement_id or requirement_id in seen:
+            return AdvancedResult(
+                "compliance_policy",
+                AdvancedBoundary.INVALID_INPUT,
+                "requirement_ids_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        seen.add(requirement_id)
+
+        mandatory = bool(raw.get("mandatory", True))
+        required_evidence = {
+            str(item).strip()
+            for item in (raw.get("required_evidence_ids") or [])
+            if str(item).strip()
+        }
+        missing = sorted(required_evidence - evidence)
+        satisfied = not missing
+
+        if mandatory and not satisfied:
+            mandatory_missing.append(requirement_id)
+
+        rows.append(
+            {
+                "requirement_id": requirement_id,
+                "mandatory": mandatory,
+                "satisfied": satisfied,
+                "missing_evidence_ids": missing,
+            }
+        )
+
+    boundary = AdvancedBoundary.DATA_REQUIRED if mandatory_missing else AdvancedBoundary.READY
+    reason = "mandatory_evidence_missing" if mandatory_missing else "compliance_evidence_review_ready"
+
+    return AdvancedResult(
+        "compliance_policy",
+        boundary,
+        reason,
+        {
+            "requirement_count": len(rows),
+            "mandatory_missing": mandatory_missing,
+            "requirements": rows,
+            "requirement_limit_enforced": len(raw_requirements) <= max_requirements,
+            "certification_issued": False,
+            "legal_conclusion_issued": False,
+            "policy_changed": False,
+            "permission_changed": False,
+            "decision_support_only": True,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -798,6 +891,7 @@ _EVALUATORS = {
     "research_orchestration": _research_orchestration,
     "business_operations": _business_operations,
     "financial_planning": _financial_planning,
+    "compliance_policy": _compliance_policy,
 }
 
 
