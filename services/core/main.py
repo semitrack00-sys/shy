@@ -1521,6 +1521,8 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "quality_dimensions": True,
             "confidence_calibration": True,
             "bounded_revision_recommendation": True,
+            "max_revisions": 3,
+            "self_certification": False,
             "hidden_reasoning_required": False,
             "automatic_self_modification": False,
         },
@@ -3453,8 +3455,7 @@ async def reliability_evaluate(request: ReliabilityEvaluateRequest):
     }
 
 
-@app.post("/reliability/calibration")
-async def reliability_calibration(request: ReliabilityCalibrationRequest):
+def _reliability_calibration_payload(request: ReliabilityCalibrationRequest):
     report = aggregate_calibration(
         tuple(
             CalibrationSample(
@@ -3470,9 +3471,20 @@ async def reliability_calibration(request: ReliabilityCalibrationRequest):
         "status": "ok",
         "version": SHY_VERSION,
         "calibration": public_calibration_report(report),
+        "persistent_change_applied": False,
         "automatic_self_modification": False,
         "hidden_reasoning_exposed": False,
     }
+
+
+@app.post("/reliability/calibration")
+async def reliability_calibration(request: ReliabilityCalibrationRequest):
+    return _reliability_calibration_payload(request)
+
+
+@app.post("/reliability/calibrate")
+async def reliability_calibrate(request: ReliabilityCalibrationRequest):
+    return _reliability_calibration_payload(request)
 
 
 @app.post("/graph/build")
