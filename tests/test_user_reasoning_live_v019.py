@@ -4,6 +4,7 @@ import httpx
 
 
 BASE_URL = os.getenv("SHY_API_BASE_URL", "http://127.0.0.1:8019").rstrip("/")
+EXPECTED_VERSION = os.getenv("SHY_EXPECTED_VERSION", "0.19.0")
 TIMEOUT = 240.0
 
 
@@ -16,7 +17,7 @@ def main():
     health = httpx.get(f"{BASE_URL}/health", timeout=TIMEOUT)
     _assert(health.status_code == 200, f"health expected 200, got {health.status_code}")
     health_payload = health.json()
-    _assert(health_payload.get("version") == "0.19.0", "live runtime must be SHY v0.19.0")
+    _assert(health_payload.get("version") == EXPECTED_VERSION, f"live runtime must be SHY {EXPECTED_VERSION}")
     _assert(bool(health_payload.get("application_healthy")), "application must be healthy")
     _assert(bool(health_payload.get("database_connected")), "database must be connected")
     _assert(bool(health_payload.get("local_model_available")), "local model must be available")

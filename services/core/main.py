@@ -44,6 +44,15 @@ from tools.gateway import ToolGateway
 from tools.contracts import PermissionLevel, ToolDefinition, ToolRequest
 from agent_runtime.runtime import AgentRuntime
 from agent_runtime.task_engine import TaskEngine
+from agent_runtime.expert_intelligence import (
+    ExpertAnswerBoundary,
+    apply_expert_response_policy,
+    build_expert_response_frame,
+    count_authoritative_research_sources,
+    expert_generation_guidance,
+    public_expert_metadata,
+    select_expert,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -196,7 +205,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.19.0"
+SHY_VERSION = "0.20.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -287,6 +296,9 @@ def _build_cognitive_public_metadata(
     hypotheses_considered: int = 0,
     decomposition_count_override: int | None = None,
     uncertainty_flags_override: tuple[str, ...] | None = None,
+    knowledge_boundary: str | None = None,
+    grounding_status: str | None = None,
+    authoritative_sources_count: int = 0,
 ) -> dict[str, Any]:
     complexity = classify_complexity(
         message,
@@ -341,6 +353,20 @@ def _build_cognitive_public_metadata(
         decomposition_count = max(0, int(decomposition_count_override))
 
     roles_used = list(model_roles_used) if model_roles_used else [metadata.model_role]
+    expert_decision = select_expert(
+        message,
+        knowledge_boundary=knowledge_boundary,
+        evidence_sources_count=evidence_sources_count,
+        authoritative_sources_count=authoritative_sources_count,
+    )
+    expert_frame = build_expert_response_frame(
+        expert_decision,
+        evidence_sources_count=evidence_sources_count,
+        authoritative_sources_count=authoritative_sources_count,
+        knowledge_boundary=knowledge_boundary,
+        grounding_status=grounding_status,
+        verification_status=verification_enum.value,
+    )
 
     return {
         "cognitive_mode": metadata.cognitive_mode,
@@ -359,6 +385,7 @@ def _build_cognitive_public_metadata(
         "model_role": metadata.model_role,
         "selected_provider": metadata.selected_provider,
         "executed_provider": metadata.executed_provider,
+        "expert": public_expert_metadata(expert_decision, expert_frame),
     }
 
 
@@ -718,6 +745,10 @@ def _run_cognitive_deterministic_response(
                     if knowledge_result.conflicts
                     else ()
                 ),
+                evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -756,6 +787,10 @@ def _run_cognitive_deterministic_response(
                     if knowledge_result.conflicts
                     else ()
                 ),
+                evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -795,6 +830,10 @@ def _run_cognitive_deterministic_response(
                     if knowledge_result.conflicts
                     else ()
                 ),
+                evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -834,6 +873,10 @@ def _run_cognitive_deterministic_response(
                     if knowledge_result.conflicts
                     else ()
                 ),
+                evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -857,6 +900,10 @@ def _run_cognitive_deterministic_response(
                 model_roles_used=("REASONING", "VERIFIER"),
                 decomposition_count_override=0,
                 uncertainty_flags_override=classify_uncertainty({"project_mercury_database": UncertaintyType.UNKNOWN}),
+                evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -1124,13 +1171,19 @@ def _run_cognitive_deterministic_response(
             for row in knowledge_result.records[:4]:
                 known_facts.append(row.content)
 
-            assistant = (
-                "Retrieved knowledge indicates the current Project Atlas constraints include: "
-                + "; ".join(known_facts)
-                + ". Based on those constraints, keep a consistency-first architecture and avoid changes that weaken transactional guarantees. "
-                "Assumptions separated from retrieved facts: expected growth profile and future workload variance. "
-                "Uncertainty: the preferred architecture could change if workload variability or team scale changes materially."
-            )
+            if knowledge_result.conflicts:
+                assistant = (
+                    "I found conflicting authorized Project Atlas knowledge, so I cannot safely make a definitive architecture recommendation yet. "
+                    "Resolve the conflicting source claims first; I can then evaluate the architecture against the reconciled constraints."
+                )
+            else:
+                assistant = (
+                    "Retrieved knowledge indicates the current Project Atlas constraints include: "
+                    + "; ".join(known_facts)
+                    + ". Based on those constraints, keep a consistency-first architecture and avoid changes that weaken transactional guarantees. "
+                    "Assumptions separated from retrieved facts: expected growth profile and future workload variance. "
+                    "Uncertainty: the preferred architecture could change if workload variability or team scale changes materially."
+                )
             metadata = _build_cognitive_public_metadata(
                 message,
                 response_mode="verify",
@@ -1145,7 +1198,15 @@ def _run_cognitive_deterministic_response(
                 ),
                 model_roles_used=("REASONING", "VERIFIER"),
                 decomposition_count_override=len(decomposition.steps),
-                uncertainty_flags_override=classify_uncertainty({"growth_assumption": UncertaintyType.UNCERTAIN}),
+                uncertainty_flags_override=(
+                    classify_uncertainty({"project_atlas_knowledge": UncertaintyType.UNCERTAIN})
+                    if knowledge_result.conflicts
+                    else classify_uncertainty({"growth_assumption": UncertaintyType.UNCERTAIN})
+                ),
+                evidence_sources_count=knowledge_result.source_count,
+                authoritative_sources_count=knowledge_result.authoritative_source_count,
+                knowledge_boundary=knowledge_result.knowledge_boundary.value,
+                grounding_status=knowledge_result.grounding_status.value,
             )
             metadata.update(_knowledge_metadata_payload(knowledge_result))
             return assistant, metadata
@@ -1179,6 +1240,25 @@ def _run_cognitive_deterministic_response(
             )
             metadata["memory_references_used"] = 1
             return assistant, metadata
+
+        assistant = (
+            "I do not currently have sufficient authorized Project Atlas knowledge to make a reliable architecture recommendation. "
+            "Additional project data is required before I can evaluate the current design."
+        )
+        metadata = _build_cognitive_public_metadata(
+            message,
+            response_mode="verify",
+            model_routing_metadata=model_routing_metadata,
+            verifier_invoked=True,
+            verification_status=VerificationStatus.INSUFFICIENT_EVIDENCE.value,
+            model_roles_used=("REASONING", "VERIFIER"),
+            decomposition_count_override=len(decomposition.steps),
+            uncertainty_flags_override=classify_uncertainty({"project_atlas_knowledge": UncertaintyType.UNKNOWN}),
+            evidence_sources_count=knowledge_result.source_count,
+            knowledge_boundary=knowledge_result.knowledge_boundary.value,
+        )
+        metadata.update(_knowledge_metadata_payload(knowledge_result))
+        return assistant, metadata
 
     if complexity == CognitiveComplexity.STANDARD and "compare" in lowered:
         assistant = (
@@ -1815,7 +1895,10 @@ async def _generate_intelligence_response_internal(
     role: ModelRole | None = None,
     privacy_requirement: PrivacyClass | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    generation_expert = select_expert(message)
+    expert_guidance = expert_generation_guidance(generation_expert)
+    effective_system_prompt = f"{SYSTEM_PROMPT.strip()}\n\n{expert_guidance}"
+    messages = [{"role": "system", "content": effective_system_prompt}]
     for item in history:
         messages.append({"role": item["role"], "content": item["content"]})
     messages.append({"role": "user", "content": message})
@@ -1899,7 +1982,7 @@ async def _generate_intelligence_response_internal(
                 model_request = ModelRequest(
                     messages=tuple(ModelMessage(role=item["role"], content=item["content"]) for item in messages),
                     capability=routing_decision.required_capability,
-                    system_instruction=SYSTEM_PROMPT,
+                    system_instruction=effective_system_prompt,
                     metadata={},
                 )
                 response = provider.generate(request=model_request, model_id=model_id)
@@ -3635,11 +3718,63 @@ async def chat(request: ChatRequest):
         return await _handle_chat_tool_request(request, conversation_id, route, tool_decision)
 
     response_mode = apply_adaptive_response_policy(route, request.message)
+    response_mode, _expert_runtime_decision = apply_expert_response_policy(
+        request.message,
+        response_mode,
+    )
     model_routing_metadata: dict[str, Any] | None = None
+
+    research_evidence_count = 0
+    research_authoritative_source_count = 0
 
     if response_mode == "research":
         try:
             research_result = await run_research_pipeline(request.message)
+            research_evidence = tuple(getattr(research_result, "evidence", ()) or ())
+            research_evidence_count = len(research_evidence)
+            research_authoritative_source_count = count_authoritative_research_sources(research_evidence)
+            post_research_expert = select_expert(
+                request.message,
+                evidence_sources_count=research_evidence_count,
+                authoritative_sources_count=research_authoritative_source_count,
+            )
+
+            if post_research_expert.answer_boundary == ExpertAnswerBoundary.AUTHORITATIVE_EVIDENCE_REQUIRED:
+                cognitive_metadata = _build_cognitive_public_metadata(
+                    request.message,
+                    response_mode="research",
+                    model_routing_metadata=None,
+                    evidence_sources_count=research_evidence_count,
+                    authoritative_sources_count=research_authoritative_source_count,
+                    verification_status=VerificationStatus.INSUFFICIENT_EVIDENCE.value,
+                )
+                return {
+                    "assistant": "SHY",
+                    "status": "FAILED",
+                    "message": (
+                        "I found research evidence, but it does not include an authoritative source required "
+                        "for this high-stakes or regulated request. I won’t present a definitive recommendation "
+                        "until authoritative evidence is available."
+                    ),
+                    "conversation_id": str(conversation_id),
+                    "model": route.model,
+                    "provider": route.provider,
+                    "task_type": route.task_type,
+                    "routing_reason": route.reason,
+                    "adaptive_mode": "research",
+                    "execution_mode": "RESEARCH",
+                    "tool_decision": {"decision": "NO_TOOL"},
+                    "approval_required": False,
+                    "tool_selected": None,
+                    "permission": None,
+                    "execution_status": "NOT_REQUESTED",
+                    "verifier_invoked": True,
+                    "research_invoked": True,
+                    "hidden_reasoning_exposed": False,
+                    "safe_failure": "authoritative_evidence_required",
+                    "cognitive": cognitive_metadata,
+                }
+
             assistant_message = await generate_research_response(
                 message=request.message,
                 research_result=research_result,
@@ -3651,6 +3786,7 @@ async def chat(request: ChatRequest):
                 response_mode="research",
                 model_routing_metadata=None,
                 evidence_sources_count=0,
+                authoritative_sources_count=0,
                 verification_status=VerificationStatus.INSUFFICIENT_EVIDENCE.value,
             )
             return {
@@ -3728,10 +3864,6 @@ async def chat(request: ChatRequest):
             detail=f"SHY response generated but memory save failed: {exc}"
         )
 
-    research_evidence_count = 0
-    if response_mode == "research":
-        research_evidence_count = max(1, len(getattr(research_result, "evidence", []) or []))
-
     verification_status = VerificationStatus.NOT_RUN.value
     if response_mode == "verify":
         verification_status = VerificationStatus.PARTIALLY_VERIFIED.value
@@ -3744,6 +3876,7 @@ async def chat(request: ChatRequest):
             response_mode=response_mode,
             model_routing_metadata=model_routing_metadata,
             evidence_sources_count=research_evidence_count,
+            authoritative_sources_count=research_authoritative_source_count,
             verification_status=verification_status,
             critic_invoked=False,
             verifier_invoked=response_mode == "verify",

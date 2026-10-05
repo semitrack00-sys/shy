@@ -139,7 +139,7 @@ memory_module = load_module("memory", services / "core" / "memory.py")
 os.environ["SHY_ENABLE_FAKE_PROVIDERS"] = "1"
 main_module = load_module("shy_core_main_v016", services / "core" / "main.py")
 
-assert main_module.SHY_VERSION in {"0.17.0", "0.18.0", "0.19.0"}
+assert main_module.SHY_VERSION in {"0.17.0", "0.18.0", "0.19.0", "0.20.0"}
 
 router = router_module.ModelRouter(local_model="qwen3.5:4b", include_fake_providers=True)
 
