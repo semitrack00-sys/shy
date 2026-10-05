@@ -111,6 +111,14 @@ from agent_runtime.entity_graph import (
     neighbor_subgraph,
     public_graph,
 )
+from agent_runtime.reliability_intelligence import (
+    CalibrationSample,
+    ReliabilityDimensions,
+    aggregate_calibration,
+    evaluate_reliability,
+    public_calibration_report,
+    public_reliability_report,
+)
 
 try:
     from agent_runtime.verifier import VerificationOutcome, verify_task_result
@@ -263,7 +271,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.27.0"
+SHY_VERSION = "0.28.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1508,6 +1516,13 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "bounded_neighbor_traversal": True,
             "cross_scope_edges": False,
             "persistent_graph": False,
+        },
+        "reliability_capabilities": {
+            "quality_dimensions": True,
+            "confidence_calibration": True,
+            "bounded_revision_recommendation": True,
+            "hidden_reasoning_required": False,
+            "automatic_self_modification": False,
         },
     }
 
@@ -3029,6 +3044,27 @@ class GraphNeighborsRequest(GraphBuildRequest):
     max_results: int = 30
 
 
+class ReliabilityEvaluateRequest(BaseModel):
+    correctness: float
+    grounding: float
+    consistency: float
+    completeness: float
+    safety: float
+    evidence_available: bool = True
+    max_revisions: int = 2
+
+
+class CalibrationSampleRequest(BaseModel):
+    predicted_confidence: float
+    success: bool
+    verified: bool = True
+
+
+class ReliabilityCalibrationRequest(BaseModel):
+    samples: list[CalibrationSampleRequest]
+    max_samples: int = 500
+
+
 class FakeProviderControlRequest(BaseModel):
     provider_id: str
     mode: str = "ok"
@@ -3392,6 +3428,51 @@ def _graph_from_request(request: GraphBuildRequest):
         max_nodes=max(1,min(int(request.max_nodes),1000)),
         max_edges=max(1,min(int(request.max_edges),2000)),
     )
+
+
+@app.post("/reliability/evaluate")
+async def reliability_evaluate(request: ReliabilityEvaluateRequest):
+    report = evaluate_reliability(
+        ReliabilityDimensions(
+            correctness=float(request.correctness),
+            grounding=float(request.grounding),
+            consistency=float(request.consistency),
+            completeness=float(request.completeness),
+            safety=float(request.safety),
+        ),
+        evidence_available=bool(request.evidence_available),
+        max_revisions=max(0, min(int(request.max_revisions), 3)),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "reliability": public_reliability_report(report),
+        "automatic_revision_performed": False,
+        "automatic_self_modification": False,
+        "hidden_reasoning_exposed": False,
+    }
+
+
+@app.post("/reliability/calibration")
+async def reliability_calibration(request: ReliabilityCalibrationRequest):
+    report = aggregate_calibration(
+        tuple(
+            CalibrationSample(
+                predicted_confidence=float(item.predicted_confidence),
+                success=bool(item.success),
+                verified=bool(item.verified),
+            )
+            for item in request.samples
+        ),
+        max_samples=max(1, min(int(request.max_samples), 5000)),
+    )
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "calibration": public_calibration_report(report),
+        "automatic_self_modification": False,
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.post("/graph/build")
