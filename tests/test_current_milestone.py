@@ -1,2 +1,2 @@
 import runpy
-runpy.run_path("tests/test_incident_triage_v042.py", run_name="__main__")
+runpy.run_path("tests/test_resource_capacity_v043.py", run_name="__main__")
