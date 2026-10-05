@@ -94,43 +94,11 @@ from agent_runtime.goal_orchestration import (
     build_goal_plan,
     public_goal_plan,
 )
-from agent_runtime.preference_intelligence import (
-    PreferenceRecord,
+from agent_runtime.preference_learning import (
     PreferenceScope,
-    PreferenceSource,
     PreferenceUpdate,
-    build_preference_profile,
-    evaluate_preference_update,
-    public_preference_evaluation,
-    public_preference_profile,
-)
-from agent_runtime.entity_graph import (
-    EntityNode,
-    RelationEdge,
-    build_graph,
-    neighbor_subgraph,
-    public_graph,
-)
-from agent_runtime.reliability_intelligence import (
-    CalibrationSample,
-    ReliabilityDimensions,
-    aggregate_calibration,
-    evaluate_reliability,
-    public_calibration_report,
-    public_reliability_report,
-)
-from agent_runtime.tool_capability_registry import (
-    ToolCapability as RegisteredToolCapability,
-    ToolPermission as RegistryToolPermission,
-    ToolRisk as RegistryToolRisk,
-    public_tool_registry,
-    public_tool_selection,
-    select_tool as select_registered_tool,
-    validate_registry,
-)
-from agent_runtime.platform_manifest import (
-    build_platform_manifest,
-    public_platform_manifest,
+    evaluate_preference,
+    public_preference_metadata,
 )
 
 try:
@@ -284,7 +252,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.30.0"
+SHY_VERSION = "0.26.0"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1516,42 +1484,11 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "unrestricted_autonomy": False,
         },
         "preference_capabilities": {
-            "explicit_preference_evaluation": True,
-            "verified_outcome_preferences": True,
-            "implicit_behavior_learning": False,
-            "protected_sensitive_categories": True,
-            "scoped_profiles": True,
-            "persistent_preference_profile": False,
-        },
-        "knowledge_graph_capabilities": {
-            "scoped_entities": True,
-            "provenance_backed_edges": True,
-            "bounded_neighbor_traversal": True,
-            "cross_scope_edges": False,
-            "persistent_graph": False,
-        },
-        "reliability_capabilities": {
-            "quality_dimensions": True,
-            "confidence_calibration": True,
-            "bounded_revision_recommendation": True,
-            "max_revisions": 3,
-            "self_certification": False,
-            "hidden_reasoning_required": False,
-            "automatic_self_modification": False,
-        },
-        "tool_registry_capabilities": {
-            "capability_selection": True,
-            "scope_filtering": True,
-            "risk_ranking": True,
-            "side_effect_approval_enforcement": True,
-            "registry_execution": False,
-            "arbitrary_shell_capability": False,
-        },
-        "platform_checkpoint": {
-            "version": "0.30.0",
-            "integrated_manifest": True,
-            "sequence_v020_to_v030_complete": True,
-            "required_disabled_invariants_enforced": True,
+            "explicit_preferences": True,
+            "implicit_profiling": False,
+            "sensitive_profile_learning": False,
+            "policy_learning": False,
+            "persistent_preference_storage": False,
         },
     }
 
@@ -3022,97 +2959,12 @@ class GoalAdvanceRequest(BaseModel):
     cancel: bool = False
 
 
-class PreferenceUpdateRequest(BaseModel):
+class PreferenceEvaluateRequest(BaseModel):
+    scope: str = "USER"
     key: str
     value: str
-    source: str = "EXPLICIT"
-    scope: str = "USER"
+    explicit: bool = False
     confidence: float = 1.0
-
-
-class PreferenceRecordRequest(BaseModel):
-    key: str
-    value: str
-    source: str = "EXPLICIT"
-    scope: str = "USER"
-    confidence: float = 1.0
-
-
-class PreferenceProfileRequest(BaseModel):
-    records: list[PreferenceRecordRequest]
-    scope: str = "USER"
-    max_preferences: int = 50
-
-
-class GraphNodeRequest(BaseModel):
-    entity_id: str
-    name: str
-    entity_type: str
-    scope_id: str
-    aliases: list[str] = []
-
-
-class GraphEdgeRequest(BaseModel):
-    source_id: str
-    target_id: str
-    relation: str
-    confidence: float = 0.7
-    provenance_ids: list[str] = []
-
-
-class GraphBuildRequest(BaseModel):
-    nodes: list[GraphNodeRequest]
-    edges: list[GraphEdgeRequest]
-    max_nodes: int = 200
-    max_edges: int = 500
-
-
-class GraphNeighborsRequest(GraphBuildRequest):
-    entity_id: str
-    depth: int = 1
-    max_results: int = 30
-
-
-class ReliabilityEvaluateRequest(BaseModel):
-    correctness: float
-    grounding: float
-    consistency: float
-    completeness: float
-    safety: float
-    evidence_available: bool = True
-    max_revisions: int = 2
-
-
-class CalibrationSampleRequest(BaseModel):
-    predicted_confidence: float
-    success: bool
-    verified: bool = True
-
-
-class ReliabilityCalibrationRequest(BaseModel):
-    samples: list[CalibrationSampleRequest]
-    max_samples: int = 500
-
-
-class RegisteredToolRequest(BaseModel):
-    tool_id: str
-    capabilities: list[str]
-    permission: str
-    risk: str
-    scopes: list[str]
-    side_effects: bool = False
-    available: bool = True
-
-
-class ToolRegistryValidateRequest(BaseModel):
-    tools: list[RegisteredToolRequest]
-    max_tools: int = 128
-
-
-class ToolRegistrySelectRequest(ToolRegistryValidateRequest):
-    capability: str
-    scope: str
-    max_candidates: int = 8
 
 
 class FakeProviderControlRequest(BaseModel):
@@ -3427,17 +3279,6 @@ async def health():
     return _collect_runtime_health_snapshot()
 
 
-@app.get("/platform/capabilities")
-async def platform_capabilities():
-    manifest = build_platform_manifest(version=SHY_VERSION)
-    return {
-        "status": "ok",
-        "version": SHY_VERSION,
-        "platform": public_platform_manifest(manifest),
-        "hidden_reasoning_exposed": False,
-    }
-
-
 @app.get("/tools/system-health")
 async def tool_system_health():
     result = tool_gateway.execute("system.health")
@@ -3468,183 +3309,29 @@ def _goal_plan_from_request(objective: str, milestones: list[GoalMilestoneReques
     )
 
 
-def _parse_preference_source(value: str) -> PreferenceSource:
+@app.post("/preferences/evaluate")
+async def preferences_evaluate(request: PreferenceEvaluateRequest):
     try:
-        return PreferenceSource(str(value).strip().upper())
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Unsupported preference source.") from exc
-
-
-def _parse_preference_scope(value: str) -> PreferenceScope:
-    try:
-        return PreferenceScope(str(value).strip().upper())
+        scope = PreferenceScope(str(request.scope).strip().upper())
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Unsupported preference scope.") from exc
 
-
-def _graph_from_request(request: GraphBuildRequest):
-    return build_graph(
-        tuple(EntityNode(item.entity_id,item.name,item.entity_type,item.scope_id,tuple(item.aliases)) for item in request.nodes),
-        tuple(RelationEdge(item.source_id,item.target_id,item.relation,float(item.confidence),tuple(item.provenance_ids)) for item in request.edges),
-        max_nodes=max(1,min(int(request.max_nodes),1000)),
-        max_edges=max(1,min(int(request.max_edges),2000)),
-    )
-
-
-def _registered_tools_from_request(items: list[RegisteredToolRequest]):
-    try:
-        return tuple(
-            RegisteredToolCapability(
-                tool_id=item.tool_id,
-                capabilities=tuple(item.capabilities),
-                permission=RegistryToolPermission(str(item.permission).strip().upper()),
-                risk=RegistryToolRisk(str(item.risk).strip().upper()),
-                scopes=tuple(item.scopes),
-                side_effects=bool(item.side_effects),
-                available=bool(item.available),
-            )
-            for item in items
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Unsupported tool registry permission or risk.") from exc
-
-
-@app.post("/tool-registry/validate")
-async def tool_registry_validate(request: ToolRegistryValidateRequest):
-    result = validate_registry(
-        _registered_tools_from_request(request.tools),
-        max_tools=max(1, min(int(request.max_tools), 512)),
-    )
-    return {
-        "status": "ok" if result.accepted else "rejected",
-        "version": SHY_VERSION,
-        "registry": public_tool_registry(result),
-        "execution_performed": False,
-        "hidden_reasoning_exposed": False,
-    }
-
-
-@app.post("/tool-registry/select")
-async def tool_registry_select(request: ToolRegistrySelectRequest):
-    registry = validate_registry(
-        _registered_tools_from_request(request.tools),
-        max_tools=max(1, min(int(request.max_tools), 512)),
-    )
-    selection = select_registered_tool(
-        registry,
-        capability=request.capability,
-        scope=request.scope,
-        max_candidates=max(1, min(int(request.max_candidates), 32)),
-    )
-    return {
-        "status": "ok",
-        "version": SHY_VERSION,
-        "registry": public_tool_registry(registry),
-        "selection": public_tool_selection(selection),
-        "execution_performed": False,
-        "hidden_reasoning_exposed": False,
-    }
-
-
-@app.post("/reliability/evaluate")
-async def reliability_evaluate(request: ReliabilityEvaluateRequest):
-    report = evaluate_reliability(
-        ReliabilityDimensions(
-            correctness=float(request.correctness),
-            grounding=float(request.grounding),
-            consistency=float(request.consistency),
-            completeness=float(request.completeness),
-            safety=float(request.safety),
-        ),
-        evidence_available=bool(request.evidence_available),
-        max_revisions=max(0, min(int(request.max_revisions), 3)),
-    )
-    return {
-        "status": "ok",
-        "version": SHY_VERSION,
-        "reliability": public_reliability_report(report),
-        "automatic_revision_performed": False,
-        "automatic_self_modification": False,
-        "hidden_reasoning_exposed": False,
-    }
-
-
-def _reliability_calibration_payload(request: ReliabilityCalibrationRequest):
-    report = aggregate_calibration(
-        tuple(
-            CalibrationSample(
-                predicted_confidence=float(item.predicted_confidence),
-                success=bool(item.success),
-                verified=bool(item.verified),
-            )
-            for item in request.samples
-        ),
-        max_samples=max(1, min(int(request.max_samples), 5000)),
-    )
-    return {
-        "status": "ok",
-        "version": SHY_VERSION,
-        "calibration": public_calibration_report(report),
-        "persistent_change_applied": False,
-        "automatic_self_modification": False,
-        "hidden_reasoning_exposed": False,
-    }
-
-
-@app.post("/reliability/calibration")
-async def reliability_calibration(request: ReliabilityCalibrationRequest):
-    return _reliability_calibration_payload(request)
-
-
-@app.post("/reliability/calibrate")
-async def reliability_calibrate(request: ReliabilityCalibrationRequest):
-    return _reliability_calibration_payload(request)
-
-
-@app.post("/graph/build")
-async def graph_build(request: GraphBuildRequest):
-    result=_graph_from_request(request)
-    return {"status":"ok" if result.accepted else "rejected","version":SHY_VERSION,"reason":result.reason,"graph":public_graph(result.graph) if result.graph else None,"persistent_change_applied":False,"hidden_reasoning_exposed":False}
-
-
-@app.post("/graph/neighbors")
-async def graph_neighbors(request: GraphNeighborsRequest):
-    result=_graph_from_request(request)
-    if not result.accepted or result.graph is None:
-        return {"status":"rejected","version":SHY_VERSION,"reason":result.reason,"graph":None,"hidden_reasoning_exposed":False}
-    sub=neighbor_subgraph(result.graph,request.entity_id,depth=max(0,min(int(request.depth),3)),max_results=max(1,min(int(request.max_results),100)))
-    return {"status":"ok","version":SHY_VERSION,"reason":None,"graph":public_graph(sub),"hidden_reasoning_exposed":False}
-
-
-@app.post("/preference/evaluate")
-async def preference_evaluate(request: PreferenceUpdateRequest):
-    result = evaluate_preference_update(
+    result = evaluate_preference(
         PreferenceUpdate(
+            scope=scope,
             key=request.key,
             value=request.value,
-            source=_parse_preference_source(request.source),
-            scope=_parse_preference_scope(request.scope),
+            explicit=bool(request.explicit),
             confidence=float(request.confidence),
         )
     )
-    return {"status":"ok","version":SHY_VERSION,"preference":public_preference_evaluation(result),"persistent_change_applied":False,"hidden_reasoning_exposed":False}
-
-
-@app.post("/preference/profile-preview")
-async def preference_profile_preview(request: PreferenceProfileRequest):
-    scope = _parse_preference_scope(request.scope)
-    records = tuple(
-        PreferenceRecord(
-            key=item.key,
-            value=item.value,
-            source=_parse_preference_source(item.source),
-            scope=_parse_preference_scope(item.scope),
-            confidence=max(0.0,min(1.0,float(item.confidence))),
-        )
-        for item in request.records
-    )
-    profile = build_preference_profile(records, scope=scope, max_preferences=max(1,min(int(request.max_preferences),100)))
-    return {"status":"ok","version":SHY_VERSION,"profile":public_preference_profile(profile),"persistent_change_applied":False,"hidden_reasoning_exposed":False}
+    return {
+        "status": "ok",
+        "version": SHY_VERSION,
+        "preference": public_preference_metadata(result),
+        "persistent_change_applied": False,
+        "hidden_reasoning_exposed": False,
+    }
 
 
 @app.post("/goal/plan")
