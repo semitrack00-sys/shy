@@ -3391,6 +3391,53 @@ async def chat(request: ChatRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
+    linear_equation = _solve_single_variable_linear_equation(request.message)
+    if linear_equation is not None:
+        deterministic = _run_cognitive_deterministic_response(
+            request,
+            history,
+            None,
+        )
+        if deterministic is not None:
+            assistant_message, cognitive_metadata = deterministic
+            try:
+                save_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=assistant_message,
+                    model="deterministic-linear-solver",
+                    provider="shy-core",
+                    task_type="reasoning",
+                )
+            except psycopg.Error as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"SHY response generated but memory save failed: {exc}"
+                )
+
+            return {
+                "assistant": "SHY",
+                "status": "RESPOND",
+                "message": assistant_message,
+                "conversation_id": str(conversation_id),
+                "model": "deterministic-linear-solver",
+                "provider": "shy-core",
+                "task_type": "reasoning",
+                "routing_reason": "Deterministic linear equation verification.",
+                "adaptive_mode": "verify",
+                "execution_mode": "DIRECT",
+                "tool_decision": {"decision": "NO_TOOL"},
+                "approval_required": False,
+                "tool_selected": None,
+                "permission": None,
+                "execution_status": "NOT_REQUESTED",
+                "verifier_invoked": True,
+                "research_invoked": False,
+                "hidden_reasoning_exposed": False,
+                "model_routing": None,
+                "cognitive": cognitive_metadata,
+            }
+
     execution_mode = decide_chat_execution_mode(request.message)
     tool_decision = decide_chat_tool_request(request.message)
     if execution_mode == "MULTI_STEP":
