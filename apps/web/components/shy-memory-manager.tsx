@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { FRONTEND_API_BASE } from '@/lib/config';
 import { parseMemory, type SavedMemory } from '@/lib/saved-memory';
 
 type Review = { action: 'create' | 'correct' | 'delete'; record?: SavedMemory };
 
 export function ShyMemoryManager() {
+  const formId = useId();
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<SavedMemory[]>([]);
   const [page, setPage] = useState(0);
@@ -105,14 +106,14 @@ export function ShyMemoryManager() {
       {review && <form aria-label="Review memory change" onSubmit={event => { event.preventDefault(); void apply(); }}>
         <h3>{review.action === 'create' ? 'Remember a fact' : review.action === 'correct' ? 'Correct saved memory' : 'Delete saved memory'}</h3>
         {review.action === 'create' ? <>
-          <label>Memory subject<input required value={subject} maxLength={80} pattern="[a-z0-9][a-z0-9_.-]*"
-            onChange={event => { setSubject(event.target.value); setConfirmed(false); }} placeholder="project.shy.database" /></label>
-          <label>Memory category<select value={category} onChange={event => { setCategory(event.target.value); setConfirmed(false); }}>
+          <div><label htmlFor={`${formId}-subject`}>Memory subject</label><input id={`${formId}-subject`} required value={subject} maxLength={80} pattern="[a-z0-9][a-z0-9_.-]*"
+            onChange={event => { setSubject(event.target.value); setConfirmed(false); }} placeholder="project.shy.database" /></div>
+          <div><label htmlFor={`${formId}-category`}>Memory category</label><select id={`${formId}-category`} value={category} onChange={event => { setCategory(event.target.value); setConfirmed(false); }}>
             <option value="USER_FACT">Personal fact</option><option value="PREFERENCE">Preference</option><option value="PROJECT">Project fact</option>
-          </select></label>
+          </select></div>
         </> : <p>Subject: {review.record?.subject_key}</p>}
-        {review.action === 'delete' ? <p>{review.record?.content}</p> : <label>Memory content<textarea required value={content} maxLength={500}
-          onChange={event => { setContent(event.target.value); setConfirmed(false); }} /></label>}
+        {review.action === 'delete' ? <p>{review.record?.content}</p> : <div><label htmlFor={`${formId}-content`}>Memory content</label><textarea id={`${formId}-content`} required value={content} maxLength={500}
+          onChange={event => { setContent(event.target.value); setConfirmed(false); }} /></div>}
         <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />
           I reviewed this exact memory change and confirm it.</label>
         <div className="shy-memory-actions">
