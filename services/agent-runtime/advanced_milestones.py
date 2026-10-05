@@ -1611,6 +1611,100 @@ def _release_readiness(payload: Mapping[str, object]) -> AdvancedResult:
     )
 
 
+def _integrated_platform(payload: Mapping[str, object]) -> AdvancedResult:
+    raw_subsystems = payload.get("subsystems") or []
+    max_subsystems = max(1, min(int(payload.get("max_subsystems") or 128), 512))
+
+    if not isinstance(raw_subsystems, list) or not raw_subsystems:
+        return AdvancedResult(
+            "integrated_platform",
+            AdvancedBoundary.DATA_REQUIRED,
+            "subsystem_statuses_required",
+            {},
+            False,
+        )
+
+    selected = raw_subsystems[:max_subsystems]
+    seen: set[str] = set()
+    unavailable: list[str] = []
+    unverified: list[str] = []
+    unbounded: list[str] = []
+    rows: list[dict[str, object]] = []
+
+    for raw in selected:
+        if not isinstance(raw, dict):
+            return AdvancedResult(
+                "integrated_platform",
+                AdvancedBoundary.INVALID_INPUT,
+                "subsystem_entries_must_be_objects",
+                {},
+                False,
+            )
+
+        capability_id = str(raw.get("capability_id") or "").strip()
+        available = bool(raw.get("available", False))
+        verified = bool(raw.get("verified", False))
+        bounded = bool(raw.get("bounded", False))
+        required = bool(raw.get("required", True))
+
+        if not capability_id or capability_id in seen:
+            return AdvancedResult(
+                "integrated_platform",
+                AdvancedBoundary.INVALID_INPUT,
+                "capability_ids_must_be_unique_and_nonempty",
+                {},
+                False,
+            )
+        seen.add(capability_id)
+
+        if required and not available:
+            unavailable.append(capability_id)
+        if required and available and not verified:
+            unverified.append(capability_id)
+        if required and available and verified and not bounded:
+            unbounded.append(capability_id)
+
+        rows.append(
+            {
+                "capability_id": capability_id,
+                "required": required,
+                "available": available,
+                "verified": verified,
+                "bounded": bounded,
+            }
+        )
+
+    if unavailable or unverified:
+        boundary = AdvancedBoundary.DATA_REQUIRED
+        reason = "required_subsystem_evidence_incomplete"
+    elif unbounded:
+        boundary = AdvancedBoundary.CONFLICT
+        reason = "required_subsystem_not_safely_bounded"
+    else:
+        boundary = AdvancedBoundary.READY
+        reason = "integrated_platform_review_ready"
+
+    return AdvancedResult(
+        "integrated_platform",
+        boundary,
+        reason,
+        {
+            "subsystem_count": len(rows),
+            "unavailable_capability_ids": sorted(unavailable),
+            "unverified_capability_ids": sorted(unverified),
+            "unbounded_capability_ids": sorted(unbounded),
+            "subsystems": rows,
+            "subsystem_limit_enforced": len(raw_subsystems) <= max_subsystems,
+            "integrated_ready": not unavailable and not unverified and not unbounded,
+            "production_deployed": False,
+            "permission_expanded": False,
+            "security_policy_rewritten": False,
+            "autonomous_side_effects_enabled": False,
+        },
+        False,
+    )
+
+
 _EVALUATORS = {
     "recovery_rollback": _recovery_rollback,
     "document_intelligence": _document_intelligence,
@@ -1628,6 +1722,7 @@ _EVALUATORS = {
     "approval_governance": _approval_governance,
     "resilience_fallback": _resilience_fallback,
     "release_readiness": _release_readiness,
+    "integrated_platform": _integrated_platform,
 }
 
 
