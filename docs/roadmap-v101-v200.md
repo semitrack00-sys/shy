@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.4. A future number must not be added
+shipped. The current implementation is v0.105.5. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -41,15 +41,15 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.118 | Memory conflict correction | Planned |
 | v0.119 | Long-conversation context management | Implemented early in v0.105.2: ordinary chat history uses hard excerpt budgets, including fallback; older context can be omitted |
 | v0.120 | Memory accuracy and isolation benchmarks | Planned |
-| v0.121 | Upload and read text files | Planned |
+| v0.121 | Upload and read text files | Implemented early in v0.105.5: confirmed UTF-8 text/Markdown uploads and bounded reading |
 | v0.122 | PDF text extraction | Planned |
 | v0.123 | Word document reading | Planned |
-| v0.124 | Spreadsheet and CSV reading | Planned |
-| v0.125 | Local document indexing | Planned |
-| v0.126 | Search selected documents | Planned |
-| v0.127 | Document-grounded answers with citations | Planned |
-| v0.128 | Compare documents and changes | Planned |
-| v0.129 | Refresh and remove indexed documents | Planned |
+| v0.124 | Spreadsheet and CSV reading | Partial early in v0.105.5: bounded CSV reading; formulas never executed; Excel pending |
+| v0.125 | Local document indexing | Implemented early in v0.105.5: PostgreSQL project-scoped text index |
+| v0.126 | Search selected documents | Implemented early in v0.105.5: explicit selection, local keyword search and source provenance |
+| v0.127 | Document-grounded answers with citations | Partial early in v0.105.5: extractive source excerpts with document/chunk/revision citations; generated answers pending |
+| v0.128 | Compare documents and changes | Partial early in v0.105.5: bounded literal line comparison; semantic comparison pending |
+| v0.129 | Refresh and remove indexed documents | Implemented early in v0.105.5: reviewed revision refresh/delete; index updated atomically |
 | v0.130 | Document-answer accuracy benchmarks | Planned |
 | v0.131 | Connect a local vision model | Planned: model download and hardware validation required |
 | v0.132 | Image upload and questions | Planned |
@@ -153,3 +153,5 @@ the acoustic integration, not multilingual quality or GPU inference. See
 The v0.105.3 patch adds [automatic memory saving controls](memory-saving-preferences.md), including persistent pause/resume enforced across automatic fact and task-outcome promotions.
 
 The v0.105.4 patch adds [local project memory scopes](project-memory-scopes.md) and fixes the default chat/control identity mismatch.
+
+The v0.105.5 patch adds [selected local text/CSV document controls](local-documents.md). Parser/index/isolation regressions do not complete the broader document-answer accuracy milestone v0.130.

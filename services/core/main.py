@@ -308,7 +308,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.4"
+SHY_VERSION = "0.105.5"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1422,6 +1422,7 @@ app = FastAPI(
 from intelligence_api import IntelligenceBodyLimit, router as intelligence_router
 from voice_api import VoiceBodyLimit, router as voice_router, provider_url as speech_provider_url
 from memory_controls import MemoryBodyLimit, router as memory_controls_router
+from documents import DocumentBodyLimit, ensure_document_schema, router as documents_router
 from context_budget import bound_context
 
 app.include_router(intelligence_router)
@@ -1429,6 +1430,8 @@ app.add_middleware(IntelligenceBodyLimit)
 app.include_router(voice_router)
 app.include_router(memory_controls_router)
 app.add_middleware(MemoryBodyLimit)
+app.include_router(documents_router)
+app.add_middleware(DocumentBodyLimit)
 app.add_middleware(VoiceBodyLimit)
 
 OLLAMA_URL = os.getenv(
@@ -1530,6 +1533,16 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "project_scopes_are_authenticated_accounts": False,
             "automatic_saving_default": "legacy_enabled_until_reviewed",
             "pause_removes_existing_memories": False,
+        },
+        "local_document_controls": {
+            "selected_confirmed_text_csv_upload": True,
+            "project_scoped_index_and_search": True,
+            "source_line_and_revision_provenance": True,
+            "confirmed_refresh_and_delete": True,
+            "csv_formulas_executed": False,
+            "pdf_word_excel_parsing": False,
+            "generated_document_answer_claims": False,
+            "authenticated": False,
         },
         "ordinary_chat_context_limits": {
             "durable_memory_max_chars": 1200,
@@ -3583,6 +3596,7 @@ def startup():
     try:
         ensure_memory_schema()
         ensure_default_user()
+        ensure_document_schema()
         chat_task_repository.ensure_schema()
     except psycopg.Error as exc:
         raise RuntimeError(

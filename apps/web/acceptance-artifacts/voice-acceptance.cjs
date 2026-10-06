@@ -62,8 +62,29 @@ let browser;
     else memory = null;
     return route.fulfill({ json: { corrected: true, deleted: memory === null } });
   });
+  let documentWrites = 0;
+  let document = null;
+  await page.route('**/api/shy/documents**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    assert.equal(url.searchParams.get('project_id'), 'gud-express');
+    if (request.method() === 'GET') return route.fulfill({ json: { documents:document ? [document] : [] } });
+    const payload = request.postDataJSON();
+    if (url.pathname.endsWith('/search')) {
+      assert.deepEqual(payload.document_ids, [document.id]);
+      return route.fulfill({ json: { evidence:[{document_id:document.id,name:document.name,revision:document.revision,
+        chunk:1,start_line:1,end_line:2,excerpt:document.content}] } });
+    }
+    documentWrites++;
+    assert.equal(payload.confirmed, true);
+    if (document) assert.equal(payload.expected_revision, document.revision);
+    if (url.pathname.endsWith('/delete')) document = null;
+    else document = { id:'00000000-0000-0000-0000-000000000003',name:payload.name,kind:payload.kind,
+      revision:(documentWrites === 1 ? 'c' : 'd').repeat(64),characters:payload.content.length,content:payload.content };
+    return route.fulfill({ json: { document, deleted:document === null } });
+  });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.4', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.5', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -152,7 +173,36 @@ let browser;
     return store.conversations.find(item => item.id === store.activeConversationId).projectId;
   });
   assert.equal(storedProject, 'gud-express');
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, mobile overflow, session-only consent (fixtures).');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Review local documents', exact: true }).click();
+  await page.getByLabel('Selected text or CSV file', { exact: true }).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Project uses PostgreSQL.\nSource line two.')});
+  assert.equal(await page.getByRole('button', { name: 'Save reviewed document', exact: true }).isDisabled(), true);
+  assert.equal(documentWrites, 0);
+  await page.getByLabel('I reviewed this exact document change and confirm it.', { exact: true }).check();
+  await page.getByRole('button', { name: 'Save reviewed document', exact: true }).click();
+  await page.getByText('Document change saved. The project index now reflects it.', { exact: true }).waitFor();
+  await page.getByLabel('Select notes.txt', { exact: true }).check();
+  await page.getByLabel('Document search keywords', { exact: true }).fill('PostgreSQL');
+  await page.getByRole('button', { name: 'Search selected documents', exact: true }).click();
+  await page.getByText('notes.txt · lines 1–2 · chunk 1', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Review refresh notes.txt', exact: true }).click();
+  await page.getByLabel('Selected text or CSV file', { exact: true }).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Revised project source.')});
+  assert.equal(await page.getByRole('button', { name: 'Save reviewed document', exact: true }).isDisabled(), true);
+  await page.getByLabel('I reviewed this exact document change and confirm it.', { exact: true }).check();
+  await page.getByRole('button', { name: 'Save reviewed document', exact: true }).click();
+  await page.getByText('Document change saved. The project index now reflects it.', { exact: true }).waitFor();
+  assert.equal(documentWrites, 2);
+  await page.getByRole('button', { name: 'Review delete notes.txt', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: 'Confirm document deletion', exact: true }).isDisabled(), true);
+  await page.getByLabel('I reviewed this exact document change and confirm it.', { exact: true }).check();
+  await page.getByRole('button', { name: 'Confirm document deletion', exact: true }).click();
+  await page.getByText('Document change saved. The project index now reflects it.', { exact: true }).waitFor();
+  assert.equal(documentWrites, 3);
+  for (const width of [360,390,768,1440]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `document overflow at ${width}px`);
+  }
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, mobile overflow, session-only consent (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();
