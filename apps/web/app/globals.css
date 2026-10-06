@@ -551,3 +551,15 @@ button {
 .shy-memory-manager textarea { width: 100%; min-height: 80px; }
 .shy-memory-manager input[type='checkbox'] { width: auto; }
 .shy-settings form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+.shy-document-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 18rem;
+  overflow: auto;
+  max-width: 100%;
+  padding: .6rem;
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  font-size: .8rem;
+}

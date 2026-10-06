@@ -10,6 +10,7 @@ import { ShyMessage } from './shy-message';
 import { ShySidebar } from './shy-sidebar';
 import { ShyVoice } from './shy-voice';
 import { ShyMemoryManager } from './shy-memory-manager';
+import { ShyDocuments } from './shy-documents';
 import { ShyConversationSummary } from './shy-conversation-summary';
 
 function sortByUpdatedAt(conversations: ConversationThread[]): ConversationThread[] {
@@ -242,6 +243,7 @@ export function ShyShell() {
               <p className="shy-muted">Start a separate chat and memory scope. Use lowercase letters, numbers, dots, underscores or dashes. Leave blank for default. Existing chats keep their project.</p>
               <button className="shy-button" type="submit" disabled={isSending}>Start project chat</button>
             </form>
+            <ShyDocuments key={`documents-${activeConversation?.projectId ?? 'default'}`} projectId={activeConversation?.projectId} />
             <ShyMemoryManager key={activeConversation?.projectId ?? 'default'} projectId={activeConversation?.projectId} />
             <button className="shy-button" type="button" onClick={() => setSettingsOpen(false)}>Close settings</button>
           </section>}
