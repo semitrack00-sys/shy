@@ -23,6 +23,7 @@ function updateConversation(conversations: ConversationThread[], nextConversatio
 export function ShyShell() {
   const [store, setStore] = useState<ChatStore>(() => createInitialStore());
   const [composerValue, setComposerValue] = useState('');
+  const [storageReady, setStorageReady] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [health, setHealth] = useState<ShyHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
@@ -43,11 +44,12 @@ export function ShyShell() {
       }
       return persisted;
     });
+    setStorageReady(true);
   }, []);
 
   useEffect(() => {
-    saveStore(window.localStorage, store);
-  }, [store]);
+    if (storageReady) saveStore(window.localStorage, store);
+  }, [store, storageReady]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = store.theme;
