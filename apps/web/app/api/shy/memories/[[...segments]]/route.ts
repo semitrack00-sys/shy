@@ -30,7 +30,7 @@ async function forward(request: NextRequest, context: { params: Promise<{ segmen
       for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
     }
     const query = new URLSearchParams();
-    for (const key of ['page', 'status']) {
+    for (const key of ['page', 'status', 'project_id']) {
       const value = request.nextUrl.searchParams.get(key);
       if (value !== null) query.set(key, value);
     }

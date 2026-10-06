@@ -23,6 +23,7 @@ function updateConversation(conversations: ConversationThread[], nextConversatio
 export function ShyShell() {
   const [store, setStore] = useState<ChatStore>(() => createInitialStore());
   const [composerValue, setComposerValue] = useState('');
+  const [storageReady, setStorageReady] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [health, setHealth] = useState<ShyHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
@@ -43,11 +44,12 @@ export function ShyShell() {
       }
       return persisted;
     });
+    setStorageReady(true);
   }, []);
 
   useEffect(() => {
-    saveStore(window.localStorage, store);
-  }, [store]);
+    if (storageReady) saveStore(window.localStorage, store);
+  }, [store, storageReady]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = store.theme;
@@ -88,7 +90,7 @@ export function ShyShell() {
   }
 
   function createNewChat() {
-    const conversation = createEmptyConversation();
+    const conversation = createEmptyConversation(activeConversation?.projectId);
     setStore((current) => ({
       ...current,
       activeConversationId: conversation.id,
@@ -137,7 +139,8 @@ export function ShyShell() {
             trimmed,
             nextConversation.conversationId,
             -new Date().getTimezoneOffset(),
-            Intl.DateTimeFormat().resolvedOptions().timeZone
+            Intl.DateTimeFormat().resolvedOptions().timeZone,
+            nextConversation.projectId
           )
         ),
       });
@@ -223,7 +226,23 @@ export function ShyShell() {
             </form>
             <p className="shy-muted">History and titles are saved in this browser. Voice permissions are session-only.</p>
             {activeConversation && <ShyConversationSummary conversation={activeConversation} />}
-            <ShyMemoryManager />
+            <p>Memory project: <strong>{activeConversation?.projectId ?? 'default'}</strong></p>
+            <form onSubmit={event => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              const projectId = String(data.get('projectId') ?? '').trim();
+              const conversation = createEmptyConversation(projectId || undefined);
+              setStore(current => ({ ...current, activeConversationId: conversation.id,
+                conversations: sortByUpdatedAt([conversation, ...current.conversations]) }));
+              setComposerValue('');
+              event.currentTarget.reset();
+            }}>
+              <label htmlFor="shy-new-project">New project ID</label>
+              <input id="shy-new-project" name="projectId" maxLength={64} pattern="[a-z0-9][a-z0-9_.-]*" placeholder="gud-express" disabled={isSending} />
+              <p className="shy-muted">Start a separate chat and memory scope. Use lowercase letters, numbers, dots, underscores or dashes. Leave blank for default. Existing chats keep their project.</p>
+              <button className="shy-button" type="submit" disabled={isSending}>Start project chat</button>
+            </form>
+            <ShyMemoryManager key={activeConversation?.projectId ?? 'default'} projectId={activeConversation?.projectId} />
             <button className="shy-button" type="button" onClick={() => setSettingsOpen(false)}>Close settings</button>
           </section>}
           {activeConversation && activeConversation.messages.length > 0 ? (

@@ -29,8 +29,9 @@ records can be selected by future chat requests under the existing memory policy
 They add no new automatic extraction or permission to execute external actions.
 Automatic fact/preference and task-outcome promotion now follows the persistent
 [automatic saving setting](memory-saving-preferences.md) added in v0.105.3.
-Broader consent preferences and genuine project-specific memory isolation remain
-pending parts of roadmap items v0.116 and v0.117. A `PROJECT` label or dotted subject name does not
+Broader consent preferences remain pending under v0.116. Local project memory
+scopes are available in [v0.105.4](project-memory-scopes.md); authenticated account
+permissions remain pending. A `PROJECT` label or dotted subject name does not
 establish a project access boundary.
 
 Deleting a saved record does **not** delete its source conversation, other

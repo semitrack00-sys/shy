@@ -4,12 +4,21 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import memory
+
+ProjectId = Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]*$")]
+
+def project_user(project_id: ProjectId):
+    try:
+        return memory.local_memory_user(project_id)
+    except ValueError:
+        raise HTTPException(422, "invalid_project_id") from None
+
 
 router = APIRouter(prefix="/memories", tags=["Saved memories"])
 
@@ -131,31 +140,31 @@ class SavingPreferenceRequest(BaseModel):
 
 
 @router.get("/preferences")
-def get_saving_preference():
+def get_saving_preference(project_id: ProjectId = None):
     try:
         with memory.connect() as conn:
             with conn.cursor() as cur:
-                result = memory.read_memory_save_preference(cur, memory.DEFAULT_USER_ID)
+                result = memory.read_memory_save_preference(cur, project_user(project_id))
         return {**result, "scope": "existing_local_user", "authenticated": False}
     except Exception:
         raise HTTPException(503, "memory_database_unavailable") from None
 
 
 @router.patch("/preferences")
-def set_saving_preference(request: SavingPreferenceRequest):
+def set_saving_preference(request: SavingPreferenceRequest, project_id: ProjectId = None):
     try:
         with memory.connect() as conn:
             with conn.cursor() as cur:
-                memory.memory_preference_lock(cur, memory.DEFAULT_USER_ID)
-                current = memory.read_memory_save_preference(cur, memory.DEFAULT_USER_ID)
+                memory.memory_preference_lock(cur, project_user(project_id))
+                current = memory.read_memory_save_preference(cur, project_user(project_id))
                 if current["revision"] != request.expected_revision:
                     raise HTTPException(409, "memory_preference_changed_review_again")
                 cur.execute("""INSERT INTO memory_save_preferences (user_id, automatic_saving, revision)
                     VALUES (%s, %s, 1) ON CONFLICT (user_id) DO UPDATE SET
                     automatic_saving = EXCLUDED.automatic_saving,
                     revision = memory_save_preferences.revision + 1, updated_at = NOW()""",
-                    (memory.DEFAULT_USER_ID, request.automatic_saving))
-                result = memory.read_memory_save_preference(cur, memory.DEFAULT_USER_ID)
+                    (project_user(project_id), request.automatic_saving))
+                result = memory.read_memory_save_preference(cur, project_user(project_id))
         return {**result, "scope": "existing_local_user", "authenticated": False}
     except HTTPException:
         raise
@@ -165,14 +174,14 @@ def set_saving_preference(request: SavingPreferenceRequest):
 
 @router.get("")
 def list_memories(page: int = Query(default=0, ge=0, le=10000),
-                  status: Literal["ACTIVE", "SUPERSEDED", "ARCHIVED"] | None = None):
+                  status: Literal["ACTIVE", "SUPERSEDED", "ARCHIVED"] | None = None, project_id: ProjectId = None):
     try:
         with memory.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("""SELECT memory_id, category, subject_key, content, status, created_at, updated_at
                                FROM durable_memories WHERE user_id = %s AND (%s::text IS NULL OR status = %s)
                                ORDER BY created_at DESC, memory_id DESC LIMIT 51 OFFSET %s""",
-                            (memory.DEFAULT_USER_ID, status, status, page * 50))
+                            (project_user(project_id), status, status, page * 50))
                 rows = cur.fetchall()
         return {"records": [public_record(row) for row in rows[:50]], "page": page,
                 "has_more": len(rows) > 50, "scope": "existing_local_user", "authenticated": False}
@@ -181,24 +190,24 @@ def list_memories(page: int = Query(default=0, ge=0, le=10000),
 
 
 @router.post("", status_code=201)
-def remember(request: RememberRequest):
+def remember(request: RememberRequest, project_id: ProjectId = None):
     try:
         with memory.connect() as conn:
             with conn.cursor() as cur:
                 # Serialize explicit creates for one subject. Legacy chat
                 # promotion is a separate path; no new automatic inference.
                 cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                            (str(memory.DEFAULT_USER_ID) + ":" + request.subject_key,))
+                            (str(project_user(project_id)) + ":" + request.subject_key,))
                 cur.execute("""SELECT memory_id FROM durable_memories
                                WHERE user_id = %s AND subject_key = %s AND status = 'ACTIVE' LIMIT 1""",
-                            (memory.DEFAULT_USER_ID, request.subject_key))
+                            (project_user(project_id), request.subject_key))
                 if cur.fetchone():
                     raise HTTPException(409, "active_subject_exists_review_and_correct_it")
                 cur.execute("""INSERT INTO durable_memories
                                (memory_id, user_id, category, subject_key, content, normalized_content, confidence, status)
                                VALUES (%s, %s, %s, %s, %s, %s, %s, 'ACTIVE')
                                RETURNING memory_id, category, subject_key, content, status, created_at, updated_at""",
-                            (uuid.uuid4(), memory.DEFAULT_USER_ID, request.category, request.subject_key,
+                            (uuid.uuid4(), project_user(project_id), request.category, request.subject_key,
                              request.content, memory._normalize_text(request.content), 0.9))
                 row = cur.fetchone()
         return {"record": public_record(row), "saved": True, "source": "explicit_user_confirmation"}
@@ -209,12 +218,12 @@ def remember(request: RememberRequest):
 
 
 @router.patch("/{memory_id}")
-def correct(memory_id: uuid.UUID, request: CorrectRequest):
+def correct(memory_id: uuid.UUID, request: CorrectRequest, project_id: ProjectId = None):
     try:
         with memory.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT * FROM durable_memories WHERE memory_id = %s AND user_id = %s FOR UPDATE",
-                            (memory_id, memory.DEFAULT_USER_ID))
+                            (memory_id, project_user(project_id)))
                 row = cur.fetchone()
                 _require_revision(row, request.expected_revision)
                 if row["status"] != "ACTIVE":
@@ -222,7 +231,7 @@ def correct(memory_id: uuid.UUID, request: CorrectRequest):
                 cur.execute("""UPDATE durable_memories SET content = %s, normalized_content = %s, updated_at = NOW()
                                WHERE memory_id = %s AND user_id = %s
                                RETURNING memory_id, category, subject_key, content, status, created_at, updated_at""",
-                            (request.content, memory._normalize_text(request.content), memory_id, memory.DEFAULT_USER_ID))
+                            (request.content, memory._normalize_text(request.content), memory_id, project_user(project_id)))
                 row = cur.fetchone()
         return {"record": public_record(row), "corrected": True}
     except HTTPException:
@@ -232,15 +241,15 @@ def correct(memory_id: uuid.UUID, request: CorrectRequest):
 
 
 @router.post("/{memory_id}/delete")
-def delete(memory_id: uuid.UUID, request: DeleteRequest):
+def delete(memory_id: uuid.UUID, request: DeleteRequest, project_id: ProjectId = None):
     try:
         with memory.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT * FROM durable_memories WHERE memory_id = %s AND user_id = %s FOR UPDATE",
-                            (memory_id, memory.DEFAULT_USER_ID))
+                            (memory_id, project_user(project_id)))
                 _require_revision(cur.fetchone(), request.expected_revision)
                 cur.execute("DELETE FROM durable_memories WHERE memory_id = %s AND user_id = %s",
-                            (memory_id, memory.DEFAULT_USER_ID))
+                            (memory_id, project_user(project_id)))
         return {"deleted": True, "id": str(memory_id), "conversation_history_deleted": False}
     except HTTPException:
         raise
