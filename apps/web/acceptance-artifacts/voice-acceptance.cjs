@@ -146,7 +146,7 @@ let browser;
     return store.conversations.find(item => item.id === store.activeConversationId).projectId === 'gud-express';
   });
   await page.reload();
-  await page.getByText('Project fixture message', { exact: true }).waitFor();
+  await page.getByRole('main').getByText('Project fixture message', { exact: true }).waitFor();
   const storedProject = await page.evaluate(() => {
     const store = JSON.parse(localStorage.getItem('shy.web.chat-store.v1'));
     return store.conversations.find(item => item.id === store.activeConversationId).projectId;
