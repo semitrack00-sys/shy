@@ -5,7 +5,7 @@ async function forward(request: NextRequest, context: { params: Promise<{ segmen
   const { segments = [] } = await context.params;
   const id = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
   const suffix = segments.join('/');
-  if (!(suffix === '' || ['search', 'answer', 'compare'].includes(suffix) || new RegExp(`^${id}(/delete)?$`).test(suffix))) {
+  if (!(suffix === '' || ['search', 'answer', 'compare', 'extract'].includes(suffix) || new RegExp(`^${id}(/delete)?$`).test(suffix))) {
     return NextResponse.json({ detail: 'invalid_document_path' }, { status: 404 });
   }
   try {
@@ -19,7 +19,7 @@ async function forward(request: NextRequest, context: { params: Promise<{ segmen
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > 512 * 1024) {
+        if (size > (suffix === 'extract' ? 2 * 1024 * 1024 : 512 * 1024)) {
           await reader.cancel();
           return NextResponse.json({ detail: 'document_request_too_large' }, { status: 413 });
         }

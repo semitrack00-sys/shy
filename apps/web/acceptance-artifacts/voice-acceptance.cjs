@@ -63,6 +63,7 @@ let browser;
     return route.fulfill({ json: { corrected: true, deleted: memory === null } });
   });
   let documentWrites = 0;
+  let extractionRequests = 0;
   let document = null;
   await page.route('**/api/shy/documents**', async route => {
     const request = route.request();
@@ -70,6 +71,12 @@ let browser;
     assert.equal(url.searchParams.get('project_id'), 'gud-express');
     if (request.method() === 'GET') return route.fulfill({ json: { documents:document ? [document] : [] } });
     const payload = request.postDataJSON();
+    if (url.pathname.endsWith('/extract')) {
+      extractionRequests++;
+      assert.equal(payload.confirmed, true);
+      assert.equal(payload.kind, 'pdf');
+      return route.fulfill({ json: { content:'[Extracted PDF fixture text]\nSource excerpt.',binary_stored:false } });
+    }
     if (url.pathname.endsWith('/search')) {
       assert.deepEqual(payload.document_ids, [document.id]);
       return route.fulfill({ json: { evidence:[{document_id:document.id,name:document.name,revision:document.revision,
@@ -84,7 +91,7 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.5', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.6', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -175,7 +182,7 @@ let browser;
   assert.equal(storedProject, 'gud-express');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Review local documents', exact: true }).click();
-  await page.getByLabel('Selected text or CSV file', { exact: true }).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Project uses PostgreSQL.\nSource line two.')});
+  await page.getByLabel('Selected document file', { exact: true }).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Project uses PostgreSQL.\nSource line two.')});
   assert.equal(await page.getByRole('button', { name: 'Save reviewed document', exact: true }).isDisabled(), true);
   assert.equal(documentWrites, 0);
   await page.getByLabel('I reviewed this exact document change and confirm it.', { exact: true }).check();
@@ -186,7 +193,7 @@ let browser;
   await page.getByRole('button', { name: 'Search selected documents', exact: true }).click();
   await page.getByText('notes.txt · lines 1–2 · chunk 1', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Review refresh notes.txt', exact: true }).click();
-  await page.getByLabel('Selected text or CSV file', { exact: true }).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Revised project source.')});
+  await page.getByLabel('Selected document file', { exact: true }).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Revised project source.')});
   assert.equal(await page.getByRole('button', { name: 'Save reviewed document', exact: true }).isDisabled(), true);
   await page.getByLabel('I reviewed this exact document change and confirm it.', { exact: true }).check();
   await page.getByRole('button', { name: 'Save reviewed document', exact: true }).click();
@@ -202,7 +209,16 @@ let browser;
     await page.setViewportSize({width,height:1000});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `document overflow at ${width}px`);
   }
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, mobile overflow, session-only consent (fixtures).');
+  await page.getByLabel('Selected document file', { exact: true }).setInputFiles({name:'source.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-fixture')});
+  assert.equal(await page.getByRole('button', { name: 'Extract selected document text', exact: true }).isDisabled(), true);
+  assert.equal(extractionRequests, 0);
+  await page.getByLabel('Allow local text extraction of this selected file.', { exact: true }).check();
+  await page.getByRole('button', { name: 'Extract selected document text', exact: true }).click();
+  await page.getByText('Extracted text is ready for review. The original binary was not stored. Review and confirm separately before saving the text.', { exact: true }).waitFor();
+  assert.equal(extractionRequests, 1);
+  assert.equal(documentWrites, 3);
+  assert.equal(await page.getByRole('button', { name: 'Save reviewed document', exact: true }).isDisabled(), true);
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();

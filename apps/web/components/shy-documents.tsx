@@ -33,6 +33,8 @@ export function ShyDocuments({ projectId }: { projectId?:string }) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [draft, setDraft] = useState<FileDraft | null>(null);
+  const [binary, setBinary] = useState<{name:string;kind:'pdf'|'docx'|'xlsx';data:string}|null>(null);
+  const [extractionConfirmed, setExtractionConfirmed] = useState(false);
   const [review, setReview] = useState<Review>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [query, setQuery] = useState('');
@@ -53,8 +55,8 @@ export function ShyDocuments({ projectId }: { projectId?:string }) {
       ...(body === undefined ? {} : { body:JSON.stringify(body) }),
     });
     if (!response.ok) throw new Error(response.status === 409 ? 'Document changed or the project limit was reached. Refresh and review again.'
-      : response.status === 422 || response.status === 413 ? 'Document or request exceeds supported limits. Use UTF-8 text/CSV up to 256 KiB and 100,000 characters.'
-        : 'Local documents are unavailable. Check the SHY database.');
+      : response.status === 422 || response.status === 413 ? 'The document is unsupported, unreadable, encrypted, or over limits. Use UTF-8 text/CSV up to 256 KiB or PDF/DOCX/XLSX up to 1 MiB.'
+        : 'Local document operations are unavailable. Check the SHY service.');
     return await response.json();
   }
   async function run(action:() => Promise<void>) {
@@ -72,15 +74,37 @@ export function ShyDocuments({ projectId }: { projectId?:string }) {
     setDocuments(result.documents.map(parseDocument)); setSelected([]); setEvidence([]); setReview(null); setConfirmed(false); setPreview(''); setComparison('');
   }
   async function choose(file?: File) {
-    const epoch = ++fileEpoch.current; setDraft(null); setConfirmed(false); setNotice('');
+    const epoch = ++fileEpoch.current; setDraft(null); setBinary(null); setExtractionConfirmed(false); setConfirmed(false); setNotice('');
     if (!file) return;
     try {
-      if (file.size > 256 * 1024 || !/\.(txt|md|csv)$/i.test(file.name)) throw new Error('Select a .txt, .md or .csv file up to 256 KiB.');
-      const content = new TextDecoder('utf-8', { fatal:true }).decode(await file.arrayBuffer());
+      const kind = /\.pdf$/i.test(file.name) ? 'pdf' : /\.docx$/i.test(file.name) ? 'docx' : /\.xlsx$/i.test(file.name) ? 'xlsx' : null;
+      if (!/\.(txt|md|csv|pdf|docx|xlsx)$/i.test(file.name) || file.size > (kind ? 1024*1024 : 256*1024)) throw new Error('Select UTF-8 text/CSV up to 256 KiB, or PDF/DOCX/XLSX up to 1 MiB.');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (epoch !== fileEpoch.current) return;
+      if (kind) {
+        let value = '';
+        for (let offset=0;offset<bytes.length;offset+=8192) value += String.fromCharCode(...bytes.subarray(offset,offset+8192));
+        setBinary({name:file.name,kind,data:btoa(value)});
+        return;
+      }
+      const content = new TextDecoder('utf-8', { fatal:true }).decode(bytes);
       if (epoch !== fileEpoch.current) return;
       if (!content.trim() || content.length > 100_000 || content.includes('\0')) throw new Error('Select nonempty UTF-8 text up to 100,000 characters.');
       setDraft({ name:file.name, kind:/\.csv$/i.test(file.name) ? 'csv' : 'text', content });
     } catch (error) { if (epoch === fileEpoch.current) setNotice(error instanceof Error ? error.message : 'Could not read selected file.'); }
+  }
+  async function extract() {
+    if (!binary || !extractionConfirmed || review?.action === 'delete') return;
+    const selectedBinary = binary; const epoch = fileEpoch.current;
+    setExtractionConfirmed(false); setConfirmed(false);
+    await run(async () => {
+      const result = await request('/extract','POST',{kind:selectedBinary.kind,data:selectedBinary.data,confirmed:true});
+      if (epoch !== fileEpoch.current || controller.current?.signal.aborted) return;
+      if (typeof result.content !== 'string' || !result.content.trim() || result.content.length > 100_000
+          || result.binary_stored !== false) throw new Error('Invalid or oversized extracted text.');
+      setDraft({name:selectedBinary.name,kind:'text',content:result.content});setBinary(null);
+      setNotice('Extracted text is ready for review. The original binary was not stored. Review and confirm separately before saving the text.');
+    });
   }
   function startReview(next: Review) { setReview(next); setConfirmed(false); setNotice(''); }
   async function apply() {
@@ -124,11 +148,17 @@ export function ShyDocuments({ projectId }: { projectId?:string }) {
       onClick={() => { setOpen(!open); if (!open) void run(load); }}> {open ? 'Hide local documents' : 'Review local documents'} </button>
     {open && <>
       <p className="shy-muted">Project: {projectId ?? 'default'}. Upload only files you select and confirm. Text and CSV are indexed locally;
-        CSV formulas are never executed. PDF, Word and Excel files are not supported by this control yet.
+        CSV formulas are never executed. PDF, Word DOCX and Excel XLSX can provide extracted text. Scanned PDF OCR and legacy DOC/XLS remain unsupported. Excel formulas are not evaluated; cached values may be stale.
         This local installation does not authenticate project access. Avoid uploading passwords or keys.</p>
       <button className="shy-button" type="button" disabled={busy} onClick={() => void run(load)}>Refresh document list</button>
-      <div><label htmlFor={`${formId}-file`}>Selected text or CSV file</label>
-        <input id={`${formId}-file`} type="file" accept=".txt,.md,.csv" disabled={busy || review?.action === 'delete'} onChange={event => { void choose(event.target.files?.[0]); event.target.value = ''; }} /></div>
+      <div><label htmlFor={`${formId}-file`}>Selected document file</label>
+        <input id={`${formId}-file`} type="file" accept=".txt,.md,.csv,.pdf,.docx,.xlsx" disabled={busy || review?.action === 'delete'} onChange={event => { void choose(event.target.files?.[0]); event.target.value = ''; }} /></div>
+      {binary && <>
+        <p>{binary.name} · local {binary.kind.toUpperCase()} text extraction. Only text is returned; layout, images and embedded content may be omitted. Encrypted or oversized files are rejected.</p>
+        <label><input type="checkbox" checked={extractionConfirmed} disabled={busy || review?.action === 'delete'}
+          onChange={event => setExtractionConfirmed(event.target.checked)} />Allow local text extraction of this selected file.</label>
+        <button className="shy-button" type="button" disabled={busy || !extractionConfirmed || review?.action === 'delete'} onClick={() => void extract()}>Extract selected document text</button>
+      </>}
       {review && <p>{review.action === 'delete' ? 'Delete' : 'Refresh'} reviewed document: {review.document.name}</p>}
       {draft && review?.action !== 'delete' && <><p>{draft.name} · {draft.content.length} characters · {draft.kind}</p>
         <pre className="shy-document-preview">{draft.content.slice(0,1000)}{draft.content.length > 1000 ? '\n[Preview truncated]' : ''}</pre></>}
@@ -136,7 +166,7 @@ export function ShyDocuments({ projectId }: { projectId?:string }) {
         <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />I reviewed this exact document change and confirm it.</label>
         <div className="shy-memory-actions">
           <button className="shy-button" type="button" disabled={busy || !confirmed} onClick={() => void apply()}>{review?.action === 'delete' ? 'Confirm document deletion' : 'Save reviewed document'}</button>
-          <button className="shy-button" type="button" disabled={busy} onClick={() => { fileEpoch.current++; setDraft(null); setReview(null); setConfirmed(false); }}>Cancel document change</button>
+          <button className="shy-button" type="button" disabled={busy} onClick={() => { fileEpoch.current++; setDraft(null); setBinary(null); setExtractionConfirmed(false); setReview(null); setConfirmed(false); }}>Cancel document change</button>
         </div>
       </>}
       <ul className="shy-memory-list">{documents.map(document => <li key={document.id}>
