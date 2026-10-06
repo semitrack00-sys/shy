@@ -212,6 +212,7 @@ _DEFAULT_CAPABILITIES = (
     PlatformCapability("voice_output_controls", "0.105.0", CapabilityState.BOUNDED, "browser_voice_rate_volume_controls_installed_voices_required"),
     PlatformCapability("conversation_summary", "0.105.1", CapabilityState.BOUNDED, "browser_local_bounded_excerpts_no_generated_facts_or_completion_inference"),
     PlatformCapability("reviewed_memory_controls", "0.105.1", CapabilityState.BOUNDED, "existing_local_user_explicit_confirmation_revision_check_no_multiuser_authentication"),
+    PlatformCapability("bounded_document_extraction", "0.105.6", CapabilityState.BOUNDED, "confirmed_pdf_docx_xlsx_text_worker_with_resource_limits_not_ocr_formula_execution_or_complete_layout"),
     PlatformCapability("local_document_controls", "0.105.5", CapabilityState.BOUNDED, "confirmed_text_csv_project_index_selected_keyword_search_revision_refresh_delete_literal_compare_no_pdf_word_excel_or_generated_claims"),
     PlatformCapability("project_memory_scopes", "0.105.4", CapabilityState.BOUNDED, "separate_local_project_conversations_durable_memories_and_save_preferences_not_authenticated_multi_user_access"),
     PlatformCapability("automatic_memory_save_controls", "0.105.3", CapabilityState.BOUNDED, "confirmed_persistent_local_user_pause_resume_legacy_default_enabled_existing_retrieval_and_chat_history_unchanged"),
@@ -228,7 +229,7 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 
 def build_platform_manifest(
     *,
-    version: str = "0.105.5",
+    version: str = "0.105.6",
     capabilities: Sequence[PlatformCapability] = _DEFAULT_CAPABILITIES,
 ) -> PlatformManifest:
     current = _version_tuple(version)

@@ -308,7 +308,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.5"
+SHY_VERSION = "0.105.6"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1540,7 +1540,11 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "source_line_and_revision_provenance": True,
             "confirmed_refresh_and_delete": True,
             "csv_formulas_executed": False,
-            "pdf_word_excel_parsing": False,
+            "pdf_word_excel_parsing": True,
+            "supported_binary_formats": ["pdf", "docx", "xlsx"],
+            "extraction_requires_separate_review": True,
+            "binary_documents_stored": False,
+            "ocr_available": False,
             "generated_document_answer_claims": False,
             "authenticated": False,
         },

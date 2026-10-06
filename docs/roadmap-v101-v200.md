@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.5. A future number must not be added
+shipped. The current implementation is v0.105.6. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -42,9 +42,9 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.119 | Long-conversation context management | Implemented early in v0.105.2: ordinary chat history uses hard excerpt budgets, including fallback; older context can be omitted |
 | v0.120 | Memory accuracy and isolation benchmarks | Planned |
 | v0.121 | Upload and read text files | Implemented early in v0.105.5: confirmed UTF-8 text/Markdown uploads and bounded reading |
-| v0.122 | PDF text extraction | Planned |
-| v0.123 | Word document reading | Planned |
-| v0.124 | Spreadsheet and CSV reading | Partial early in v0.105.5: bounded CSV reading; formulas never executed; Excel pending |
+| v0.122 | PDF text extraction | Implemented early in v0.105.6: selected text-bearing PDFs, capped worker and page provenance; no OCR |
+| v0.123 | Word document reading | Implemented early in v0.105.6: DOCX main-document text; legacy DOC and full layout unsupported |
+| v0.124 | Spreadsheet and CSV reading | Implemented early in v0.105.6: bounded CSV and visible XLSX stored-cell text; formulas/macros never executed; legacy XLS unsupported |
 | v0.125 | Local document indexing | Implemented early in v0.105.5: PostgreSQL project-scoped text index |
 | v0.126 | Search selected documents | Implemented early in v0.105.5: explicit selection, local keyword search and source provenance |
 | v0.127 | Document-grounded answers with citations | Partial early in v0.105.5: extractive source excerpts with document/chunk/revision citations; generated answers pending |
@@ -155,3 +155,5 @@ The v0.105.3 patch adds [automatic memory saving controls](memory-saving-prefere
 The v0.105.4 patch adds [local project memory scopes](project-memory-scopes.md) and fixes the default chat/control identity mismatch.
 
 The v0.105.5 patch adds [selected local text/CSV document controls](local-documents.md). Parser/index/isolation regressions do not complete the broader document-answer accuracy milestone v0.130.
+
+The v0.105.6 patch adds [bounded PDF/DOCX/XLSX text extraction](document-format-extraction.md), with a native Windows worker release check.

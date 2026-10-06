@@ -3,9 +3,10 @@
 Integration patch v0.105.5 implements bounded text/Markdown upload and reading,
 project-scoped indexing, selected keyword search, and reviewed index refresh and
 removal (roadmap v0.121/v0.125/v0.126/v0.129). CSV support is part of v0.124;
-Excel remains pending. Extractive evidence citations and literal comparison are
+Visible XLSX stored-cell reading is available in v0.105.6; legacy XLS is unsupported. Extractive evidence citations and literal comparison are
 partial v0.127/v0.128, not semantic answer generation or document understanding.
-PDF and Word are not parsed by this release.
+PDF/DOCX/XLSX text extraction is available through the separately confirmed
+[capped worker added in v0.105.6](document-format-extraction.md).
 
 Open Settings → **Review local documents**. Select a `.txt`, `.md`, or `.csv`
 file, review its name/type/character count and preview, confirm that exact change,

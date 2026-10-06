@@ -10,6 +10,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 import memory
+from document_extraction import ExtractRequest, extract_selected
 
 router = APIRouter(prefix='/documents', tags=['Local documents'])
 ProjectId = Annotated[str | None, Query(min_length=1, max_length=64, pattern=r'^[a-z0-9][a-z0-9_.-]*$')]
@@ -29,7 +30,8 @@ class DocumentBodyLimit:
             event = await receive()
             if event['type'] == 'http.disconnect': return
             chunk = event.get('body', b'')
-            if len(body) + len(chunk) > MAX_REQUEST_BYTES:
+            limit = 2*1024*1024 if scope.get('path','').rstrip('/') == '/documents/extract' else MAX_REQUEST_BYTES
+            if len(body) + len(chunk) > limit:
                 return await self.error(send, 413, 'document_request_too_large')
             body.extend(chunk)
             if not event.get('more_body', False): break
@@ -197,6 +199,13 @@ def upload_document(request: Upload, project_id: ProjectId = None):
         return {'document':metadata(row), 'indexed_chunks':len(chunks), 'diagnostics':diagnostics}
     except HTTPException: raise
     except Exception: raise unavailable() from None
+
+@router.post('/extract')
+def extract_document(request: ExtractRequest, project_id: ProjectId = None):
+    # Reading/extraction does not insert any row. The user reviews extracted text
+    # and separately confirms its upload through the standard text controls.
+    result = extract_selected(request)
+    return {**result, 'project_id':project_id}
 
 @router.post('/search')
 def search_documents(request: Search, project_id: ProjectId = None):

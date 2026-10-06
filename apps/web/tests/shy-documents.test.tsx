@@ -14,7 +14,7 @@ it('reads only a selected file, confirms exact upload and preserves project scop
   const fetch=vi.fn().mockResolvedValueOnce(response({documents:[]})).mockResolvedValueOnce(response({document:row})).mockResolvedValueOnce(response({documents:[row]}));
   vi.stubGlobal('fetch',fetch);const user=userEvent.setup();render(<ShyDocuments projectId="gud-express"/>);
   expect(fetch).not.toHaveBeenCalled();await user.click(screen.getByRole('button',{name:'Review local documents'}));
-  await user.upload(screen.getByLabelText('Selected text or CSV file'),file());
+  await user.upload(screen.getByLabelText('Selected document file'),file());
   const save=await screen.findByRole('button',{name:'Save reviewed document'});expect(save).toBeDisabled();expect(fetch).toHaveBeenCalledTimes(1);
   await user.click(screen.getByLabelText('I reviewed this exact document change and confirm it.'));await user.click(save);
   expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({name:'notes.txt',kind:'text',content:'Source: PostgreSQL project',confirmed:true});
@@ -39,12 +39,12 @@ it('deletion has separate confirmation and uses the reviewed revision',async()=>
 });
 it('changing the selected file clears prior consent and rejects oversized uploads',async()=>{
   vi.stubGlobal('fetch',vi.fn().mockResolvedValue(response({documents:[]})));const user=userEvent.setup();render(<ShyDocuments/>);
-  await user.click(screen.getByRole('button',{name:'Review local documents'}));await user.upload(screen.getByLabelText('Selected text or CSV file'),file());
+  await user.click(screen.getByRole('button',{name:'Review local documents'}));await user.upload(screen.getByLabelText('Selected document file'),file());
   await user.click(await screen.findByLabelText('I reviewed this exact document change and confirm it.'));
-  await user.upload(screen.getByLabelText('Selected text or CSV file'),file('other.txt','Different source'));
+  await user.upload(screen.getByLabelText('Selected document file'),file('other.txt','Different source'));
   expect(await screen.findByRole('button',{name:'Save reviewed document'})).toBeDisabled();
-  await user.upload(screen.getByLabelText('Selected text or CSV file'),file('large.txt','x'.repeat(256*1024+1)));
-  expect(await screen.findByText('Select a .txt, .md or .csv file up to 256 KiB.')).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Save reviewed document'})).toBeNull();
+  await user.upload(screen.getByLabelText('Selected document file'),file('large.txt','x'.repeat(256*1024+1)));
+  expect(await screen.findByText('Select UTF-8 text/CSV up to 256 KiB, or PDF/DOCX/XLSX up to 1 MiB.')).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Save reviewed document'})).toBeNull();
 });
 it('compares exactly two selected documents as literal lines',async()=>{
   const other={...row,id:'00000000-0000-0000-0000-000000000002',name:'other.txt'};
@@ -55,4 +55,13 @@ it('compares exactly two selected documents as literal lines',async()=>{
   await user.click(screen.getByLabelText('Select other.txt'));await user.click(compare);
   expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({document_ids:[row.id,other.id]});
   expect(await screen.findByText(/Literal line comparison; semantic equivalence is not checked/)).toBeInTheDocument();
+});
+it('binary extraction requires consent and returned text requires a separate save review',async()=>{
+  const fetch=vi.fn().mockResolvedValueOnce(response({documents:[]})).mockResolvedValueOnce(response({content:'Extracted PDF source text.',binary_stored:false}));
+  vi.stubGlobal('fetch',fetch);const user=userEvent.setup();render(<ShyDocuments/>);
+  await user.click(screen.getByRole('button',{name:'Review local documents'}));await user.upload(screen.getByLabelText('Selected document file'),file('source.pdf','%PDF-fixture'));
+  const extract=await screen.findByRole('button',{name:'Extract selected document text'});expect(extract).toBeDisabled();expect(fetch).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByLabelText('Allow local text extraction of this selected file.'));await user.click(extract);
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({kind:'pdf',data:btoa('%PDF-fixture'),confirmed:true});
+  expect(await screen.findByRole('button',{name:'Save reviewed document'})).toBeDisabled();expect(fetch).toHaveBeenCalledTimes(2);
 });
