@@ -57,6 +57,7 @@ export interface ChatMessage {
 }
 
 export interface ConversationThread {
+  projectId?: string;
   id: string;
   title: string;
   createdAt: string;

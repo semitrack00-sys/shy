@@ -34,6 +34,8 @@ let browser;
     } });
   });
   let submitted = 0;
+  let lastChatBody;
+  let lastMemoryUrl;
   let memoryWrites = 0;
   let preferenceWrites = 0;
   let preference = { automatic_saving: true, revision: "0", reviewed: false };
@@ -41,6 +43,7 @@ let browser;
     category: 'PROJECT', content: 'SHY uses PostgreSQL.', status: 'ACTIVE', revision: 'a'.repeat(64) };
   await page.route('**/api/shy/memories**', async route => {
     const request = route.request();
+    lastMemoryUrl = request.url();
     if (new URL(request.url()).pathname.endsWith('/preferences')) {
       if (request.method() === 'GET') return route.fulfill({ json: preference });
       const payload = request.postDataJSON();
@@ -60,11 +63,12 @@ let browser;
     return route.fulfill({ json: { corrected: true, deleted: memory === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.3', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.4', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
     submitted++;
+    lastChatBody = route.request().postDataJSON();
     return route.fulfill({ json: { status: 'RESPOND', message: 'This is a fixture reply.', conversation_id: 'fixture' } });
   });
   await page.goto('http://127.0.0.1:3000');
@@ -126,7 +130,24 @@ let browser;
   await page.getByRole('button', { name: /SHY voice check/ }).waitFor();
   assert.equal(await page.getByLabel('Allow browser speech services for this session').isChecked(), false);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'desktop overflow');
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, mobile overflow, session-only consent (fixtures).');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByLabel('New project ID', { exact: true }).fill('gud-express');
+  await page.getByRole('button', { name: 'Start project chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Review automatic memory saving', exact: true }).click();
+  await page.getByLabel('Allow automatic memory saving', { exact: true }).waitFor();
+  assert.equal(new URL(lastMemoryUrl).searchParams.get('project_id'), 'gud-express');
+  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+  await page.getByLabel('Message SHY', { exact: true }).fill('Project fixture message');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByText('This is a fixture reply.', { exact: true }).waitFor();
+  assert.equal(lastChatBody.project_id, 'gud-express');
+  await page.reload();
+  const storedProject = await page.evaluate(() => {
+    const store = JSON.parse(localStorage.getItem('shy.web.chat-store.v1'));
+    return store.conversations.find(item => item.id === store.activeConversationId).projectId;
+  });
+  assert.equal(storedProject, 'gud-express');
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, mobile overflow, session-only consent (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();

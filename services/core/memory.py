@@ -141,6 +141,14 @@ NON_DURABLE_PATTERNS = (
 )
 
 
+def local_memory_user(project_id: str | None = None) -> uuid.UUID:
+    if project_id is None:
+        return DEFAULT_USER_ID
+    if not isinstance(project_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", project_id):
+        raise ValueError("invalid_project_id")
+    return uuid.uuid5(DEFAULT_USER_ID, "project:" + project_id)
+
+
 def ensure_memory_schema():
     with connect() as conn:
         with conn.cursor() as cur:
@@ -234,6 +242,10 @@ def ensure_memory_schema():
                 ON durable_memories (user_id, category, updated_at DESC)
                 """
             )
+            cur.execute("""UPDATE durable_memories SET user_id = %s
+                WHERE user_id = %s AND (source_conversation_id IS NULL OR EXISTS
+                (SELECT 1 FROM conversations c WHERE c.id = durable_memories.source_conversation_id AND c.user_id = %s))""",
+                (DEFAULT_USER_ID, uuid.uuid5(uuid.NAMESPACE_DNS, "default||anonymous"), DEFAULT_USER_ID))
 
 
 def connect():
@@ -259,23 +271,25 @@ def ensure_default_user():
             )
 
 
-def create_conversation() -> uuid.UUID:
+def create_conversation(user_id: uuid.UUID = DEFAULT_USER_ID) -> uuid.UUID:
     conversation_id = uuid.uuid4()
 
     with connect() as conn:
         with conn.cursor() as cur:
+            cur.execute("INSERT INTO users (id, display_name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
+                        (user_id, "Local SHY memory scope"))
             cur.execute(
                 """
                 INSERT INTO conversations (id, user_id)
                 VALUES (%s, %s)
                 """,
-                (conversation_id, DEFAULT_USER_ID),
+                (conversation_id, user_id),
             )
 
     return conversation_id
 
 
-def conversation_exists(conversation_id: uuid.UUID) -> bool:
+def conversation_exists(conversation_id: uuid.UUID, user_id: uuid.UUID = DEFAULT_USER_ID) -> bool:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -284,12 +298,12 @@ def conversation_exists(conversation_id: uuid.UUID) -> bool:
                 FROM conversations
                 WHERE id = %s AND user_id = %s
                 """,
-                (conversation_id, DEFAULT_USER_ID),
+                (conversation_id, user_id),
             )
             return cur.fetchone() is not None
 
 
-def load_messages(conversation_id: uuid.UUID, limit: int = 20):
+def load_messages(conversation_id: uuid.UUID, limit: int = 20, user_id: uuid.UUID = DEFAULT_USER_ID):
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -298,13 +312,13 @@ def load_messages(conversation_id: uuid.UUID, limit: int = 20):
                 FROM (
                     SELECT id, role, content, created_at
                     FROM messages
-                    WHERE conversation_id = %s
+                    WHERE conversation_id = %s AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = messages.conversation_id AND c.user_id = %s)
                     ORDER BY created_at DESC, id DESC
                     LIMIT %s
                 ) recent
                 ORDER BY created_at ASC, id ASC
                 """,
-                (conversation_id, limit),
+                (conversation_id, user_id, limit),
             )
             return cur.fetchall()
 

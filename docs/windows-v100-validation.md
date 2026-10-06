@@ -1,6 +1,6 @@
 # Check the current SHY runtime on Windows without replacing the installed runtime
 
-The current release is v0.105.3. The historical temporary names below are labels,
+The current release is v0.105.4. The historical temporary names below are labels,
 not version checks; the HTTP verifier checks the running version.
 
 Run these commands in PowerShell with Docker Desktop running Linux containers.

@@ -8,7 +8,7 @@ import { ShyMemorySaving } from '@/components/shy-memory-saving';
 
 type Review = { action: 'create' | 'correct' | 'delete'; record?: SavedMemory };
 
-export function ShyMemoryManager() {
+export function ShyMemoryManager({ projectId }: { projectId?: string }) {
   const formId = useId();
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<SavedMemory[]>([]);
@@ -28,7 +28,7 @@ export function ShyMemoryManager() {
   async function request(path: string, method = 'GET', body?: unknown) {
     const controller = new AbortController();
     requestRef.current = controller;
-    const response = await fetch(`${FRONTEND_API_BASE}/memories${path}`, {
+    const response = await fetch(`${FRONTEND_API_BASE}/memories${path}${projectId ? `${path.includes('?') ? '&' : '?'}project_id=${encodeURIComponent(projectId)}` : ''}`, {
       method, headers: { 'content-type': 'application/json' }, cache: 'no-store', signal: controller.signal,
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
@@ -83,11 +83,11 @@ export function ShyMemoryManager() {
   }
 
   return <section className="shy-memory-manager" aria-label="Saved memories">
-    <ShyMemorySaving />
+    <ShyMemorySaving projectId={projectId} />
     <button className="shy-button" type="button" disabled={busy} aria-expanded={open}
       onClick={() => { setOpen(!open); if (!open) void load(0); }}> {open ? 'Hide saved memories' : 'Review saved memories'} </button>
     {open && <>
-      <p className="shy-muted">Saved facts for this local SHY user. Automatic saving follows the reviewed setting above.
+      <p className="shy-muted">Saved facts for this local SHY project ({projectId ?? 'default'}). Automatic saving follows the reviewed setting above.
         Deleting a saved memory does not delete the original chat. This installation does not yet have account isolation.</p>
       <p className="shy-muted">Do not save passwords, API keys, tokens, or private keys.</p>
       <div className="shy-memory-actions">

@@ -38,7 +38,7 @@ for package_name, package_path in (
 import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from model_router.router import ModelMessage, ModelRequest, ModelRole, ModelRouter, PrivacyClass
 from tools.gateway import ToolGateway
 from tools.contracts import PermissionLevel, ToolDefinition, ToolRequest
@@ -204,6 +204,7 @@ from research.research_engine import ResearchEngine, ResearchStatus
 
 from memory import (
     DEFAULT_USER_ID,
+    local_memory_user,
     DurableMemoryCandidate,
     MemoryCategory,
     build_memory_query,
@@ -307,7 +308,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.3"
+SHY_VERSION = "0.105.4"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1525,6 +1526,8 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "deletion_removes_original_chat": False,
             "automatic_chat_promotion_unchanged": False,
             "automatic_saving_pause_resume": True,
+            "project_memory_scopes": True,
+            "project_scopes_are_authenticated_accounts": False,
             "automatic_saving_default": "legacy_enabled_until_reviewed",
             "pause_removes_existing_memories": False,
         },
@@ -1863,7 +1866,8 @@ def _load_memory_history_for_message(message: str, conversation_id: uuid.UUID, u
     if selection.selected_messages:
         history = _filter_prompt_safe_messages([dict(item) for item in selection.selected_messages])
     else:
-        history = _filter_prompt_safe_messages(load_messages(conversation_id))
+        history = _filter_prompt_safe_messages(load_messages(conversation_id) if user_id == DEFAULT_USER_ID
+                                               else load_messages(conversation_id, user_id=user_id))
     # A selector's first oversized record and the recent-history fallback must
     # obey the same hard bounds before reaching any model provider.
     durable = bound_context(durable_messages, max_chars=1200, max_messages=4)
@@ -2691,6 +2695,10 @@ def _find_pending_step(task, pending_step_id: int | None):
 
 
 def _effective_user_uuid_from_request(request: "ChatRequest") -> uuid.UUID:
+    if getattr(request, "project_id", None):
+        return local_memory_user(request.project_id)
+    if not request.user_id and not request.workspace_id and not request.business_id:
+        return DEFAULT_USER_ID
     return scoped_user_uuid(
         user_id=request.user_id,
         workspace_id=request.workspace_id or "default",
@@ -3034,6 +3042,7 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
 
 
 class ChatRequest(BaseModel):
+    project_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
     message: str
     conversation_id: uuid.UUID | None = None
     task_id: str | None = None
@@ -3055,6 +3064,7 @@ class SyntheticApprovalRequest(BaseModel):
 
 
 class AgentRequest(BaseModel):
+    project_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
     message: str
     conversation_id: uuid.UUID | None = None
     local_only: bool = False
@@ -4393,6 +4403,11 @@ async def testing_task_approval(request: SyntheticApprovalRequest):
 
 @app.post("/agent")
 async def agent(request: AgentRequest):
+    if request.project_id:
+        if request.user_id or request.workspace_id or request.business_id:
+            raise HTTPException(422, "project_scope_cannot_mix_with_legacy_identity_fields")
+        request.workspace_id = "project." + request.project_id
+
     result = agent_runtime.run(request.message)
 
     if (
@@ -4464,11 +4479,13 @@ async def agent(request: AgentRequest):
 
     try:
         if request.conversation_id is None:
-            conversation_id = create_conversation()
+            conversation_id = (create_conversation() if _effective_user_uuid_from_request(request) == DEFAULT_USER_ID
+                               else create_conversation(user_id=_effective_user_uuid_from_request(request)))
         else:
             conversation_id = request.conversation_id
 
-            if not conversation_exists(conversation_id):
+            if not (conversation_exists(conversation_id) if _effective_user_uuid_from_request(request) == DEFAULT_USER_ID
+                    else conversation_exists(conversation_id, user_id=_effective_user_uuid_from_request(request))):
                 raise HTTPException(
                     status_code=404,
                     detail="Conversation not found."
@@ -4481,10 +4498,10 @@ async def agent(request: AgentRequest):
                 history, local_memory_context_used = _load_memory_history_for_message(
                     request.message,
                     conversation_id,
-                    DEFAULT_USER_ID,
+                    _effective_user_uuid_from_request(request),
                 )
             except TypeError as exc:
-                if "positional arguments" not in str(exc):
+                if "positional arguments" not in str(exc) or _effective_user_uuid_from_request(request) != DEFAULT_USER_ID:
                     raise
                 history, local_memory_context_used = _load_memory_history_for_message(
                     request.message,
@@ -4738,13 +4755,20 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    if request.project_id:
+        if request.user_id or request.workspace_id or request.business_id:
+            raise HTTPException(422, "project_scope_cannot_mix_with_legacy_identity_fields")
+        request.workspace_id = "project." + request.project_id
+
     try:
         if request.conversation_id is None:
-            conversation_id = create_conversation()
+            conversation_id = (create_conversation() if _effective_user_uuid_from_request(request) == DEFAULT_USER_ID
+                               else create_conversation(user_id=_effective_user_uuid_from_request(request)))
         else:
             conversation_id = request.conversation_id
 
-            if not conversation_exists(conversation_id):
+            if not (conversation_exists(conversation_id) if _effective_user_uuid_from_request(request) == DEFAULT_USER_ID
+                    else conversation_exists(conversation_id, user_id=_effective_user_uuid_from_request(request))):
                 raise HTTPException(
                     status_code=404,
                     detail="Conversation not found."
@@ -4759,7 +4783,7 @@ async def chat(request: ChatRequest):
                 effective_user_id,
             )
         except TypeError as exc:
-            if "positional arguments" not in str(exc):
+            if "positional arguments" not in str(exc) or _effective_user_uuid_from_request(request) != DEFAULT_USER_ID:
                 raise
             history, local_memory_context_used = _load_memory_history_for_message(
                 request.message,

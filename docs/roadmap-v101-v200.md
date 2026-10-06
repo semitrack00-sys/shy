@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.3. A future number must not be added
+shipped. The current implementation is v0.105.4. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -37,7 +37,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.114 | Explicit remember-this requests | Implemented early in v0.105.1: reviewed facts saved in existing durable memory; automatic chat promotion unchanged |
 | v0.115 | Review, correct, delete saved memories | Implemented early in v0.105.1: local-user pagination and revision-checked changes; original history remains |
 | v0.116 | Personal preferences with consent | Partial early in v0.105.3: confirmed persistent automatic-memory pause/resume; legacy default enabled until reviewed; broader consent preferences pending |
-| v0.117 | Separate memory for each project | Planned |
+| v0.117 | Separate memory for each project | Implemented early in v0.105.4: local project conversation, durable-memory and saving-preference scopes; not authenticated account isolation |
 | v0.118 | Memory conflict correction | Planned |
 | v0.119 | Long-conversation context management | Implemented early in v0.105.2: ordinary chat history uses hard excerpt budgets, including fallback; older context can be omitted |
 | v0.120 | Memory accuracy and isolation benchmarks | Planned |
@@ -151,3 +151,5 @@ the acoustic integration, not multilingual quality or GPU inference. See
 [voice usage and boundaries](voice-v103.md).
 
 The v0.105.3 patch adds [automatic memory saving controls](memory-saving-preferences.md), including persistent pause/resume enforced across automatic fact and task-outcome promotions.
+
+The v0.105.4 patch adds [local project memory scopes](project-memory-scopes.md) and fixes the default chat/control identity mismatch.

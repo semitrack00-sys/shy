@@ -78,15 +78,18 @@ export function buildAgentRequest(
   message: string,
   conversationId?: string | null,
   clientUtcOffsetMinutes?: number,
-  clientTimezone?: string
+  clientTimezone?: string,
+  projectId?: string
 ) {
   const body: {
     message: string;
+    project_id?: string;
     conversation_id?: string;
     client_utc_offset_minutes?: number;
     client_timezone?: string;
   } = { message };
 
+  if (projectId) body.project_id = projectId;
   if (conversationId) {
     body.conversation_id = conversationId;
   }

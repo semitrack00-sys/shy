@@ -10,11 +10,12 @@ export function createId(): string {
   return `shy-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function createEmptyConversation(): ConversationThread {
+export function createEmptyConversation(projectId?: string): ConversationThread {
   const now = new Date().toISOString();
   return {
     id: createId(),
     title: 'New chat',
+    ...(projectId ? { projectId } : {}),
     createdAt: now,
     updatedAt: now,
     conversationId: null,

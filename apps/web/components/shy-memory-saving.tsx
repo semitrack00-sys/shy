@@ -13,7 +13,7 @@ function parse(value: unknown): Preference {
   return item as Preference;
 }
 
-export function ShyMemorySaving() {
+export function ShyMemorySaving({ projectId }: { projectId?: string }) {
   const [preference, setPreference] = useState<Preference | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -28,7 +28,7 @@ export function ShyMemorySaving() {
     lock.current = true; setBusy(true); setConfirmed(false); setNotice('');
     const abort = new AbortController(); controller.current = abort;
     try {
-      const response = await fetch(`${FRONTEND_API_BASE}/memories/preferences`, {
+      const response = await fetch(`${FRONTEND_API_BASE}/memories/preferences${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`, {
         method: save ? 'PATCH' : 'GET', cache: 'no-store', signal: abort.signal,
         headers: { 'content-type': 'application/json' },
         ...(save ? { body: JSON.stringify({ automatic_saving: enabled, expected_revision: preference!.revision, confirmed: true }) } : {}),
@@ -54,7 +54,7 @@ export function ShyMemorySaving() {
     {preference && <>
       <p>Automatic saving is {preference.automatic_saving ? 'on' : 'paused'}.
         {!preference.reviewed && ' This is the existing default; you have not reviewed this setting yet.'}</p>
-      <p className="shy-muted">Applies to recognized facts, preferences, and task outcomes for this local SHY user.
+      <p className="shy-muted">Applies to recognized facts, preferences, and task outcomes for this local SHY project ({projectId ?? 'default'}).
         Existing saved memories may still be used. Chat history and manually confirmed memories remain available.
         This installation does not yet have account isolation.</p>
       <label><input type="checkbox" checked={enabled} disabled={busy}

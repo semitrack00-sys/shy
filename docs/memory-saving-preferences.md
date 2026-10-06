@@ -27,13 +27,13 @@ stores. Explicitly reviewed manual creates/corrections/deletions remain usable.
 Retrieval may still update existing memory usage counters. Review and delete
 existing saved records separately if desired. Other local users have independent
 preference rows, but this API still exposes only the existing default user and
-does not authenticate callers. Project isolation and multi-user authorization
-remain unfinished.
+does not authenticate callers. Local project memory scopes are available in [v0.105.4](project-memory-scopes.md).
+Multi-user authorization remains unfinished.
 
 | Endpoint | Behavior |
 | --- | --- |
-| `GET /memories/preferences` | `automatic_saving`, string `revision`, `reviewed`, local-user scope |
-| `PATCH /memories/preferences` | Strict boolean `automatic_saving`, reviewed `expected_revision`, literal `confirmed: true` |
+| `GET /memories/preferences?project_id=<optional-project>` | `automatic_saving`, string `revision`, `reviewed`, local-user scope |
+| `PATCH /memories/preferences?project_id=<optional-project>` | Strict boolean `automatic_saving`, reviewed `expected_revision`, literal `confirmed: true` |
 
 Every successful update increments the revision, including repeated values, so
 an old review cannot become valid again after pause/resume. Concurrent writes
