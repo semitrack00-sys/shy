@@ -122,6 +122,47 @@ def _require_revision(row: dict | None, expected: str):
         raise HTTPException(409, "memory_changed_reload_before_confirming")
 
 
+class SavingPreferenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    automatic_saving: bool
+    expected_revision: str = Field(pattern=r"^(0|[1-9][0-9]{0,18})$")
+    confirmed: Literal[True]
+    validate_confirmation = field_validator("confirmed", mode="before")(RememberRequest.validate_confirmation.__func__)
+
+
+@router.get("/preferences")
+def get_saving_preference():
+    try:
+        with memory.connect() as conn:
+            with conn.cursor() as cur:
+                result = memory.read_memory_save_preference(cur, memory.DEFAULT_USER_ID)
+        return {**result, "scope": "existing_local_user", "authenticated": False}
+    except Exception:
+        raise HTTPException(503, "memory_database_unavailable") from None
+
+
+@router.patch("/preferences")
+def set_saving_preference(request: SavingPreferenceRequest):
+    try:
+        with memory.connect() as conn:
+            with conn.cursor() as cur:
+                memory.memory_preference_lock(cur, memory.DEFAULT_USER_ID)
+                current = memory.read_memory_save_preference(cur, memory.DEFAULT_USER_ID)
+                if current["revision"] != request.expected_revision:
+                    raise HTTPException(409, "memory_preference_changed_review_again")
+                cur.execute("""INSERT INTO memory_save_preferences (user_id, automatic_saving, revision)
+                    VALUES (%s, %s, 1) ON CONFLICT (user_id) DO UPDATE SET
+                    automatic_saving = EXCLUDED.automatic_saving,
+                    revision = memory_save_preferences.revision + 1, updated_at = NOW()""",
+                    (memory.DEFAULT_USER_ID, request.automatic_saving))
+                result = memory.read_memory_save_preference(cur, memory.DEFAULT_USER_ID)
+        return {**result, "scope": "existing_local_user", "authenticated": False}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "memory_database_unavailable") from None
+
+
 @router.get("")
 def list_memories(page: int = Query(default=0, ge=0, le=10000),
                   status: Literal["ACTIVE", "SUPERSEDED", "ARCHIVED"] | None = None):

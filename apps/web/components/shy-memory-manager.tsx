@@ -4,6 +4,8 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { FRONTEND_API_BASE } from '@/lib/config';
 import { parseMemory, type SavedMemory } from '@/lib/saved-memory';
 
+import { ShyMemorySaving } from '@/components/shy-memory-saving';
+
 type Review = { action: 'create' | 'correct' | 'delete'; record?: SavedMemory };
 
 export function ShyMemoryManager() {
@@ -81,10 +83,11 @@ export function ShyMemoryManager() {
   }
 
   return <section className="shy-memory-manager" aria-label="Saved memories">
+    <ShyMemorySaving />
     <button className="shy-button" type="button" disabled={busy} aria-expanded={open}
       onClick={() => { setOpen(!open); if (!open) void load(0); }}> {open ? 'Hide saved memories' : 'Review saved memories'} </button>
     {open && <>
-      <p className="shy-muted">Saved facts for this local SHY user. Existing chat may save recognized facts and preferences automatically.
+      <p className="shy-muted">Saved facts for this local SHY user. Automatic saving follows the reviewed setting above.
         Deleting a saved memory does not delete the original chat. This installation does not yet have account isolation.</p>
       <p className="shy-muted">Do not save passwords, API keys, tokens, or private keys.</p>
       <div className="shy-memory-actions">

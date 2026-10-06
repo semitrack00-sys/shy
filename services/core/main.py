@@ -307,7 +307,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.2"
+SHY_VERSION = "0.105.3"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1523,7 +1523,10 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "scope": "existing_local_user",
             "authenticated": False,
             "deletion_removes_original_chat": False,
-            "automatic_chat_promotion_unchanged": True,
+            "automatic_chat_promotion_unchanged": False,
+            "automatic_saving_pause_resume": True,
+            "automatic_saving_default": "legacy_enabled_until_reviewed",
+            "pause_removes_existing_memories": False,
         },
         "ordinary_chat_context_limits": {
             "durable_memory_max_chars": 1200,

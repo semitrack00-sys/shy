@@ -153,6 +153,12 @@ def ensure_memory_schema():
                 )
                 """
             )
+            cur.execute("""CREATE TABLE IF NOT EXISTS memory_save_preferences (
+                user_id UUID PRIMARY KEY,
+                automatic_saving BOOLEAN NOT NULL,
+                revision BIGINT NOT NULL DEFAULT 1,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )""")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS conversations (
@@ -843,7 +849,32 @@ def _load_active_memories_for_subject(user_id: uuid.UUID, subject_key: str) -> l
     return [_coerce_durable_row(row) for row in rows]
 
 
-def promote_memory_candidate(
+def memory_preference_lock(cur, user_id):
+    # Shared by all automatic promotions and preference writes. An acknowledged
+    # pause waits for earlier promotions to finish and prevents later writes.
+    cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                ("memory-save-preference:" + str(user_id),))
+
+
+def read_memory_save_preference(cur, user_id):
+    cur.execute("SELECT automatic_saving, revision FROM memory_save_preferences WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    # Preserve existing installations' behavior until the user reviews it.
+    return {"automatic_saving": row["automatic_saving"] if row else True,
+            "revision": str(row["revision"]) if row else "0",
+            "reviewed": row is not None}
+
+
+def promote_memory_candidate(candidate, conversation_id, user_id=DEFAULT_USER_ID, source_task_id=None):
+    with connect() as conn:
+        with conn.cursor() as cur:
+            memory_preference_lock(cur, user_id)
+            if not read_memory_save_preference(cur, user_id)["automatic_saving"]:
+                return None
+            return _promote_memory_candidate_unchecked(candidate, conversation_id, user_id, source_task_id)
+
+
+def _promote_memory_candidate_unchecked(
     candidate: DurableMemoryCandidate,
     conversation_id: uuid.UUID | None,
     user_id: uuid.UUID = DEFAULT_USER_ID,
@@ -1295,3 +1326,4 @@ class InMemoryDurableMemoryStore:
             truncated_by_limit=truncated_by_limit,
             truncated_by_budget=truncated_by_budget,
         )
+
