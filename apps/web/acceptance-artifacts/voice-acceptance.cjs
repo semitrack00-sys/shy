@@ -35,10 +35,21 @@ let browser;
   });
   let submitted = 0;
   let memoryWrites = 0;
+  let preferenceWrites = 0;
+  let preference = { automatic_saving: true, revision: "0", reviewed: false };
   let memory = { id: '00000000-0000-0000-0000-000000000002', subject_key: 'project.shy.database',
     category: 'PROJECT', content: 'SHY uses PostgreSQL.', status: 'ACTIVE', revision: 'a'.repeat(64) };
   await page.route('**/api/shy/memories**', async route => {
     const request = route.request();
+    if (new URL(request.url()).pathname.endsWith('/preferences')) {
+      if (request.method() === 'GET') return route.fulfill({ json: preference });
+      const payload = request.postDataJSON();
+      assert.equal(payload.confirmed, true);
+      assert.equal(payload.expected_revision, preference.revision);
+      preferenceWrites++;
+      preference = { automatic_saving: payload.automatic_saving, revision: String(preferenceWrites), reviewed: true };
+      return route.fulfill({ json: preference });
+    }
     if (request.method() === 'GET') return route.fulfill({ json: { records: memory ? [memory] : [], has_more: false } });
     memoryWrites++;
     const payload = request.postDataJSON();
@@ -49,7 +60,7 @@ let browser;
     return route.fulfill({ json: { corrected: true, deleted: memory === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.2', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.3', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -80,6 +91,15 @@ let browser;
   await page.getByRole('button', { name: 'Save title', exact: true }).click();
   await page.getByText('Conversation summary', { exact: true }).click();
   assert.equal(await page.getByRole('link', { name: 'This is a fixture reply.', exact: true }).count(), 1);
+  assert.equal(preferenceWrites, 0);
+  await page.getByRole('button', { name: 'Review automatic memory saving', exact: true }).click();
+  await page.getByLabel('Allow automatic memory saving', { exact: true }).uncheck();
+  assert.equal(await page.getByRole('button', { name: 'Save memory saving setting', exact: true }).isDisabled(), true);
+  await page.getByLabel('I confirm this automatic saving setting.', { exact: true }).check();
+  await page.getByRole('button', { name: 'Save memory saving setting', exact: true }).click();
+  await page.getByText('Automatic memory saving paused.', { exact: true }).waitFor();
+  assert.equal(preferenceWrites, 1);
+  assert.equal(preference.automatic_saving, false);
   await page.getByRole('button', { name: 'Review saved memories', exact: true }).click();
   await page.getByText('SHY uses PostgreSQL.', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Correct project.shy.database', exact: true }).click();
@@ -106,7 +126,7 @@ let browser;
   await page.getByRole('button', { name: /SHY voice check/ }).waitFor();
   assert.equal(await page.getByLabel('Allow browser speech services for this session').isChecked(), false);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'desktop overflow');
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, mobile overflow, session-only consent (fixtures).');
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, mobile overflow, session-only consent (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();
