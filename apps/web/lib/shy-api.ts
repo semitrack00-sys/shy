@@ -1,4 +1,4 @@
-import type { ShyAgentResponse, ShyHealthResponse } from './types';
+import type { ShyAgentResponse, ShyHealthResponse, ShyResearchAnswer } from './types';
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -6,6 +6,20 @@ export function isObject(value: unknown): value is Record<string, unknown> {
 
 export function toOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+export function parseResearchAnswer(value: unknown): ShyResearchAnswer | undefined {
+  if (!isObject(value) || value.semantic_truth_verified !== false || typeof value.model_invoked !== 'boolean') return undefined;
+  if (typeof value.mode !== 'string' || !['model_synthesis', 'missing_recent_evidence', 'missing_excerpts', 'possible_disagreement'].includes(value.mode)) return undefined;
+  const mode = value.mode as ShyResearchAnswer['mode'];
+  if (value.model_invoked !== (mode === 'model_synthesis')) return undefined;
+  if (value.source_count !== undefined && (typeof value.source_count !== 'number' || !Number.isInteger(value.source_count) || value.source_count < 1 || value.source_count > 12)) return undefined;
+  if (value.date_window_days !== undefined && value.date_window_days !== null && (typeof value.date_window_days !== 'number' || !Number.isInteger(value.date_window_days) || value.date_window_days < 0 || value.date_window_days > 3650)) return undefined;
+  return {
+    mode, model_invoked: value.model_invoked, semantic_truth_verified: false,
+    ...(typeof value.source_count === 'number' ? { source_count: value.source_count } : {}),
+    ...(value.date_window_days === null || typeof value.date_window_days === 'number' ? { date_window_days: value.date_window_days } : {}),
+  };
 }
 
 export function parseShyAgentResponse(value: unknown): ShyAgentResponse {
@@ -26,6 +40,7 @@ export function parseShyAgentResponse(value: unknown): ShyAgentResponse {
     tool_name: toOptionalString(value.tool_name),
     tool_status: toOptionalString(value.tool_status),
     research_provider: toOptionalString(value.research_provider),
+    research_answer: parseResearchAnswer(value.research_answer),
     conversation_id: toOptionalString(value.conversation_id),
     model: toOptionalString(value.model),
     provider: toOptionalString(value.provider),

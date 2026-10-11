@@ -6,15 +6,18 @@ from decimal import Decimal
 
 
 class ResearchAnswer(str):
-    def __new__(cls, text, mode, model_invoked):
+    def __new__(cls, text, mode, model_invoked, source_count=None, date_window_days=None):
         answer = super().__new__(cls, text)
         answer.mode = mode
         answer.model_invoked = model_invoked
+        answer.source_count = source_count
+        answer.date_window_days = date_window_days
         return answer
 
     def public_metadata(self):
         return {'mode': self.mode, 'model_invoked': self.model_invoked,
-                'semantic_truth_verified': False}
+                'semantic_truth_verified': False, 'date_window_days': self.date_window_days,
+                **({'source_count': self.source_count} if self.source_count is not None else {})}
 
 
 def _atomic_field(snippet):

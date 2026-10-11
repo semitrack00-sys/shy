@@ -28,6 +28,9 @@ class ResearchGuardIntegration(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text); self.assertEqual(response.json()['status'], 'RESPOND')
         self.assertEqual(response.json()['sources'][0]['number'], 1)
         self.assertEqual(response.json()['message'], 'Supplied evidence [1].')
+        self.assertEqual(response.json()['research_answer']['source_count'],1)
+        self.assertIsNone(response.json()['research_answer']['date_window_days'])
+        self.assertTrue(response.json()['research_answer']['model_invoked'])
         self.assertIn('UNTRUSTED EXTERNAL EVIDENCE', generation.call_args.kwargs['message'])
     def test_invented_uncited_malformed_and_external_urls_never_return_model_answer(self):
         for answer in ['Unsupported answer.', 'Invented reference [44].', 'Wrong [bad].',

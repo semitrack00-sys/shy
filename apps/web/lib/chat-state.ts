@@ -52,6 +52,7 @@ export function makeAssistantMessage(response: ShyAgentResponse): ChatMessage {
     toolName: response.tool_name,
     toolStatus: response.tool_status,
     researchProvider: response.research_provider,
+    researchAnswer: response.research_answer,
     sources: response.sources,
     responseStatus: response.status,
     output: response.output,
@@ -153,3 +154,4 @@ export function renameConversation(conversations: ConversationThread[], id: stri
   if (!trimmed) return conversations;
   return conversations.map(conversation => conversation.id === id ? { ...conversation, title: trimmed } : conversation);
 }
+

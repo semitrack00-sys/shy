@@ -40,6 +40,8 @@ class ClarificationIntegration(unittest.TestCase):
         data=self.search(['Acme launch date: 2026-10-12','Acme launch date: 2026-11-01'])
         answer=self.agent(data)
         self.assertEqual(answer['research_answer']['mode'],'possible_disagreement')
+        self.assertEqual(answer['research_answer']['source_count'],2)
+        self.assertIsNone(answer['research_answer']['date_window_days'])
         self.assertFalse(answer['research_answer']['model_invoked'])
         self.assertIn('2026-10-12 [1]',answer['message']);self.assertIn('2026-11-01 [2]',answer['message'])
         empty=self.agent(self.search(['','  ']))
@@ -70,6 +72,8 @@ class ClarificationIntegration(unittest.TestCase):
             response=self.client.post('/chat',json={'message':'Research latest Acme information','project_id':self.project})
         self.assertEqual(response.status_code,200,response.text);answer=response.json()
         self.assertEqual(answer['research_answer']['mode'],'missing_recent_evidence')
+        self.assertEqual(answer['research_answer']['source_count'],1)
+        self.assertEqual(answer['research_answer']['date_window_days'],7)
         self.assertFalse(answer['cognitive']['model_invoked'])
         self.assertEqual(answer['model'],'research-evidence-checks')
 

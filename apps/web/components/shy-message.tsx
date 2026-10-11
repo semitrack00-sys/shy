@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { ShyMarkdown } from './shy-markdown';
 import { ShySourceCards } from './shy-source-cards';
+import { ShyResearchContext } from './shy-research-context';
 import { getLocalTimeLabel } from '@/lib/config';
 import type { ChatMessage } from '@/lib/types';
 
@@ -66,7 +67,8 @@ export function ShyMessage({ message, onRetry }: ShyMessageProps) {
         <ShyMarkdown content={message.content} />
       ) : null}
 
-      {message.toolName === 'web.search' && message.sources?.length ? <ShySourceCards sources={message.sources} /> : null}
+      {message.role === 'assistant' && message.status !== 'failed' && <ShyResearchContext value={message.researchAnswer} />}
+      {message.role === 'assistant' && message.status !== 'failed' && Array.isArray(message.sources) && message.sources.length ? <ShySourceCards sources={message.sources} /> : null}
 
       {message.toolName && message.toolName !== 'web.search' && message.output ? (
         <section className="shy-tool-card" aria-label="Tool result">
@@ -80,3 +82,4 @@ export function ShyMessage({ message, onRetry }: ShyMessageProps) {
     </article>
   );
 }
+
