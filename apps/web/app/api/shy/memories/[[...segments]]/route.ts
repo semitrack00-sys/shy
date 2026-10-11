@@ -5,7 +5,7 @@ async function forward(request: NextRequest, context: { params: Promise<{ segmen
   const { segments = [] } = await context.params;
   const id = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
   const suffix = segments.join('/');
-  if (!(suffix === '' || suffix === 'preferences' || new RegExp(`^${id}(/delete)?$`).test(suffix))) {
+  if (!(suffix === '' || suffix === 'preferences' || suffix === 'preview' || new RegExp(`^${id}(/delete)?$`).test(suffix))) {
     return NextResponse.json({ detail: 'invalid_memory_path' }, { status: 404 });
   }
   try {
@@ -61,3 +61,4 @@ async function forward(request: NextRequest, context: { params: Promise<{ segmen
 export const GET = forward;
 export const POST = forward;
 export const PATCH = forward;
+

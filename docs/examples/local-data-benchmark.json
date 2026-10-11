@@ -1,0 +1,60 @@
+{
+  "scope": "Fixed supplied data; exact persistence, literal correction, excerpt provenance and project isolation only.",
+  "memories": [
+    {
+      "id": "company",
+      "subject_key": "user.company",
+      "category": "USER_FACT",
+      "content": "My company is Alpha.",
+      "corrected": "My company is Beta."
+    },
+    {
+      "id": "preference",
+      "subject_key": "user.preference",
+      "category": "PREFERENCE",
+      "content": "Je préfère le français.",
+      "corrected": "Mwen prefere kreyòl."
+    },
+    {
+      "id": "project",
+      "subject_key": "project.database",
+      "category": "PROJECT",
+      "content": "Project uses PostgreSQL 15.",
+      "corrected": "Project uses PostgreSQL 16."
+    }
+  ],
+  "documents": [
+    {
+      "id": "english",
+      "name": "english.txt",
+      "kind": "text",
+      "content": "SHY uses PostgreSQL.\nThe approved cost is 42 USD.",
+      "query": "PostgreSQL",
+      "expected_excerpt": "SHY uses PostgreSQL."
+    },
+    {
+      "id": "french",
+      "name": "francais.txt",
+      "kind": "text",
+      "content": "La préférence est le français.\nLe projet démarre lundi.",
+      "query": "français",
+      "expected_excerpt": "La préférence est le français."
+    },
+    {
+      "id": "haitian",
+      "name": "kreyol.txt",
+      "kind": "text",
+      "content": "Mwen prefere kreyòl ayisyen.\nPwojè a kòmanse lendi.",
+      "query": "kreyòl",
+      "expected_excerpt": "Mwen prefere kreyòl ayisyen."
+    },
+    {
+      "id": "csv",
+      "name": "budget.csv",
+      "kind": "csv",
+      "content": "item,cost\nDatabase,42\nHosting,10\n",
+      "query": "Database",
+      "expected_excerpt": "Database,42"
+    }
+  ]
+}
