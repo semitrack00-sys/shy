@@ -308,7 +308,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.8"
+SHY_VERSION = "0.105.9"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1556,6 +1556,13 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "character_limits_are_not_token_limits": True,
             "current_request_size_limited_by_this_budget": False,
         },
+        "research_synthesis_checks": {
+            "numeric_citation_membership": True,
+            "source_table_matches_prompt_numbers": True,
+            "invented_answer_urls_rejected": True,
+            "source_truth_independently_verified": False,
+            "source_dns_or_freshness_checked": False,
+        },
         "calculator_capabilities": {
             "explicit_numeric_expression": True,
             "decimal_precision_digits": 28,
@@ -2406,11 +2413,14 @@ def _build_research_evidence_block(research_payload: dict[str, Any]) -> str:
         ]
 
     evidence_parts = []
+    source_numbers = {str(source.get("url", "")).strip(): source.get("number")
+                      for source in (research_payload.get("sources") or [])}
 
     for index, item in enumerate(evidence, start=1):
         title = _normalize_research_text(item.get("title"))
         url = _normalize_research_text(item.get("url"))
         source = _normalize_research_text(item.get("source"))
+        index = source_numbers.get(url, index)
         snippet = _bounded_snippet(item.get("snippet"))
 
         evidence_parts.append(
@@ -2450,8 +2460,15 @@ async def run_research_pipeline(message: str):
     return result
 
 
+from research.synthesis_guard import synthesis_sources, validate_synthesis
+
+
 async def generate_research_response(message: str, research_output: dict | None = None, research_result: Any | None = None):
     payload = _coerce_research_public_payload(research_result=research_result, research_output=research_output)
+    try:
+        checked_sources = synthesis_sources(payload)
+    except ValueError:
+        raise ResearchSynthesisError("Research evidence has invalid source provenance.") from None
     evidence = _build_research_evidence_block(payload)
 
     research_prompt = f"""
@@ -2493,6 +2510,10 @@ Answer the user's original question clearly and concisely.
             "Research synthesis returned empty content."
         )
 
+    try:
+        validate_synthesis(synthesis, checked_sources)
+    except ValueError:
+        raise ResearchSynthesisError("Research synthesis failed citation membership validation.") from None
     return synthesis
 
 def _sanitize_tool_payload(value: Any, max_chars: int = 4000) -> Any:
@@ -5029,7 +5050,7 @@ async def chat(request: ChatRequest):
                 research_result=research_result,
             )
             model_routing_metadata = dict(_last_model_routing_metadata or {})
-        except HTTPException:
+        except (HTTPException, ResearchSynthesisError) as exc:
             cognitive_metadata = _build_cognitive_public_metadata(
                 request.message,
                 response_mode="research",
@@ -5041,7 +5062,9 @@ async def chat(request: ChatRequest):
             return {
                 "assistant": "SHY",
                 "status": "FAILED",
-                "message": "I couldn’t complete this research request because the research provider is unavailable.",
+                "message": ("I couldn’t return a research answer because its source or citation checks failed."
+                            if isinstance(exc, ResearchSynthesisError) else
+                            "I couldn’t complete this research request because the research provider is unavailable."),
                 "conversation_id": str(conversation_id),
                 "model": route.model,
                 "provider": route.provider,
@@ -5057,7 +5080,7 @@ async def chat(request: ChatRequest):
                 "verifier_invoked": False,
                 "research_invoked": True,
                 "hidden_reasoning_exposed": False,
-                "safe_failure": "research_unavailable",
+                "safe_failure": "research_validation_failed" if isinstance(exc, ResearchSynthesisError) else "research_unavailable",
                 "cognitive": cognitive_metadata,
             }
     elif response_mode == "verify":

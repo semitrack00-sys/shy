@@ -16,8 +16,7 @@ The additional `decimal_result` string is used for chat display. The existing
 numeric `result` field remains for tool-client compatibility.
 
 Bounds: 256 expression characters, 64 AST nodes, 16 levels of nesting, numeric
-literals with at most 24 digits, and integer exponents from -12 to 12. Every
-intermediate nonzero magnitude must be between 1e-24 and 1e24. Division by zero,
+literals with at most 24 digits, and integer exponents from -12 to 12. Each parsed literal and operator result with nonzero magnitude must be between 1e-24 and 1e24. Division by zero,
 non-finite results, oversized/unsupported syntax and partial expressions fail
 with invalid arguments. Evaluation walks permitted AST nodes; it never invokes
 Python eval, imports, function calls, variables or shell commands.
@@ -35,3 +34,5 @@ PostgreSQL acceptance script calls the real HTTP agent/chat handlers, verifies
 saved user/assistant turns and project isolation, and prevents model generation
 from replacing calculator results. These are arithmetic and integration checks,
 not the full research/reasoning quality benchmark v0.150.
+
+The v0.105.9 refinement uses exact bounded rational operands for floor division and modulo so rounding a decimal quotient cannot change the quotient floor or erase its remainder near an integer boundary. Other decimal operations retain their stated precision limit.

@@ -11,6 +11,8 @@ class BoundedArithmetic(unittest.TestCase):
     def test_decimal_outputs_percentage_precedence_and_signed_floor(self):
         cases = {'0.1 + 0.2': '0.3', '17% of 842': '143.14', '(2+3)*4': '20',
                  '2**12': '4096', '2**-2': '0.25', '-7//3': '-3', '-7%3': '2',
+                 '(1e24-2)//(1-1e-24)': '999999999999999999999998',
+                 '(1e24-2)%(1-1e-24)': '0.999999999999999999999998',
                  '10/3': '3.333333333333333333333333333', '1e3 + .25': '1000.25'}
         for expression, expected in cases.items():
             with self.subTest(expression=expression):
