@@ -5,6 +5,7 @@ import { FRONTEND_API_BASE } from '@/lib/config';
 import { buildAgentRequest, parseShyAgentResponse, parseShyHealthResponse } from '@/lib/shy-api';
 import { createEmptyConversation, createInitialStore, makeAssistantMessage, makeFailureMessage, makeUserMessage, patchConversationResponse, updateConversationFromMessage, upsertConversation, loadStore, saveStore, renameConversation } from '@/lib/chat-state';
 import type { ChatStore, ConversationThread, ShyHealthResponse } from '@/lib/types';
+import { ShyComparison, type OptionComparison } from './shy-comparison';
 import { ShyComposer } from './shy-composer';
 import { ShyMessage } from './shy-message';
 import { ShySidebar } from './shy-sidebar';
@@ -116,7 +117,7 @@ export function ShyShell() {
     }));
   }
 
-  async function submitMessage(messageText: string) {
+  async function submitMessage(messageText: string, optionComparison?: OptionComparison) {
     const trimmed = messageText.trim();
     if (!trimmed || isSending) return;
 
@@ -141,7 +142,8 @@ export function ShyShell() {
             nextConversation.conversationId,
             -new Date().getTimezoneOffset(),
             Intl.DateTimeFormat().resolvedOptions().timeZone,
-            nextConversation.projectId
+            nextConversation.projectId,
+            optionComparison
           )
         ),
       });
@@ -262,6 +264,7 @@ export function ShyShell() {
           )}
 
           <div className="shy-composer-shell">
+            <ShyComparison key={`comparison-${activeConversation?.id ?? "new"}`} disabled={isSending} onCompare={data => void submitMessage("Compare these options using my supplied criteria and weights.", data)} />
             <ShyVoice key={activeConversation?.id} conversationId={activeConversation?.id ?? null}
               disabled={isSending} onTranscript={text => setComposerValue(current => current.trim() ? `${current.trim()} ${text}` : text)}
               onHandsfreeMessage={text => {

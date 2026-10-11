@@ -563,3 +563,11 @@ button {
   border-radius: .5rem;
   font-size: .8rem;
 }
+
+
+.shy-comparison { max-height: 45vh; overflow: auto; padding: 8px; }
+.shy-comparison summary { cursor: pointer; }
+.shy-comparison fieldset { min-width: 0; margin: 8px 0; border: 1px solid var(--shy-border, #444); border-radius: 8px; }
+.shy-comparison label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.shy-comparison input, .shy-comparison select { max-width: 100%; min-width: 0; padding: 6px; border-radius: 4px; background: transparent; color: inherit; border: 1px solid var(--shy-border, #666); }
+.shy-comparison button { margin: 4px; }
