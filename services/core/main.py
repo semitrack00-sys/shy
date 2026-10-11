@@ -308,7 +308,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.6"
+SHY_VERSION = "0.105.7"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1563,6 +1563,14 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "remote_speech_requires_session_opt_in": True,
             "raw_audio_received_by_core": False,
             "transcript_review_before_send": True,
+            "bounded_transcript_wake_sessions": True,
+            "handsfree_requires_separate_session_consent": True,
+            "default_wake_mode": "draft_for_review",
+            "wake_session_max_seconds": 180,
+            "wake_session_max_captures": 12,
+            "wake_session_max_automatic_messages": 6,
+            "acoustic_wake_detector": False,
+            "voice_accepts_tool_approvals": False,
             "offline_speech_guaranteed": False,
         },
         "local_speech_capabilities": {
@@ -5131,3 +5139,4 @@ async def chat(request: ChatRequest):
         "model_routing": model_routing_metadata,
         "cognitive": cognitive_metadata,
     }
+

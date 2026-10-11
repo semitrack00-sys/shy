@@ -264,6 +264,10 @@ export function ShyShell() {
           <div className="shy-composer-shell">
             <ShyVoice key={activeConversation?.id} conversationId={activeConversation?.id ?? null}
               disabled={isSending} onTranscript={text => setComposerValue(current => current.trim() ? `${current.trim()} ${text}` : text)}
+              onHandsfreeMessage={text => {
+                if (isSending || activeConversation?.messages.filter(message => message.role === 'assistant').at(-1)?.responseStatus === 'AWAITING_APPROVAL') return false;
+                void submitMessage(text); return true;
+              }}
               reply={activeConversation?.messages.filter(message => message.role === 'assistant').at(-1)} />
             <ShyComposer value={composerValue} onChange={setComposerValue} onSend={() => void submitMessage(composerValue)} disabled={isSending} />
           </div>
@@ -272,3 +276,4 @@ export function ShyShell() {
     </div>
   );
 }
+

@@ -1,6 +1,6 @@
 # Check the current SHY runtime on Windows without replacing the installed runtime
 
-The current release is v0.105.6. The historical temporary names below are labels,
+The current release is v0.105.7. The historical temporary names below are labels,
 not version checks; the HTTP verifier checks the running version.
 
 Run these commands in PowerShell with Docker Desktop running Linux containers.
@@ -78,3 +78,4 @@ review. Replacing the installed runtime is a separate step: preserve its contain
 configuration, image ID, database backup, environment, and mounted volumes first.
 Starting a new runtime against the installed database can initialize or migrate
 tables, so this isolated check is not a database migration or rollback rehearsal.
+

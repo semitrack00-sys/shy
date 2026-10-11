@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.6. A future number must not be added
+shipped. The current implementation is v0.105.7. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -28,8 +28,8 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.105 | Voice, speed, and volume controls | Implemented: installed voice availability varies |
 | v0.106 | English, French, Haitian Creole speech evaluation | Runner and offline corpus importer implemented; genuine multilingual recordings and measured results pending |
 | v0.107 | Language selection and automatic detection | Implemented early in v0.105: manual selection and local-engine auto detection; language quality unmeasured |
-| v0.108 | Optional Hey SHY wake phrase | Planned |
-| v0.109 | Hands-free conversation mode | Planned |
+| v0.108 | Optional Hey SHY wake phrase | Implemented early in v0.105.7: explicit bounded browser transcript-prefix session, not an acoustic wake model |
+| v0.109 | Hands-free conversation mode | Implemented early in v0.105.7: separate automatic-send consent, response/playback pause, no voice tool approvals; browser support required |
 | v0.110 | Voice reliability, latency, privacy benchmarks | Planned: target microphone and hardware required |
 | v0.111 | Conversation search | Implemented early in v0.103: browser history titles and messages |
 | v0.112 | Editable conversation titles | Implemented early in v0.103: browser-local titles |
@@ -157,3 +157,6 @@ The v0.105.4 patch adds [local project memory scopes](project-memory-scopes.md) 
 The v0.105.5 patch adds [selected local text/CSV document controls](local-documents.md). Parser/index/isolation regressions do not complete the broader document-answer accuracy milestone v0.130.
 
 The v0.105.6 patch adds [bounded PDF/DOCX/XLSX text extraction](document-format-extraction.md), with a native Windows worker release check.
+
+
+The v0.105.7 patch adds [bounded browser wake sessions](browser-wake-sessions.md). Genuine multilingual and target-hardware benchmarks remain pending.
