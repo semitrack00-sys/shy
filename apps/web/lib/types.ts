@@ -11,6 +11,14 @@ export interface ShyResearchSource {
   date_basis?: string;
 }
 
+export interface ShyResearchAnswer {
+  mode: 'model_synthesis' | 'missing_recent_evidence' | 'missing_excerpts' | 'possible_disagreement';
+  model_invoked: boolean;
+  semantic_truth_verified: false;
+  source_count?: number;
+  date_window_days?: number | null;
+}
+
 export interface ShyToolOutput {
   [key: string]: unknown;
 }
@@ -23,6 +31,7 @@ export interface ShyAgentResponse {
   tool_name?: string;
   tool_status?: string;
   research_provider?: string;
+  research_answer?: ShyResearchAnswer;
   sources?: ShyResearchSource[];
   output?: ShyToolOutput | null;
   conversation_id?: string;
@@ -54,6 +63,7 @@ export interface ChatMessage {
   toolName?: string;
   toolStatus?: string;
   researchProvider?: string;
+  researchAnswer?: ShyResearchAnswer;
   sources?: ShyResearchSource[];
   responseStatus?: ShyAgentStatus;
   output?: ShyToolOutput | null;

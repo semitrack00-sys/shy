@@ -91,12 +91,17 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.11', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.12', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
     submitted++;
     lastChatBody = route.request().postDataJSON();
+    if (lastChatBody.message === 'Research context fixture') return route.fulfill({ json: {
+      status:'RESPOND',message:'Please provide newer dated evidence.',conversation_id:'fixture',
+      research_answer:{mode:'missing_recent_evidence',model_invoked:false,semantic_truth_verified:false,source_count:1,date_window_days:7},
+      sources:[{number:1,title:'Research context source',url:'https://example.com/context',source:'example.com',source_date_status:'unknown'}],
+    } });
     return route.fulfill({ json: { status: 'RESPOND', message: 'This is a fixture reply.', conversation_id: 'fixture' } });
   });
   await page.goto('http://127.0.0.1:3000');
@@ -247,7 +252,23 @@ let browser;
   await page.reload();
   assert.equal(await page.getByLabel('Allow a bounded wake voice session.', { exact: true }).isChecked(), false);
   assert.equal(await page.getByLabel('Send wake-recognized messages automatically for this session.', { exact: true }).isChecked(), false);
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending (fixtures).');
+  await page.getByLabel('Message SHY', { exact: true }).fill('Research context fixture');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByText('Research context source', { exact: true }).waitFor();
+  await page.getByText('SHY generated this clarification without a model.', { exact: true }).waitFor();
+  await page.getByText('Checks and limits', { exact: true }).click();
+  assert.equal(await page.getByText('1 source record checked. This is not a count of independent authorities.', { exact: true }).isVisible(),true);
+  assert.equal(await page.getByText('Recent sources must be within 7 UTC calendar days. This window comes from English recency phrases.', { exact: true }).isVisible(),true);
+  assert.equal(lastChatBody.project_id,'gud-express');
+  for (const width of [360,390,768,1440]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),true,`research context overflow at ${width}px`);
+  }
+  await page.reload();
+  await page.getByText('Research context source', { exact: true }).waitFor();
+  assert.equal(await page.getByText('SHY generated this clarification without a model.', { exact: true }).isVisible(),true);
+  assert.equal(await page.getByText('Checks and limits', { exact: true }).evaluate(element => element.closest('details').open),false);
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context and reload persistence (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();

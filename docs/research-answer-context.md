@@ -1,0 +1,11 @@
+# Research answer context — v0.105.12
+
+Research replies now expose a compact explanation of how the answer was produced and what remains unresolved. The message shows whether a model used supplied excerpts, newer dated evidence is needed, usable source text is missing, or possible disagreements need context. A collapsed **Checks and limits** section shows available source-record count, citation membership checks, the selected UTC date window and the limits of provider dates or matching field labels. These are descriptions of checks performed, not private model reasoning or proof that source claims are true.
+
+`research_answer` metadata includes `source_count` from the checked source inventory and `date_window_days` from the actual synthesis policy. `null` means no recency window was selected. Zero requires the current UTC date; seven allows seven UTC calendar days. English recency phrases currently select this policy. Counts describe source records, not independent authorities. Provider dates remain publication/update estimates, and retrieval time does not prove publication time.
+
+The web parser accepts only known response modes, consistent boolean model-invocation flags, explicit unverified-truth status, bounded integer counts and date windows. Unknown fields are ignored; malformed context is omitted. Older metadata can display its known mode without invented counts or windows. Saved browser history retains the parsed context and source cards, which display again after reload. The expanded details state is not persisted.
+
+The message component also fixes a rendering gap: ordinary research chat returned sources without a `web.search` tool name, which previously hid the cards. Assistant research sources now display with or without that tool label.
+
+Validation includes metadata boundaries, all four explanation modes, same-day versus absent date windows, ordinary chat rendering, local history reload, and Chromium fixture acceptance at phone and desktop widths. Actual PostgreSQL runtime tests check the reported source count/date window and whether a model ran. This partially advances roadmap v0.147; general reasoning explanations, multilingual recency detection, independently verified claims, live-model research quality and the v0.150 benchmark remain pending.

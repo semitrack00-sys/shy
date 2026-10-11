@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.11. A future number must not be added
+shipped. The current implementation is v0.105.12. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -67,7 +67,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.144 | Check source dates and freshness | Partial early in v0.105.10: provider date estimates, separate retrieval times, conservative English recency hints and dated citation gates; verified page dates and live-provider qualification pending |
 | v0.145 | Compare claims across sources | Partial early in v0.105.11: matching atomic field/value snippets and existing workflow conflict flags produce cited clarification; general prose semantic comparison and quality qualification remain pending |
 | v0.146 | Clarify missing evidence | Partial early in v0.105.10: missing qualifying date evidence returns clarification before generation; v0.105.11 also clarifies empty excerpts and possible disagreements; broader missing-claim evidence handling remains pending |
-| v0.147 | Show assumptions and concise explanations | Planned |
+| v0.147 | Show assumptions and concise explanations | Partial early in v0.105.12: research answer context explains model invocation, checked source records, date-window assumptions and unresolved truth/subject limits; general reasoning explanations and quality benchmarks remain pending |
 | v0.148 | Calculator-backed numerical answers | Implemented early in v0.105.8: bounded explicit decimal arithmetic through actual agent/chat paths, stored replies and project ownership; no inferred units or word-problem solver |
 | v0.149 | Compare options against user criteria | Planned |
 | v0.150 | Research and reasoning benchmarks | Planned |
@@ -168,3 +168,5 @@ The v0.105.9 patch enforces [research citation membership](research-citation-che
 The v0.105.10 patch adds [provider date estimate checks](research-source-dates.md) and missing-current-evidence clarification. Verified publication dates, multilingual intent detection and research quality benchmarks remain pending.
 
 The v0.105.11 patch adds [bounded disagreement clarification](research-disagreement-checks.md), source cards in ordinary research chat and accurate provenance for replies that did not invoke a model. This does not complete general semantic comparison or research quality benchmarks.
+
+The v0.105.12 patch adds [research answer context](research-answer-context.md) and fixes source-card rendering for ordinary research chat. Counts, date windows and model-invocation details are bounded public check descriptions, not private model reasoning or independent claim verification.

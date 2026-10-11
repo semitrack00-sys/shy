@@ -85,3 +85,10 @@ describe('composer keyboard behavior', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 });
+it('shows ordinary research chat sources and context without a tool name', () => {
+  render(<ShyMessage message={{id:'ordinary-research',role:'assistant',content:'Need evidence.',createdAt:new Date().toISOString(),status:'sent',
+    researchAnswer:{mode:'missing_recent_evidence',model_invoked:false,semantic_truth_verified:false,source_count:1,date_window_days:7},
+    sources:[{number:1,title:'Ordinary chat source',url:'https://example.com/chat',source:'example.com'}]}}/>);
+  expect(screen.getByText('Ordinary chat source')).toBeInTheDocument();
+  expect(screen.getByText('Answer context')).toBeInTheDocument();
+});
