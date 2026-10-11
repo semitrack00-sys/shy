@@ -2414,7 +2414,7 @@ def _build_research_evidence_block(research_payload: dict[str, Any]) -> str:
 
     evidence_parts = []
     source_numbers = {str(source.get("url", "")).strip(): source.get("number")
-                      for source in research_payload.get("sources", [])}
+                      for source in (research_payload.get("sources") or [])}
 
     for index, item in enumerate(evidence, start=1):
         title = _normalize_research_text(item.get("title"))

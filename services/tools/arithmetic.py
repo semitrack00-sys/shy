@@ -1,5 +1,6 @@
 """Bounded decimal arithmetic. No eval, imports, variables or inferred units."""
 import ast
+from fractions import Fraction
 from decimal import Decimal, DecimalException, localcontext
 import re
 
@@ -71,8 +72,10 @@ def calculator_result(expression: str) -> dict:
             elif isinstance(op, ast.Sub): value = left - right
             elif isinstance(op, ast.Mult): value = left * right
             elif isinstance(op, ast.Div): value = left / right
-            elif isinstance(op, ast.FloorDiv): value = (left / right).__floor__(); value = Decimal(value)
-            elif isinstance(op, ast.Mod): value = left - Decimal((left / right).__floor__()) * right
+            elif isinstance(op, ast.FloorDiv): value = Decimal(Fraction(left) // Fraction(right))
+            elif isinstance(op, ast.Mod):
+                remainder = Fraction(left) % Fraction(right)
+                value = Decimal(remainder.numerator) / Decimal(remainder.denominator)
             elif isinstance(op, ast.Pow):
                 if right != right.to_integral_value() or abs(right) > 12:
                     raise ValueError('Exponents must be integers from -12 to 12.')
