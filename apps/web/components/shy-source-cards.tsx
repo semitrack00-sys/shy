@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { toSafeExternalUrl } from '@/lib/markdown';
 import type { ShyResearchSource } from '@/lib/types';
 
 interface ShySourceCardsProps {
@@ -8,7 +9,8 @@ interface ShySourceCardsProps {
 }
 
 export function ShySourceCards({ sources }: ShySourceCardsProps) {
-  if (sources.length === 0) {
+  const safeSources = sources.filter(source => toSafeExternalUrl(source.url));
+  if (safeSources.length === 0) {
     return null;
   }
 
@@ -19,7 +21,7 @@ export function ShySourceCards({ sources }: ShySourceCardsProps) {
         <h4>Structured research sources</h4>
       </div>
       <div className="shy-sources">
-        {sources.map((source) => (
+        {safeSources.map((source) => (
           <article className="shy-source-card" key={source.number}>
             <p className="shy-chip">[{source.number}]</p>
             <h4>{source.title || `Source ${source.number}`}</h4>
