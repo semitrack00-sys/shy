@@ -53,6 +53,12 @@ let browser;
       preference = { automatic_saving: payload.automatic_saving, revision: String(preferenceWrites), reviewed: true };
       return route.fulfill({ json: preference });
     }
+    if (new URL(request.url()).pathname.endsWith('/preview')) {
+      const payload=request.postDataJSON();
+      assert.equal(payload.confirmed,undefined);
+      assert.equal(payload.subject_key,memory.subject_key);
+      return route.fulfill({json:{status:'review_required',records:[memory],saved:false,semantic_conflict_verified:false,multiple_active_records:false}});
+    }
     if (request.method() === 'GET') return route.fulfill({ json: { records: memory ? [memory] : [], has_more: false } });
     memoryWrites++;
     const payload = request.postDataJSON();
@@ -91,7 +97,7 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.13', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.14', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -152,6 +158,17 @@ let browser;
     await page.setViewportSize({ width, height: 1000 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `memory overflow at ${width}px`);
   }
+  await page.getByRole('button',{name:'Remember this',exact:true}).click();
+  await page.getByLabel('Memory subject',{exact:true}).fill('project.shy.database');
+  await page.getByLabel('Memory category',{exact:true}).selectOption('PROJECT');
+  await page.getByLabel('Memory content',{exact:true}).fill('SHY uses PostgreSQL 17.');
+  await page.getByRole('button',{name:'Check existing memory subject',exact:true}).click();
+  await page.getByText('This subject has a different saved value or category. Review it before making a correction.',{exact:true}).waitFor();
+  assert.equal(memoryWrites,1,'preview cannot write');
+  await page.getByRole('button',{name:'Review correction of existing value',exact:true}).click();
+  assert.equal(await page.getByLabel('Memory content',{exact:true}).inputValue(),'SHY uses PostgreSQL 17.');
+  assert.equal(await page.getByRole('button',{name:'Save reviewed memory',exact:true}).isDisabled(),true);
+  await page.getByRole('button',{name:'Cancel memory change',exact:true}).click();
   await page.getByRole('button', { name: 'Delete project.shy.database', exact: true }).click();
   assert.equal(await page.getByRole('button', { name: 'Confirm deletion', exact: true }).isDisabled(), true);
   await page.getByLabel('I reviewed this exact memory change and confirm it.', { exact: true }).check();
@@ -288,7 +305,7 @@ let browser;
   assert.equal(lastChatBody.option_comparison.options[1].values.c1,'200');
   await page.reload();
   await page.getByText('Comparison fixture: A scores 100.000000; B scores 0.000000.',{exact:true}).waitFor();
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context and reload persistence (fixtures).');
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context, numeric comparison requests and reload persistence, read-only memory preview and separately reviewed corrections (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();

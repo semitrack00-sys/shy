@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.13. A future number must not be added
+shipped. The current implementation is v0.105.14. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -38,9 +38,9 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.115 | Review, correct, delete saved memories | Implemented early in v0.105.1: local-user pagination and revision-checked changes; original history remains |
 | v0.116 | Personal preferences with consent | Partial early in v0.105.3: confirmed persistent automatic-memory pause/resume; legacy default enabled until reviewed; broader consent preferences pending |
 | v0.117 | Separate memory for each project | Implemented early in v0.105.4: local project conversation, durable-memory and saving-preference scopes; not authenticated account isolation |
-| v0.118 | Memory conflict correction | Planned |
+| v0.118 | Memory conflict correction | Partial early in v0.105.14: read-only exact-subject/value preview with revision-preserving, separately reviewed correction; semantic conflict detection remains pending |
 | v0.119 | Long-conversation context management | Implemented early in v0.105.2: ordinary chat history uses hard excerpt budgets, including fallback; older context can be omitted |
-| v0.120 | Memory accuracy and isolation benchmarks | Planned |
+| v0.120 | Memory accuracy and isolation benchmarks | Partial early in v0.105.14: fixed PostgreSQL persistence, exact correction, stale-write and project isolation checks; representative memory retrieval accuracy and account authentication remain unqualified |
 | v0.121 | Upload and read text files | Implemented early in v0.105.5: confirmed UTF-8 text/Markdown uploads and bounded reading |
 | v0.122 | PDF text extraction | Implemented early in v0.105.6: selected text-bearing PDFs, capped worker and page provenance; no OCR |
 | v0.123 | Word document reading | Implemented early in v0.105.6: DOCX main-document text; legacy DOC and full layout unsupported |
@@ -50,7 +50,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.127 | Document-grounded answers with citations | Partial early in v0.105.5: extractive source excerpts with document/chunk/revision citations; generated answers pending |
 | v0.128 | Compare documents and changes | Partial early in v0.105.5: bounded literal line comparison; semantic comparison pending |
 | v0.129 | Refresh and remove indexed documents | Implemented early in v0.105.5: reviewed revision refresh/delete; index updated atomically |
-| v0.130 | Document-answer accuracy benchmarks | Planned |
+| v0.130 | Document-answer accuracy benchmarks | Partial early in v0.105.14: fixed English/French/Haitian Creole and CSV excerpt/provenance/isolation checks; generated answer accuracy and representative corpus qualification remain pending |
 | v0.131 | Connect a local vision model | Planned: model download and hardware validation required |
 | v0.132 | Image upload and questions | Planned |
 | v0.133 | Printed-text extraction from images | Planned |
@@ -172,3 +172,5 @@ The v0.105.11 patch adds [bounded disagreement clarification](research-disagreem
 The v0.105.12 patch adds [research answer context](research-answer-context.md) and fixes source-card rendering for ordinary research chat. Counts, date windows and model-invocation details are bounded public check descriptions, not private model reasoning or independent claim verification.
 
 The v0.105.13 patch adds [criteria comparisons and bounded reasoning checks](option-comparisons.md). These do not complete the speech, visual, live research or hardware qualification required across v0.106–v0.150.
+
+The v0.105.14 patch adds [memory preview and local data checks](memory-preview.md), with a hashed per-case PostgreSQL report. Exact supplied-data checks are not representative language or generated-answer accuracy measurements.

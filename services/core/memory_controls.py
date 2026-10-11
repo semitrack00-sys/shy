@@ -104,6 +104,15 @@ class CorrectRequest(BaseModel):
     validate_confirmation = field_validator("confirmed", mode="before")(RememberRequest.validate_confirmation.__func__)
 
 
+class PreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subject_key: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
+    category: Literal["USER_FACT", "PREFERENCE", "PROJECT"] = "USER_FACT"
+    content: str = Field(min_length=1, max_length=500)
+    validate_subject = field_validator("subject_key")(RememberRequest.validate_subject.__func__)
+    validate_content = field_validator("content")(RememberRequest.validate_content.__func__)
+
+
 class DeleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -189,6 +198,29 @@ def list_memories(page: int = Query(default=0, ge=0, le=10000),
         raise HTTPException(503, "memory_database_unavailable") from None
 
 
+@router.post("/preview")
+def preview(request: PreviewRequest, project_id: ProjectId = None):
+    """Exact subject/value comparison only, without saving or declaring semantic truth."""
+    try:
+        with memory.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT memory_id, category, subject_key, content, status, created_at, updated_at
+                    FROM durable_memories WHERE user_id = %s AND subject_key = %s AND status = 'ACTIVE'
+                    ORDER BY created_at DESC, memory_id DESC LIMIT 3""",
+                    (project_user(project_id), request.subject_key))
+                rows = cur.fetchall()
+        records = [public_record(row) for row in rows[:2]]
+        same = len(rows) == 1 and rows[0]["content"] == request.content and rows[0]["category"] == request.category
+        return {"status": "new_subject" if not rows else "same_saved_value" if same else "review_required",
+                "proposed": request.model_dump(), "records": records, "has_more": len(rows) > 2,
+                "multiple_active_records": len(rows) > 1, "saved": False, "semantic_conflict_verified": False,
+                "scope": "existing_local_user", "authenticated": False}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "memory_database_unavailable") from None
+
+
 @router.post("", status_code=201)
 def remember(request: RememberRequest, project_id: ProjectId = None):
     try:
@@ -255,3 +287,4 @@ def delete(memory_id: uuid.UUID, request: DeleteRequest, project_id: ProjectId =
         raise
     except Exception:
         raise HTTPException(503, "memory_database_unavailable") from None
+

@@ -87,3 +87,41 @@ describe('reviewed memory controls', () => {
     unmount(); expect(signal.aborted).toBe(true);
   });
 });
+
+
+it('previews an exact subject without a write and carries its revision into a separately reviewed correction', async () => {
+  const fetcher=vi.fn().mockImplementation(async (url: string) => url.includes('/preview')
+    ? success({status:'review_required',records:[row],saved:false,semantic_conflict_verified:false,multiple_active_records:false})
+    : success(list));vi.stubGlobal('fetch',fetcher);
+  render(<ShyMemoryManager projectId="my-project"/>);
+  fireEvent.click(screen.getByRole('button',{name:'Review saved memories'}));await screen.findByText(row.content);
+  fireEvent.click(screen.getByText('Remember this'));
+  fireEvent.change(screen.getByLabelText('Memory subject'),{target:{value:row.subject_key}});
+  fireEvent.change(screen.getByLabelText('Memory category'),{target:{value:'PROJECT'}});
+  fireEvent.change(screen.getByLabelText('Memory content'),{target:{value:'SHY uses PostgreSQL 17.'}});
+  fireEvent.click(screen.getByText('Check existing memory subject'));
+  await screen.findByText(/This subject has a different saved value/);
+  expect(fetcher.mock.calls[1][0]).toContain('/preview?project_id=my-project');
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).not.toHaveProperty('confirmed');
+  fireEvent.click(screen.getByText('Review correction of existing value'));
+  expect(screen.getByLabelText('Memory content')).toHaveValue('SHY uses PostgreSQL 17.');
+  expect(screen.getByText('Save reviewed memory')).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('I reviewed this exact memory change and confirm it.'));
+  fireEvent.click(screen.getByText('Save reviewed memory'));await screen.findByText('Saved memory updated.');
+  expect(fetcher.mock.calls[2][1].method).toBe('PATCH');
+  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({content:'SHY uses PostgreSQL 17.',expected_revision:row.revision,confirmed:true});
+});
+it('invalidates an edited preview and does not offer ambiguous correction', async () => {
+  const fetcher=vi.fn().mockImplementation(async (url: string) => url.includes('/preview')
+    ? success({status:'review_required',records:[row],saved:false,semantic_conflict_verified:false,multiple_active_records:true})
+    : success(list));vi.stubGlobal('fetch',fetcher);
+  render(<ShyMemoryManager/>);fireEvent.click(screen.getByText('Review saved memories'));await screen.findByText(row.content);
+  fireEvent.click(screen.getByText('Remember this'));
+  fireEvent.change(screen.getByLabelText('Memory subject'),{target:{value:row.subject_key}});
+  fireEvent.change(screen.getByLabelText('Memory category'),{target:{value:'PROJECT'}});
+  fireEvent.change(screen.getByLabelText('Memory content'),{target:{value:'A proposed value'}});
+  fireEvent.click(screen.getByText('Check existing memory subject'));await screen.findByText('Multiple active records need individual review.');
+  expect(screen.queryByText('Review correction of existing value')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Memory content'),{target:{value:'Another value'}});
+  expect(screen.queryByLabelText('Proposed memory comparison')).not.toBeInTheDocument();
+});

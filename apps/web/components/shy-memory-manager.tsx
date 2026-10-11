@@ -6,6 +6,8 @@ import { parseMemory, type SavedMemory } from '@/lib/saved-memory';
 
 import { ShyMemorySaving } from '@/components/shy-memory-saving';
 
+type Preview = { status: 'new_subject' | 'same_saved_value' | 'review_required'; records: SavedMemory[]; multiple: boolean };
+
 type Review = { action: 'create' | 'correct' | 'delete'; record?: SavedMemory };
 
 export function ShyMemoryManager({ projectId }: { projectId?: string }) {
@@ -20,6 +22,7 @@ export function ShyMemoryManager({ projectId }: { projectId?: string }) {
   const [category, setCategory] = useState('USER_FACT');
   const [content, setContent] = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const [preview, setPreview] = useState<Preview | null>(null);
   const [notice, setNotice] = useState('');
   const requestRef = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
@@ -42,7 +45,7 @@ export function ShyMemoryManager({ projectId }: { projectId?: string }) {
 
   async function load(nextPage: number) {
     if (busyRef.current) return;
-    busyRef.current = true; setBusy(true); setNotice(''); setReview(null); setConfirmed(false);
+    busyRef.current = true; setBusy(true); setNotice(''); setReview(null); setConfirmed(false); setPreview(null);
     try {
       const payload = await request(`?page=${nextPage}`);
       if (!Array.isArray(payload.records) || typeof payload.has_more !== 'boolean') throw new Error('Invalid saved-memory list.');
@@ -54,7 +57,19 @@ export function ShyMemoryManager({ projectId }: { projectId?: string }) {
 
   function startReview(next: Review) {
     setReview(next); setSubject(next.record?.subject_key ?? ''); setCategory(next.record?.category ?? 'USER_FACT');
-    setContent(next.record?.content ?? ''); setConfirmed(false); setNotice('');
+    setContent(next.record?.content ?? ''); setConfirmed(false); setNotice(''); setPreview(null);
+  }
+
+  async function previewSubject() {
+    if (busyRef.current || review?.action !== 'create') return;
+    busyRef.current = true; setBusy(true); setNotice(''); setConfirmed(false); setPreview(null);
+    try {
+      const payload = await request('/preview', 'POST', { subject_key: subject.trim(), category, content: content.trim() });
+      if (!['new_subject','same_saved_value','review_required'].includes(payload.status) || !Array.isArray(payload.records) || payload.saved !== false || payload.semantic_conflict_verified !== false) throw new Error('Invalid memory preview.');
+      setPreview({ status: payload.status, records: payload.records.map(parseMemory), multiple: payload.multiple_active_records === true });
+    } catch (error) {
+      if (!requestRef.current?.signal.aborted) setNotice(error instanceof Error ? error.message : 'Could not preview memory.');
+    } finally { busyRef.current = false; setBusy(false); }
   }
 
   async function apply() {
@@ -71,7 +86,7 @@ export function ShyMemoryManager({ projectId }: { projectId?: string }) {
             expected_revision: row.revision, confirmed: true,
           });
       }
-      setReview(null); setConfirmed(false);
+      setReview(null); setConfirmed(false); setPreview(null);
       const payload = await request('?page=0');
       if (!Array.isArray(payload.records)) throw new Error('Memory changed, but the refreshed list could not be read.');
       setRows(payload.records.map(parseMemory)); setMore(Boolean(payload.has_more)); setPage(0);
@@ -110,19 +125,33 @@ export function ShyMemoryManager({ projectId }: { projectId?: string }) {
         <h3>{review.action === 'create' ? 'Remember a fact' : review.action === 'correct' ? 'Correct saved memory' : 'Delete saved memory'}</h3>
         {review.action === 'create' ? <>
           <div><label htmlFor={`${formId}-subject`}>Memory subject</label><input id={`${formId}-subject`} required value={subject} maxLength={80} pattern="[a-z0-9][a-z0-9_.-]*"
-            onChange={event => { setSubject(event.target.value); setConfirmed(false); }} placeholder="project.shy.database" /></div>
-          <div><label htmlFor={`${formId}-category`}>Memory category</label><select id={`${formId}-category`} value={category} onChange={event => { setCategory(event.target.value); setConfirmed(false); }}>
+            onChange={event => { setSubject(event.target.value); setConfirmed(false); setPreview(null); }} placeholder="project.shy.database" /></div>
+          <div><label htmlFor={`${formId}-category`}>Memory category</label><select id={`${formId}-category`} value={category} onChange={event => { setCategory(event.target.value); setConfirmed(false); setPreview(null); }}>
             <option value="USER_FACT">Personal fact</option><option value="PREFERENCE">Preference</option><option value="PROJECT">Project fact</option>
           </select></div>
         </> : <p>Subject: {review.record?.subject_key}</p>}
         {review.action === 'delete' ? <p>{review.record?.content}</p> : <div><label htmlFor={`${formId}-content`}>Memory content</label><textarea id={`${formId}-content`} required value={content} maxLength={500}
-          onChange={event => { setContent(event.target.value); setConfirmed(false); }} /></div>}
+          onChange={event => { setContent(event.target.value); setConfirmed(false); setPreview(null); }} /></div>}
+        {review.action === 'create' && <>
+          <button className="shy-button" type="button" disabled={busy || !subject.trim() || !content.trim()} onClick={() => void previewSubject()}>Check existing memory subject</button>
+          {preview && <section aria-label="Proposed memory comparison">
+            <p>{preview.status === 'new_subject' ? 'No active memory with this exact subject was found.' : preview.status === 'same_saved_value' ? 'This exact category and value are already saved.' : 'This subject has a different saved value or category. Review it before making a correction.'}</p>
+            <p>Preview only: nothing was saved. This checks exact values, not whether facts contradict in meaning.</p>
+            {preview.multiple && <p>Multiple active records need individual review.</p>}
+            {preview.records.map(row => <div key={row.id}>
+              <p>Saved: {row.content} ({row.category})</p>
+              {row.category === category && !preview.multiple && preview.status === 'review_required' && <button className="shy-button" type="button" disabled={busy} onClick={() => {
+                const proposed = content; startReview({action:'correct',record:row}); setContent(proposed);
+              }}>Review correction of existing value</button>}
+            </div>)}
+          </section>}
+        </>}
         <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} />
           I reviewed this exact memory change and confirm it.</label>
         <div className="shy-memory-actions">
-          <button className="shy-button" type="submit" disabled={busy || !confirmed || (review.action !== 'delete' && !content.trim())}>
+          <button className="shy-button" type="submit" disabled={busy || !confirmed || (review.action === 'create' && !!preview && preview.status !== 'new_subject') || (review.action !== 'delete' && !content.trim())}>
             {review.action === 'delete' ? 'Confirm deletion' : 'Save reviewed memory'}</button>
-          <button className="shy-button" type="button" disabled={busy} onClick={() => { setReview(null); setConfirmed(false); }}>Cancel memory change</button>
+          <button className="shy-button" type="button" disabled={busy} onClick={() => { setReview(null); setConfirmed(false); setPreview(null); }}>Cancel memory change</button>
         </div>
       </form>}
       <div className="shy-memory-actions">
@@ -134,3 +163,4 @@ export function ShyMemoryManager({ projectId }: { projectId?: string }) {
     </>}
   </section>;
 }
+
