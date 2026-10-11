@@ -308,7 +308,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.7"
+SHY_VERSION = "0.105.8"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1556,6 +1556,16 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "character_limits_are_not_token_limits": True,
             "current_request_size_limited_by_this_budget": False,
         },
+        "calculator_capabilities": {
+            "explicit_numeric_expression": True,
+            "decimal_precision_digits": 28,
+            "expression_max_chars": 256,
+            "ast_max_nodes": 64,
+            "nesting_max_depth": 16,
+            "integer_exponent_limit": 12,
+            "units_inferred": False,
+            "model_generated_result": False,
+        },
         "browser_voice_capabilities": {
             "mode": "browser_speech_api",
             "browser_support_required": True,
@@ -2536,6 +2546,9 @@ def _extract_database_operation(message: str) -> str | None:
     return None
 
 
+from tools.arithmetic import calculator_expression
+
+
 def decide_chat_tool_request(message: str) -> dict[str, Any]:
     if not message or not str(message).strip():
         return {"decision": "NO_TOOL"}
@@ -2543,24 +2556,10 @@ def decide_chat_tool_request(message: str) -> dict[str, Any]:
     text = str(message).strip()
     lowered = text.lower()
 
-    if "what is" in lowered or "calculate" in lowered or "compute" in lowered:
-        if re.search(r"\d", text):
-            expression = text
-            if re.search(r"%\s*of\s*", text, flags=re.IGNORECASE):
-                expression = re.search(r"([0-9]*\.?[0-9]+\s*%\s*of\s*[0-9]*\.?[0-9]+)", text, flags=re.IGNORECASE)
-                if expression:
-                    expression = expression.group(1)
-            elif "what is" in lowered:
-                expression = text
-            if expression:
-                tool_id = tool_gateway.registry.route_tool(text)
-                if tool_id == "calculator":
-                    return {
-                        "decision": "USE_TOOL",
-                        "tool_id": "calculator",
-                        "permission": "READ_ONLY",
-                        "validated_arguments": {"expression": expression},
-                    }
+    expression = calculator_expression(text)
+    if expression is not None:
+        return {"decision": "USE_TOOL", "tool_id": "calculator", "permission": "READ_ONLY",
+                "validated_arguments": {"expression": expression}}
 
     if any(marker in lowered for marker in ("database connected", "shy database", "system health", "health status", "is shy\'s database connected", "database status")):
         tool_id = tool_gateway.registry.route_tool(text)
@@ -4429,6 +4428,8 @@ async def testing_task_approval(request: SyntheticApprovalRequest):
 
 @app.post("/agent")
 async def agent(request: AgentRequest):
+    if calculator_expression(request.message) is not None:
+        return await chat(ChatRequest(**request.model_dump()))
     if request.project_id:
         if request.user_id or request.workspace_id or request.business_id:
             raise HTTPException(422, "project_scope_cannot_mix_with_legacy_identity_fields")
@@ -4703,7 +4704,8 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
 
     if tool_id == "calculator":
         numeric_value = float(sanitized_output["result"])
-        answer = f"The result is {numeric_value:g}."
+        displayed = sanitized_output.get("decimal_result", f"{numeric_value:g}")
+        answer = f"The result is {displayed}."
         calculator_verified = True
     elif tool_id == "system.health":
         database_connected = bool(sanitized_output.get("database_connected"))
@@ -4750,6 +4752,13 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
         decomposition_count_override=0,
     )
 
+    if calculator_verified:
+        try:
+            save_message(conversation_id=conversation_id, role="assistant", content=answer,
+                         model="bounded-decimal-calculator", provider="shy-core", task_type="calculation")
+        except psycopg.Error:
+            raise HTTPException(503, "Calculation completed but conversation storage is unavailable.")
+
     return {
         "assistant": "SHY",
         "status": "RESPOND",
@@ -4772,7 +4781,8 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
         "tool_selected": tool_id,
         "permission": permission,
         "execution_status": tool_result.status,
-        "verifier_invoked": False,
+        "verifier_invoked": calculator_verified,
+        "calculation": sanitized_output if calculator_verified else None,
         "research_invoked": False,
         "hidden_reasoning_exposed": False,
         "cognitive": cognitive_metadata,
@@ -4945,6 +4955,9 @@ async def chat(request: ChatRequest):
 
     execution_mode = decide_chat_execution_mode(request.message)
     tool_decision = decide_chat_tool_request(request.message)
+    if tool_decision.get("tool_id") == "calculator" and not request.task_id and not request.cancel_task:
+        return await _handle_chat_tool_request(request, conversation_id, route, tool_decision)
+
     if execution_mode == "MULTI_STEP":
         return await _handle_multistep_chat_request(request, conversation_id, route)
 
