@@ -1,3 +1,4 @@
+import type { OptionComparison } from '@/components/shy-comparison';
 import type { ShyAgentResponse, ShyHealthResponse, ShyResearchAnswer } from './types';
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -98,16 +99,19 @@ export function buildAgentRequest(
   conversationId?: string | null,
   clientUtcOffsetMinutes?: number,
   clientTimezone?: string,
-  projectId?: string
+  projectId?: string,
+  optionComparison?: OptionComparison
 ) {
   const body: {
     message: string;
     project_id?: string;
+    option_comparison?: OptionComparison;
     conversation_id?: string;
     client_utc_offset_minutes?: number;
     client_timezone?: string;
   } = { message };
 
+  if (optionComparison) body.option_comparison = optionComparison;
   if (projectId) body.project_id = projectId;
   if (conversationId) {
     body.conversation_id = conversationId;

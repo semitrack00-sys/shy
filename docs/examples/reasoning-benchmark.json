@@ -1,0 +1,508 @@
+{
+  "scope": "Fixed synthetic inputs; tests bounded behavior, not real source truth or live-model quality.",
+  "cases": [
+    {
+      "id": "arithmetic-1",
+      "kind": "arithmetic",
+      "input": "0.1+0.2",
+      "expected": "0.3"
+    },
+    {
+      "id": "arithmetic-2",
+      "kind": "arithmetic",
+      "input": "17% of 842",
+      "expected": "143.14"
+    },
+    {
+      "id": "arithmetic-3",
+      "kind": "arithmetic",
+      "input": "0.3//0.1",
+      "expected": "3"
+    },
+    {
+      "id": "arithmetic-4",
+      "kind": "arithmetic",
+      "input": "-7//2",
+      "expected": "-4"
+    },
+    {
+      "id": "arithmetic-5",
+      "kind": "arithmetic",
+      "input": "-7%2",
+      "expected": "1"
+    },
+    {
+      "id": "arithmetic-6",
+      "kind": "arithmetic",
+      "input": "(12+8)*3",
+      "expected": "60"
+    },
+    {
+      "id": "arithmetic-7",
+      "kind": "arithmetic",
+      "input": "2**-3",
+      "expected": "0.125"
+    },
+    {
+      "id": "arithmetic-reject-1",
+      "kind": "arithmetic",
+      "input": "1/0",
+      "reject": true
+    },
+    {
+      "id": "arithmetic-reject-2",
+      "kind": "arithmetic",
+      "input": "2**999999",
+      "reject": true
+    },
+    {
+      "id": "arithmetic-reject-3",
+      "kind": "arithmetic",
+      "input": "__import__(\"os\")",
+      "reject": true
+    },
+    {
+      "id": "arithmetic-reject-4",
+      "kind": "arithmetic",
+      "input": "1+1; print(1)",
+      "reject": true
+    },
+    {
+      "id": "arithmetic-reject-5",
+      "kind": "arithmetic",
+      "input": "1e99",
+      "reject": true
+    },
+    {
+      "id": "comparison-1",
+      "kind": "comparison",
+      "input": {
+        "criteria": [
+          {
+            "id": "cost",
+            "name": "Cost",
+            "unit": "USD",
+            "direction": "minimize",
+            "weight": "1"
+          }
+        ],
+        "options": [
+          {
+            "id": "a",
+            "name": "A",
+            "values": {
+              "cost": "100"
+            }
+          },
+          {
+            "id": "b",
+            "name": "B",
+            "values": {
+              "cost": "200"
+            }
+          }
+        ]
+      },
+      "expected": [
+        [
+          "a",
+          "100.000000"
+        ],
+        [
+          "b",
+          "0.000000"
+        ]
+      ]
+    },
+    {
+      "id": "comparison-2",
+      "kind": "comparison",
+      "input": {
+        "criteria": [
+          {
+            "id": "cost",
+            "name": "Cost",
+            "unit": "USD",
+            "direction": "maximize",
+            "weight": "1"
+          }
+        ],
+        "options": [
+          {
+            "id": "a",
+            "name": "A",
+            "values": {
+              "cost": "100"
+            }
+          },
+          {
+            "id": "b",
+            "name": "B",
+            "values": {
+              "cost": "200"
+            }
+          }
+        ]
+      },
+      "expected": [
+        [
+          "b",
+          "100.000000"
+        ],
+        [
+          "a",
+          "0.000000"
+        ]
+      ]
+    },
+    {
+      "id": "comparison-3",
+      "kind": "comparison",
+      "input": {
+        "criteria": [
+          {
+            "id": "cost",
+            "name": "Cost",
+            "unit": "USD",
+            "direction": "minimize",
+            "weight": "1"
+          }
+        ],
+        "options": [
+          {
+            "id": "a",
+            "name": "A",
+            "values": {
+              "cost": "-1"
+            }
+          },
+          {
+            "id": "b",
+            "name": "B",
+            "values": {
+              "cost": "0"
+            }
+          }
+        ]
+      },
+      "expected": [
+        [
+          "a",
+          "100.000000"
+        ],
+        [
+          "b",
+          "0.000000"
+        ]
+      ]
+    },
+    {
+      "id": "comparison-4",
+      "kind": "comparison",
+      "input": {
+        "criteria": [
+          {
+            "id": "cost",
+            "name": "Cost",
+            "unit": "USD",
+            "direction": "minimize",
+            "weight": "1"
+          }
+        ],
+        "options": [
+          {
+            "id": "a",
+            "name": "A",
+            "values": {
+              "cost": "5"
+            }
+          },
+          {
+            "id": "b",
+            "name": "B",
+            "values": {
+              "cost": "5"
+            }
+          }
+        ]
+      },
+      "expected": [
+        [
+          "a",
+          "50.000000"
+        ],
+        [
+          "b",
+          "50.000000"
+        ]
+      ]
+    },
+    {
+      "id": "comparison-reject-1",
+      "kind": "comparison",
+      "input": {
+        "criteria": [
+          {
+            "id": "cost",
+            "name": "Cost",
+            "unit": "USD",
+            "direction": "minimize",
+            "weight": "1"
+          }
+        ],
+        "options": [
+          {
+            "id": "a",
+            "name": "A",
+            "values": {
+              "cost": "NaN"
+            }
+          },
+          {
+            "id": "b",
+            "name": "B",
+            "values": {
+              "cost": "1"
+            }
+          }
+        ]
+      },
+      "reject": true
+    },
+    {
+      "id": "comparison-reject-2",
+      "kind": "comparison",
+      "input": {
+        "criteria": [
+          {
+            "id": "cost",
+            "name": "Cost",
+            "unit": "USD",
+            "direction": "minimize",
+            "weight": "0"
+          }
+        ],
+        "options": [
+          {
+            "id": "a",
+            "name": "A",
+            "values": {
+              "cost": "1"
+            }
+          },
+          {
+            "id": "b",
+            "name": "B",
+            "values": {
+              "cost": "2"
+            }
+          }
+        ]
+      },
+      "reject": true
+    },
+    {
+      "id": "citation-1",
+      "kind": "citation_membership",
+      "input": {
+        "evidence": {
+          "results": [
+            {
+              "url": "https://example.com/a",
+              "snippet": "Fixture only."
+            }
+          ]
+        },
+        "answer": "Fixture claim [1]."
+      },
+      "expected": "accepted"
+    },
+    {
+      "id": "citation-2",
+      "kind": "citation_membership",
+      "input": {
+        "evidence": {
+          "results": [
+            {
+              "url": "https://example.com/a",
+              "snippet": "Fixture only."
+            }
+          ]
+        },
+        "answer": "Fixture claim [2]."
+      },
+      "reject": true
+    },
+    {
+      "id": "citation-3",
+      "kind": "citation_membership",
+      "input": {
+        "evidence": {
+          "results": [
+            {
+              "url": "https://example.com/a",
+              "snippet": "Fixture only."
+            }
+          ]
+        },
+        "answer": "Uncited answer."
+      },
+      "reject": true
+    },
+    {
+      "id": "citation-4",
+      "kind": "citation_membership",
+      "input": {
+        "evidence": {
+          "results": [
+            {
+              "url": "https://example.com/a",
+              "snippet": "Fixture only."
+            }
+          ]
+        },
+        "answer": "Claim [1] https://evil.example/a"
+      },
+      "reject": true
+    },
+    {
+      "id": "disagreement-1",
+      "kind": "possible_disagreement",
+      "input": {
+        "results": [
+          {
+            "url": "https://example.com/a",
+            "snippet": "Acme cost: 10 USD"
+          },
+          {
+            "url": "https://example.org/b",
+            "snippet": "Acme cost: 20 USD"
+          }
+        ]
+      },
+      "expected": 1
+    },
+    {
+      "id": "disagreement-2",
+      "kind": "possible_disagreement",
+      "input": {
+        "results": [
+          {
+            "url": "https://example.com/a",
+            "snippet": "Acme cost: 10 USD"
+          },
+          {
+            "url": "https://example.org/b",
+            "snippet": "Acme cost: 10.0 USD"
+          }
+        ]
+      },
+      "expected": 0
+    },
+    {
+      "id": "disagreement-3",
+      "kind": "possible_disagreement",
+      "input": {
+        "results": [
+          {
+            "url": "https://example.com/a",
+            "snippet": "Acme mass: 10 kg"
+          },
+          {
+            "url": "https://example.org/b",
+            "snippet": "Acme mass: 20 lb"
+          }
+        ]
+      },
+      "expected": 0
+    },
+    {
+      "id": "disagreement-4",
+      "kind": "possible_disagreement",
+      "input": {
+        "results": [
+          {
+            "url": "https://example.com/a",
+            "snippet": "Acme cost: 10 USD"
+          },
+          {
+            "url": "https://example.org/b",
+            "snippet": "Beta cost: 20 USD"
+          }
+        ]
+      },
+      "expected": 0
+    },
+    {
+      "id": "disagreement-5",
+      "kind": "possible_disagreement",
+      "input": {
+        "results": [
+          {
+            "url": "https://example.com/a",
+            "snippet": "Acme ships tomorrow."
+          },
+          {
+            "url": "https://example.org/b",
+            "snippet": "Acme does not ship tomorrow."
+          }
+        ]
+      },
+      "expected": 0
+    },
+    {
+      "id": "date-1",
+      "kind": "provider_date_estimate",
+      "input": {
+        "date": "2026-10-11",
+        "window": 7
+      },
+      "expected": "recent"
+    },
+    {
+      "id": "date-2",
+      "kind": "provider_date_estimate",
+      "input": {
+        "date": "2026-10-04",
+        "window": 7
+      },
+      "expected": "recent"
+    },
+    {
+      "id": "date-3",
+      "kind": "provider_date_estimate",
+      "input": {
+        "date": "2026-10-03",
+        "window": 7
+      },
+      "expected": "stale"
+    },
+    {
+      "id": "date-4",
+      "kind": "provider_date_estimate",
+      "input": {
+        "date": "2026-10-12",
+        "window": 7
+      },
+      "expected": "future"
+    },
+    {
+      "id": "date-5",
+      "kind": "provider_date_estimate",
+      "input": {
+        "date": null,
+        "window": 7
+      },
+      "expected": "unknown"
+    },
+    {
+      "id": "date-6",
+      "kind": "provider_date_estimate",
+      "input": {
+        "date": "2026-02-30",
+        "window": 7
+      },
+      "expected": "invalid"
+    }
+  ]
+}

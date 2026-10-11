@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.12"
+SHY_VERSION = "0.105.13"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1426,6 +1426,8 @@ from memory_controls import MemoryBodyLimit, router as memory_controls_router
 from documents import DocumentBodyLimit, ensure_document_schema, router as documents_router
 from context_budget import bound_context
 
+from comparisons import ComparisonRequest, compare_options, comparison_message, router as comparisons_router
+app.include_router(comparisons_router)
 app.include_router(intelligence_router)
 app.add_middleware(IntelligenceBodyLimit)
 app.include_router(voice_router)
@@ -3133,6 +3135,7 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
 
 
 class ChatRequest(BaseModel):
+    option_comparison: ComparisonRequest | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
     message: str
     conversation_id: uuid.UUID | None = None
@@ -3155,6 +3158,7 @@ class SyntheticApprovalRequest(BaseModel):
 
 
 class AgentRequest(BaseModel):
+    option_comparison: ComparisonRequest | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
     message: str
     conversation_id: uuid.UUID | None = None
@@ -4495,7 +4499,7 @@ async def testing_task_approval(request: SyntheticApprovalRequest):
 
 @app.post("/agent")
 async def agent(request: AgentRequest):
-    if calculator_expression(request.message) is not None:
+    if request.option_comparison is not None or calculator_expression(request.message) is not None:
         return await chat(ChatRequest(**request.model_dump()))
     if request.project_id:
         if request.user_id or request.workspace_id or request.business_id:
@@ -4863,6 +4867,8 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    if request.option_comparison is not None and (request.task_id or request.cancel_task or request.approval_token or request.pending_step_id is not None):
+        raise HTTPException(422, "comparison_cannot_mix_with_task_controls")
     if request.project_id:
         if request.user_id or request.workspace_id or request.business_id:
             raise HTTPException(422, "project_scope_cannot_mix_with_legacy_identity_fields")
@@ -4936,6 +4942,23 @@ async def chat(request: ChatRequest):
             status_code=503,
             detail=f"SHY memory unavailable: {exc}"
         )
+
+    if request.option_comparison is not None:
+        comparison = compare_options(request.option_comparison)
+        answer = comparison_message(comparison)
+        try:
+            save_message(conversation_id=conversation_id, role="assistant", content=answer,
+                         model="bounded-option-comparison", provider="shy-core", task_type="comparison")
+        except psycopg.Error as exc:
+            raise HTTPException(503, f"SHY response generated but memory save failed: {exc}")
+        return {"assistant": "SHY", "status": "RESPOND", "message": answer,
+                "conversation_id": str(conversation_id), "model": "bounded-option-comparison",
+                "provider": "shy-core", "task_type": "comparison", "comparison": comparison,
+                "routing_reason": "Deterministic comparison of supplied numeric options.",
+                "tool_decision": {"decision": "NO_TOOL"}, "approval_required": False,
+                "execution_status": "NOT_REQUESTED", "verifier_invoked": False,
+                "research_invoked": False, "hidden_reasoning_exposed": False, "model_routing": None,
+                "cognitive": {"model_invoked": False, "model_roles": [], "verification_status": "NOT_RUN"}}
 
     basic_system_response = _run_basic_system_response(request)
     if basic_system_response is not None:

@@ -52,7 +52,7 @@ class IntelligenceBodyLimit:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") not in {"/intelligence/evaluate", "/intelligence/batch"}:
+        if scope["type"] != "http" or scope.get("method") != "POST" or scope.get("path", "").rstrip("/") not in {"/intelligence/evaluate", "/intelligence/batch", "/comparisons/evaluate"}:
             return await self.app(scope, receive, send)
         body = bytearray()
         while True:
@@ -102,3 +102,4 @@ class IntelligenceBodyLimit:
                 return {"type": "http.request", "body": bytes(body), "more_body": False}
             return await receive()
         await self.app(scope, replay, send)
+

@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.12. A future number must not be added
+shipped. The current implementation is v0.105.13. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -15,7 +15,7 @@ Browser voice requires compatible APIs and permission. Local recognition depends
 on browser language packs. Remote browser speech requires session-only opt-in.
 The core has an optional bounded local Whisper HTTP adapter; no model is installed
 in the core image. No real microphone, Haitian Creole
-speech quality, Windows execution, wake-word behavior, or GPU speech latency has
+speech quality, execution on the user’s Windows machine, acoustic wake-word behavior, or GPU speech latency has
 been measured by CI. Browser voice UI tests use fixtures. A separate acoustic
 smoke test uses a real English recording with the local Whisper engine on CPU.
 
@@ -69,8 +69,8 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.146 | Clarify missing evidence | Partial early in v0.105.10: missing qualifying date evidence returns clarification before generation; v0.105.11 also clarifies empty excerpts and possible disagreements; broader missing-claim evidence handling remains pending |
 | v0.147 | Show assumptions and concise explanations | Partial early in v0.105.12: research answer context explains model invocation, checked source records, date-window assumptions and unresolved truth/subject limits; general reasoning explanations and quality benchmarks remain pending |
 | v0.148 | Calculator-backed numerical answers | Implemented early in v0.105.8: bounded explicit decimal arithmetic through actual agent/chat paths, stored replies and project ownership; no inferred units or word-problem solver |
-| v0.149 | Compare options against user criteria | Planned |
-| v0.150 | Research and reasoning benchmarks | Planned |
+| v0.149 | Compare options against user criteria | Implemented early in v0.105.13 for explicitly supplied numeric criteria: weighted min/max ranking, ties, input table and project-scoped chat; natural-language criteria extraction and factual value gathering are not implemented |
+| v0.150 | Research and reasoning benchmarks | Partial early in v0.105.13: 33 fixed offline reference cases with a hashed JSON report and CI gate; live model quality, semantic claim support, representative questions and target hardware latency remain pending |
 | v0.151 | Read approved local folders | Planned: target-machine filesystem access required |
 | v0.152 | Preview file creation and edits | Planned |
 | v0.153 | Approved edits with backups | Planned |
@@ -170,3 +170,5 @@ The v0.105.10 patch adds [provider date estimate checks](research-source-dates.m
 The v0.105.11 patch adds [bounded disagreement clarification](research-disagreement-checks.md), source cards in ordinary research chat and accurate provenance for replies that did not invoke a model. This does not complete general semantic comparison or research quality benchmarks.
 
 The v0.105.12 patch adds [research answer context](research-answer-context.md) and fixes source-card rendering for ordinary research chat. Counts, date windows and model-invocation details are bounded public check descriptions, not private model reasoning or independent claim verification.
+
+The v0.105.13 patch adds [criteria comparisons and bounded reasoning checks](option-comparisons.md). These do not complete the speech, visual, live research or hardware qualification required across v0.106–v0.150.

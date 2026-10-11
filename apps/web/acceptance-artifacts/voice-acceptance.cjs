@@ -91,12 +91,13 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.12', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.13', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
     submitted++;
     lastChatBody = route.request().postDataJSON();
+    if (lastChatBody.option_comparison) return route.fulfill({json:{status:'RESPOND',message:'Comparison fixture: A scores 100.000000; B scores 0.000000.',conversation_id:'fixture'}});
     if (lastChatBody.message === 'Research context fixture') return route.fulfill({ json: {
       status:'RESPOND',message:'Please provide newer dated evidence.',conversation_id:'fixture',
       research_answer:{mode:'missing_recent_evidence',model_invoked:false,semantic_truth_verified:false,source_count:1,date_window_days:7},
@@ -268,6 +269,25 @@ let browser;
   await page.getByText('Research context source', { exact: true }).waitFor();
   assert.equal(await page.getByText('SHY generated this clarification without a model.', { exact: true }).isVisible(),true);
   assert.equal(await page.getByText('Checks and limits', { exact: true }).evaluate(element => element.closest('details').open),false);
+  await page.getByText('Compare options', {exact:true}).click();
+  await page.getByLabel('Criterion 1 name', {exact:true}).fill('Cost');
+  await page.getByLabel('Criterion 1 unit', {exact:true}).fill('USD');
+  await page.getByLabel('Option 1 name', {exact:true}).fill('A');
+  await page.getByLabel('Option 2 name', {exact:true}).fill('B');
+  await page.getByLabel('Option 1 criterion 1 value', {exact:true}).fill('100');
+  await page.getByLabel('Option 2 criterion 1 value', {exact:true}).fill('200');
+  for (const width of [360,390,768,1440]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),true,`comparison overflow at ${width}px`);
+  }
+  await page.getByRole('button',{name:'Calculate comparison',exact:true}).click();
+  await page.getByText('Comparison fixture: A scores 100.000000; B scores 0.000000.',{exact:true}).waitFor();
+  assert.equal(lastChatBody.project_id,'gud-express');
+  assert.equal(lastChatBody.option_comparison.criteria[0].direction,'minimize');
+  assert.equal(lastChatBody.option_comparison.criteria[0].unit,'USD');
+  assert.equal(lastChatBody.option_comparison.options[1].values.c1,'200');
+  await page.reload();
+  await page.getByText('Comparison fixture: A scores 100.000000; B scores 0.000000.',{exact:true}).waitFor();
   console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context and reload persistence (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
