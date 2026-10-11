@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.10. A future number must not be added
+shipped. The current implementation is v0.105.11. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -61,12 +61,12 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.138 | User-selected screen capture | Planned |
 | v0.139 | Voice, images, text in one request | Planned |
 | v0.140 | Visual accuracy and privacy benchmarks | Planned |
-| v0.141 | Connect evidence pipeline to chat | Planned |
+| v0.141 | Connect evidence pipeline to chat | Partial early in v0.105.11: ordinary research chat returns source cards and response provenance; broader live-provider and real-model qualification pending |
 | v0.142 | Approved web search integration | Planned: qualify existing research provider and credentials |
 | v0.143 | Retrieve and cite public pages | Partial early in v0.105.9: existing research synthesis enforces citation/source membership and prompt/source numbering; full-page retrieval and live provider qualification remain pending |
 | v0.144 | Check source dates and freshness | Partial early in v0.105.10: provider date estimates, separate retrieval times, conservative English recency hints and dated citation gates; verified page dates and live-provider qualification pending |
-| v0.145 | Compare claims across sources | Planned |
-| v0.146 | Clarify missing evidence | Partial early in v0.105.10: missing qualifying date evidence returns clarification before generation; broader missing-claim evidence handling remains pending |
+| v0.145 | Compare claims across sources | Partial early in v0.105.11: matching atomic field/value snippets and existing workflow conflict flags produce cited clarification; general prose semantic comparison and quality qualification remain pending |
+| v0.146 | Clarify missing evidence | Partial early in v0.105.10: missing qualifying date evidence returns clarification before generation; v0.105.11 also clarifies empty excerpts and possible disagreements; broader missing-claim evidence handling remains pending |
 | v0.147 | Show assumptions and concise explanations | Planned |
 | v0.148 | Calculator-backed numerical answers | Implemented early in v0.105.8: bounded explicit decimal arithmetic through actual agent/chat paths, stored replies and project ownership; no inferred units or word-problem solver |
 | v0.149 | Compare options against user criteria | Planned |
@@ -166,3 +166,5 @@ The v0.105.8 patch hardens and connects the [bounded decimal calculator](calcula
 The v0.105.9 patch enforces [research citation membership](research-citation-checks.md). It does not complete source truth, freshness or research accuracy benchmarks.
 
 The v0.105.10 patch adds [provider date estimate checks](research-source-dates.md) and missing-current-evidence clarification. Verified publication dates, multilingual intent detection and research quality benchmarks remain pending.
+
+The v0.105.11 patch adds [bounded disagreement clarification](research-disagreement-checks.md), source cards in ordinary research chat and accurate provenance for replies that did not invoke a model. This does not complete general semantic comparison or research quality benchmarks.
