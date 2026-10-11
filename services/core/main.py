@@ -4753,6 +4753,8 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
     )
 
     if calculator_verified:
+        cognitive_metadata["model_roles_used"] = []
+        cognitive_metadata["model_invoked"] = False
         try:
             save_message(conversation_id=conversation_id, role="assistant", content=answer,
                          model="bounded-decimal-calculator", provider="shy-core", task_type="calculation")
@@ -4765,9 +4767,9 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
         "reason": tool_result.reason,
         "message": answer,
         "conversation_id": str(conversation_id),
-        "model": route.model,
-        "provider": route.provider,
-        "task_type": route.task_type,
+        "model": "bounded-decimal-calculator" if calculator_verified else route.model,
+        "provider": "shy-core" if calculator_verified else route.provider,
+        "task_type": "calculation" if calculator_verified else route.task_type,
         "routing_reason": route.reason,
         "adaptive_mode": "tool",
         "execution_mode": "SINGLE_TOOL",

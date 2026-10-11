@@ -37,6 +37,8 @@ class CalculatorChat(unittest.TestCase):
         payload = response.json(); self.assertEqual(payload['status'], 'RESPOND')
         self.assertEqual(payload['message'], 'The result is 0.3.')
         self.assertEqual(payload['calculation']['decimal_result'], '0.3')
+        self.assertEqual(payload['model'], 'bounded-decimal-calculator'); self.assertEqual(payload['provider'], 'shy-core')
+        self.assertFalse(payload['cognitive']['model_invoked'])
         self.assertTrue(payload['verifier_invoked']); self.assertFalse(payload['research_invoked'])
         history = self.memory.load_messages(uuid.UUID(payload['conversation_id']), user_id=self.memory.local_memory_user(self.project))
         self.assertEqual([item['role'] for item in history], ['user', 'assistant'])
