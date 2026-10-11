@@ -26,6 +26,10 @@ export function ShySourceCards({ sources }: ShySourceCardsProps) {
             <p className="shy-chip">[{source.number}]</p>
             <h4>{source.title || `Source ${source.number}`}</h4>
             <p className="shy-muted">{source.source || new URL(source.url).host}</p>
+            <p className="shy-muted">{source.source_date
+              ? `Provider date estimate: ${source.source_date}` : 'Source date unknown'}
+              {source.source_date_status ? ` (${source.source_date_status})` : ''}</p>
+            {source.retrieved_at && <p className="shy-muted">Retrieved: {source.retrieved_at}</p>}
             <a href={source.url} target="_blank" rel="noreferrer noopener">
               {source.url}
             </a>

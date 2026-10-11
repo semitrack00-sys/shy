@@ -50,5 +50,35 @@ class ResearchGuardIntegration(unittest.TestCase):
         response, generation = self.call_agent('Evidence [1].', 'javascript:alert(1)')
         self.assertEqual(response.json()['status'], 'FAILED'); self.assertEqual(generation.await_count, 0)
 
+    def test_recent_requests_need_dated_evidence_before_generation(self):
+        from datetime import datetime, timezone
+        now = datetime(2026,10,11,12,tzinfo=timezone.utc)
+        for source_date in [None,'2026-01-01','2026-10-12','not a date']:
+            search = SimpleNamespace(status='TOOL_RESULT',tool_name='web.search',tool_status='EXECUTED',reason='fixture',
+                output={'provider':'fixture','results':[{'url':'https://example.com/a','title':'A',
+                'snippet':'Evidence','source_date':source_date,'retrieved_at':now.isoformat()}]})
+            with patch.object(self.core.agent_runtime,'run',return_value=search), patch.object(self.core,'utc_now',return_value=now), patch.object(self.core,'generate_intelligence_response',AsyncMock(return_value='Current [1].')) as generation:
+                response=self.client.post('/agent',json={'message':'Search latest source information'})
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(response.json()['status'],'RESPOND')
+            self.assertIn('I need dated evidence',response.json()['message'])
+            self.assertEqual(generation.await_count,0)
+            self.assertNotEqual(response.json()['sources'][0]['source_date_status'],'recent')
+
+    def test_recent_request_accepts_recent_citation_and_rejects_older_one(self):
+        from datetime import datetime, timezone
+        now=datetime(2026,10,11,12,tzinfo=timezone.utc)
+        payload={'results':[{'url':'https://example.com/a','title':'A','snippet':'New','source_date':'2026-10-11'},
+                            {'url':'https://example.com/b','title':'B','snippet':'Old','source_date':'2025-01-01'}]}
+        for answer, fails in [('New [1].',False),('Old [2].',True),('New [1] and old [2].',True)]:
+            with patch.object(self.core,'utc_now',return_value=now), patch.object(self.core,'generate_intelligence_response',AsyncMock(return_value=answer)) as generation:
+                if fails:
+                    with self.assertRaises(self.core.ResearchSynthesisError):
+                        asyncio.run(self.core.generate_research_response('Latest information',research_output=payload))
+                else:
+                    self.assertEqual(asyncio.run(self.core.generate_research_response('Latest information',research_output=payload)),answer)
+            self.assertEqual(generation.await_count,1)
+            self.assertIn('provider date estimates',generation.call_args.kwargs['message'])
+
 
 if __name__ == '__main__': unittest.main()

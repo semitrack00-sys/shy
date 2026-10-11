@@ -5,6 +5,10 @@ export interface ShyResearchSource {
   title: string;
   url: string;
   source: string;
+  source_date?: string;
+  retrieved_at?: string;
+  source_date_status?: string;
+  date_basis?: string;
 }
 
 export interface ShyToolOutput {
@@ -72,3 +76,4 @@ export interface ChatStore {
   activeConversationId: string | null;
   theme: 'light' | 'dark';
 }
+

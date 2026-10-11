@@ -15,3 +15,12 @@ it('displays HTTP sources without rendering unsafe or malformed links', () => {
   expect(screen.queryByText('Script source')).not.toBeInTheDocument();
   expect(screen.queryByText('Malformed source')).not.toBeInTheDocument();
 });
+it('labels provider date estimates separately from retrieval and missing dates', () => {
+  render(<ShySourceCards sources={[
+    {number:1,title:'Dated',url:'https://example.com/a',source:'example.com',source_date:'2026-10-10',source_date_status:'recent',retrieved_at:'2026-10-11T12:00:00Z'},
+    {number:2,title:'Undated',url:'https://example.com/b',source:'example.com'},
+  ]}/>);
+  expect(screen.getByText('Provider date estimate: 2026-10-10 (recent)')).toBeInTheDocument();
+  expect(screen.getByText('Retrieved: 2026-10-11T12:00:00Z')).toBeInTheDocument();
+  expect(screen.getByText('Source date unknown')).toBeInTheDocument();
+});
