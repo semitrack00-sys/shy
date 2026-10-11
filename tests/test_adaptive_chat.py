@@ -2,6 +2,7 @@ import importlib.util
 import os
 import sys
 import types
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -148,6 +149,8 @@ assert main.apply_adaptive_response_policy(DummyResearchRoute(), "research the l
 assert main.apply_adaptive_response_policy(DummyComplexRoute(), "compare constraints and explain trade-offs") == "verify"
 assert main.apply_adaptive_response_policy(DummyRoute(), "Design a fault-tolerant payment processing architecture and explain the major tradeoffs.") == "verify"
 
+main.utc_now = lambda: datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
+
 class FakeResearchProvider:
     name = "fake-provider"
 
@@ -161,12 +164,14 @@ class FakeResearchProvider:
                     "url": "https://example.com/battery-briefing",
                     "source": "example.org",
                     "snippet": "Next-generation battery chemistry improves cycle life and safety.",
+                    "source_date": "2026-10-11",
                 },
                 {
                     "title": "Electrode material summary",
                     "url": "https://example.com/electrode-summary",
                     "source": "example.net",
                     "snippet": "Solid-state and lithium-silicon chemistries are reducing degradation.",
+                    "source_date": "2026-10-10",
                 },
             ],
         }
@@ -210,3 +215,4 @@ except Exception as exc:
     raise AssertionError(f"research failure safeguard failed: {exc}") from exc
 
 print("adaptive chat policy tests: PASS")
+

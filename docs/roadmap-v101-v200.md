@@ -66,7 +66,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.143 | Retrieve and cite public pages | Partial early in v0.105.9: existing research synthesis enforces citation/source membership and prompt/source numbering; full-page retrieval and live provider qualification remain pending |
 | v0.144 | Check source dates and freshness | Partial early in v0.105.10: provider date estimates, separate retrieval times, conservative English recency hints and dated citation gates; verified page dates and live-provider qualification pending |
 | v0.145 | Compare claims across sources | Planned |
-| v0.146 | Clarify missing evidence | Planned |
+| v0.146 | Clarify missing evidence | Partial early in v0.105.10: missing qualifying date evidence returns clarification before generation; broader missing-claim evidence handling remains pending |
 | v0.147 | Show assumptions and concise explanations | Planned |
 | v0.148 | Calculator-backed numerical answers | Implemented early in v0.105.8: bounded explicit decimal arithmetic through actual agent/chat paths, stored replies and project ownership; no inferred units or word-problem solver |
 | v0.149 | Compare options against user criteria | Planned |
