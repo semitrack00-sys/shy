@@ -308,7 +308,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.9"
+SHY_VERSION = "0.105.10"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1561,7 +1561,12 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
             "source_table_matches_prompt_numbers": True,
             "invented_answer_urls_rejected": True,
             "source_truth_independently_verified": False,
-            "source_dns_or_freshness_checked": False,
+            "source_dns_checked": False,
+            "provider_date_estimates_checked": True,
+            "retrieval_time_is_publication_proof": False,
+            "recent_request_citations_require_recent_date_estimates": True,
+            "recency_hint_language": "English",
+            "verified_publication_dates": False,
         },
         "calculator_capabilities": {
             "explicit_numeric_expression": True,
@@ -2461,6 +2466,7 @@ async def run_research_pipeline(message: str):
 
 
 from research.synthesis_guard import synthesis_sources, validate_synthesis
+from research.freshness import utc_now, requested_window, evidence_timing, source_timing, validate_current_citations
 
 
 async def generate_research_response(message: str, research_output: dict | None = None, research_result: Any | None = None):
@@ -2469,6 +2475,17 @@ async def generate_research_response(message: str, research_output: dict | None 
         checked_sources = synthesis_sources(payload)
     except ValueError:
         raise ResearchSynthesisError("Research evidence has invalid source provenance.") from None
+    window = requested_window(message)
+    timing = evidence_timing(payload, checked_sources, utc_now(), window)
+    if window is not None and not any(item["source_date_status"] == "recent" for item in timing):
+        return (f"I need dated evidence within {window} UTC calendar days to answer this as current. "
+                "The available sources have missing, invalid, future or older date estimates. "
+                "Would you like historical context, or can you provide a newer dated source?")
+    timing_block = json.dumps(timing, ensure_ascii=True)
+    current_rule = ("No current-date requirement was detected. Do not present unknown dates as recent." if window is None else
+                    f"Current request: use only references marked recent within {window} UTC calendar days. "
+                    "These are provider date estimates, not verified publication dates. "
+                    "Do not use older, undated, invalid or future references for this answer.")
     evidence = _build_research_evidence_block(payload)
 
     research_prompt = f"""
@@ -2485,6 +2502,11 @@ Do not claim facts that are not supported by the evidence.
 If sources disagree or evidence is insufficient, say so.
 Use citations like [1], [2], etc. for factual claims.
 Do not invent citations or URLs.
+
+SOURCE DATE CHECKS (server-computed):
+{timing_block}
+{current_rule}
+Retrieval time is when SHY fetched a search result, never proof of publication time or claim truth.
 
 EXTERNAL EVIDENCE:
 
@@ -2512,8 +2534,9 @@ Answer the user's original question clearly and concisely.
 
     try:
         validate_synthesis(synthesis, checked_sources)
+        validate_current_citations(synthesis, checked_sources, timing, window)
     except ValueError:
-        raise ResearchSynthesisError("Research synthesis failed citation membership validation.") from None
+        raise ResearchSynthesisError("Research synthesis failed citation or source-date validation.") from None
     return synthesis
 
 def _sanitize_tool_payload(value: Any, max_chars: int = 4000) -> Any:
@@ -4471,6 +4494,8 @@ async def agent(request: AgentRequest):
                 "title": item.get("title", ""),
                 "url": item.get("url", ""),
                 "source": item.get("source", ""),
+                **(source_timing(item.get("source_date"), utc_now(), requested_window(request.message) if requested_window(request.message) is not None else 30) if item.get("source_date") or item.get("retrieved_at") else {}),
+                **({"retrieved_at": item["retrieved_at"]} if isinstance(item.get("retrieved_at"), str) and len(item["retrieved_at"]) <= 120 else {}),
             }
             for index, item in enumerate(
                 research_output.get("results", []),

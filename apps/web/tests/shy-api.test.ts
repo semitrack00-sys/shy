@@ -65,3 +65,13 @@ describe('SHY API parsing', () => {
     expect(formatConversationTitle('  Research   NVIDIA   Blackwell   ')).toBe('Research NVIDIA Blackwell');
   });
 });
+it('preserves bounded source date metadata without accepting arbitrary status strings', () => {
+  const response = parseShyAgentResponse({status:'RESPOND', sources:[
+    {number:1,url:'https://example.com/a',source_date:'2026-10-10',retrieved_at:'2026-10-11T12:00:00Z',source_date_status:'recent',date_basis:'provider_publication_or_update_estimate'},
+    {number:2,url:'https://example.com/b',source_date_status:'verified true'},
+  ]});
+  expect(response.sources?.[0].source_date).toBe('2026-10-10');
+  expect(response.sources?.[0].retrieved_at).toBe('2026-10-11T12:00:00Z');
+  expect(response.sources?.[0].date_basis).toBe('provider_publication_or_update_estimate');
+  expect(response.sources?.[1].source_date_status).toBeUndefined();
+});

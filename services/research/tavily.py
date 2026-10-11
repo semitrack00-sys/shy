@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 import httpx
 
@@ -44,6 +44,7 @@ class TavilySearchProvider(WebSearchProvider):
             "search_depth": "basic",
             "max_results": max_results,
             "include_answer": False,
+            "include_published_date": True,
             "include_raw_content": False,
             "include_images": False,
         }
@@ -90,6 +91,7 @@ class TavilySearchProvider(WebSearchProvider):
                     url=url,
                     snippet=snippet,
                     source=self._source_from_url(url),
+                    source_date=item.get("published_date"),
                 )
             )
 
@@ -101,3 +103,4 @@ class TavilySearchProvider(WebSearchProvider):
             return httpx.URL(url).host or url
         except Exception:
             return url
+

@@ -45,6 +45,10 @@ export function parseShyAgentResponse(value: unknown): ShyAgentResponse {
           title: String(source.title ?? ''),
           url: String(source.url ?? ''),
           source: String(source.source ?? ''),
+          ...(typeof source.source_date === 'string' ? { source_date: source.source_date.slice(0, 120) } : {}),
+          ...(typeof source.retrieved_at === 'string' ? { retrieved_at: source.retrieved_at.slice(0, 120) } : {}),
+          ...(typeof source.source_date_status === 'string' && ['unknown', 'invalid', 'future', 'recent', 'stale'].includes(source.source_date_status) ? { source_date_status: source.source_date_status } : {}),
+          ...(source.date_basis === 'provider_publication_or_update_estimate' ? { date_basis: source.date_basis } : {}),
         };
       })
       .filter((source): source is NonNullable<ShyAgentResponse['sources']>[number] => source !== null);
@@ -109,3 +113,4 @@ export function formatConversationTitle(message: string): string {
   const shortened = cleaned.slice(0, 52);
   return shortened.length < cleaned.length ? `${shortened.trimEnd()}…` : shortened;
 }
+

@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.9. A future number must not be added
+shipped. The current implementation is v0.105.10. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -64,7 +64,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.141 | Connect evidence pipeline to chat | Planned |
 | v0.142 | Approved web search integration | Planned: qualify existing research provider and credentials |
 | v0.143 | Retrieve and cite public pages | Partial early in v0.105.9: existing research synthesis enforces citation/source membership and prompt/source numbering; full-page retrieval and live provider qualification remain pending |
-| v0.144 | Check source dates and freshness | Planned |
+| v0.144 | Check source dates and freshness | Partial early in v0.105.10: provider date estimates, separate retrieval times, conservative English recency hints and dated citation gates; verified page dates and live-provider qualification pending |
 | v0.145 | Compare claims across sources | Planned |
 | v0.146 | Clarify missing evidence | Planned |
 | v0.147 | Show assumptions and concise explanations | Planned |
@@ -164,3 +164,5 @@ The v0.105.7 patch adds [bounded browser wake sessions](browser-wake-sessions.md
 The v0.105.8 patch hardens and connects the [bounded decimal calculator](calculator-chat.md) to both chat entry points.
 
 The v0.105.9 patch enforces [research citation membership](research-citation-checks.md). It does not complete source truth, freshness or research accuracy benchmarks.
+
+The v0.105.10 patch adds [provider date estimate checks](research-source-dates.md) and missing-current-evidence clarification. Verified publication dates, multilingual intent detection and research quality benchmarks remain pending.

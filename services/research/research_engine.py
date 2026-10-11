@@ -67,6 +67,8 @@ class NormalizedEvidence:
     supports_claim_ids: tuple[str, ...] = ()
     contradicts_claim_ids: tuple[str, ...] = ()
     retrieved_from: str = "web.search"
+    source_date: str | None = None
+    retrieved_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -361,6 +363,8 @@ class ResearchEngine:
                     supports_claim_ids=tuple(sorted(set(supports))),
                     contradicts_claim_ids=tuple(sorted(set(contradicts))),
                     retrieved_from=_normalize_line(retrieved_from) or "web.search",
+                    source_date=row.get("source_date") if isinstance(row.get("source_date"), str) and len(row["source_date"]) <= 120 else None,
+                    retrieved_at=row.get("retrieved_at") if isinstance(row.get("retrieved_at"), str) and len(row["retrieved_at"]) <= 120 else None,
                 )
             )
 
@@ -534,6 +538,8 @@ def _build_deterministic_sources(evidence: list[NormalizedEvidence]) -> list[dic
                 "evidence_id": item.evidence_id,
                 "supports_claim_ids": list(item.supports_claim_ids),
                 "contradicts_claim_ids": list(item.contradicts_claim_ids),
+                **({"source_date": item.source_date} if item.source_date else {}),
+                **({"retrieved_at": item.retrieved_at} if item.retrieved_at else {}),
             }
         )
 
@@ -602,3 +608,4 @@ def _normalize_domain(url: str) -> str:
         return (urlparse(url).netloc or "").lower()
     except Exception:
         return ""
+

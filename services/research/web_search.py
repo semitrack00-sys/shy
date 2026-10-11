@@ -1,5 +1,6 @@
-﻿from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
+from datetime import datetime, timezone
 
 
 def _normalize_text(value: Any) -> str:
@@ -12,6 +13,8 @@ class SearchResult:
     url: str
     snippet: str
     source: str
+    source_date: str | None = None
+    retrieved_at: str | None = None
 
 
 class WebSearchError(RuntimeError):
@@ -67,6 +70,7 @@ class WebSearchService:
         )
 
         normalized = []
+        retrieved_at = datetime.now(timezone.utc).isoformat()
 
         for result in results[:max_results]:
             clean_url = _normalize_text(result.url)
@@ -85,6 +89,8 @@ class WebSearchService:
                 url=clean_url,
                 snippet=clean_snippet,
                 source=clean_source or "unknown",
+                source_date=result.source_date if isinstance(result.source_date, str) and len(result.source_date) <= 120 else None,
+                retrieved_at=retrieved_at,
             )
 
             normalized.append(asdict(normalized_result))
@@ -95,3 +101,4 @@ class WebSearchService:
             "result_count": len(normalized),
             "results": normalized,
         }
+
