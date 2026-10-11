@@ -1,4 +1,3 @@
-import ast
 import importlib.util
 import json
 import re
@@ -88,51 +87,11 @@ def _safe_number(value: Any) -> float:
         raise ValueError("Invalid numeric input.") from None
 
 
+from tools.arithmetic import calculator_result
+
+
 def _evaluate_safe_arithmetic(expression: str) -> float:
-    text = expression.strip()
-    if not text:
-        raise ValueError("Expression is required.")
-
-    if re.search(r"%\s*of\s*", text, re.I):
-        match = re.search(r"([0-9]*\.?[0-9]+)\s*%\s*of\s*([0-9]*\.?[0-9]+)", text, re.I)
-        if not match:
-            raise ValueError("Invalid percentage expression.")
-        percent = float(match.group(1))
-        base = float(match.group(2))
-        return (base * percent) / 100.0
-
-    try:
-        tree = ast.parse(text, mode="eval")
-    except (SyntaxError, ValueError):
-        raise ValueError("Invalid arithmetic expression.") from None
-
-    allowed_names = {"__builtins__": None}
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.BinOp, ast.UnaryOp, ast.Expression, ast.Load)):
-            continue
-        if isinstance(node, ast.operator):
-            continue
-        if isinstance(node, ast.unaryop):
-            continue
-        if isinstance(node, ast.Constant):
-            if not isinstance(node.value, (int, float)):
-                raise ValueError("Only numeric constants are allowed.")
-            continue
-        if isinstance(node, ast.Call):
-            raise ValueError("Function calls are not allowed.")
-        if isinstance(node, ast.Name):
-            if node.id not in allowed_names:
-                raise ValueError("Symbol access is not allowed.")
-            continue
-        raise ValueError("Unsupported arithmetic syntax.")
-
-    try:
-        result = eval(compile(tree, "<tool>", "eval"), {"__builtins__": {}}, {})
-    except Exception:
-        raise ValueError("Invalid arithmetic expression.") from None
-    if isinstance(result, bool):
-        raise ValueError("Boolean arithmetic is not allowed.")
-    return float(result)
+    return calculator_result(expression)['result']
 
 
 def _validate_schema(schema: dict[str, Any], arguments: dict[str, Any]) -> None:
@@ -502,7 +461,7 @@ class ToolGateway:
                     raise ValueError("Tool implementation missing.")
                 output = handler(**arguments)
             elif tool_id == "calculator":
-                output = {"result": _evaluate_safe_arithmetic(str(arguments.get("expression", "")))}
+                output = calculator_result(arguments.get("expression", ""))
             elif tool_id == "datetime.now":
                 now = datetime.now(timezone.utc)
                 output = {
@@ -543,7 +502,8 @@ class ToolGateway:
             message = str(exc).lower()
             if isinstance(exc, ValueError):
                 if (
-                    "required" in message
+                    tool_id == "calculator"
+                    or "required" in message
                     or "missing" in message
                     or "invalid arithmetic" in message
                     or "unsupported arithmetic" in message
@@ -611,8 +571,7 @@ class ToolGateway:
         return result
 
     def _tool_calculator(self, expression: str):
-        result = _evaluate_safe_arithmetic(expression)
-        return {"result": float(result)}
+        return calculator_result(expression)
 
     def _tool_datetime(self):
         dt = datetime.now(timezone.utc)
@@ -632,3 +591,4 @@ class ToolGateway:
 
     def __contains__(self, tool_name: str) -> bool:
         return tool_name in self.registry._definitions
+

@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.7. A future number must not be added
+shipped. The current implementation is v0.105.8. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -68,7 +68,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.145 | Compare claims across sources | Planned |
 | v0.146 | Clarify missing evidence | Planned |
 | v0.147 | Show assumptions and concise explanations | Planned |
-| v0.148 | Calculator-backed numerical answers | Planned |
+| v0.148 | Calculator-backed numerical answers | Implemented early in v0.105.8: bounded explicit decimal arithmetic through actual agent/chat paths, stored replies and project ownership; no inferred units or word-problem solver |
 | v0.149 | Compare options against user criteria | Planned |
 | v0.150 | Research and reasoning benchmarks | Planned |
 | v0.151 | Read approved local folders | Planned: target-machine filesystem access required |
@@ -160,3 +160,5 @@ The v0.105.6 patch adds [bounded PDF/DOCX/XLSX text extraction](document-format-
 
 
 The v0.105.7 patch adds [bounded browser wake sessions](browser-wake-sessions.md). Genuine multilingual and target-hardware benchmarks remain pending.
+
+The v0.105.8 patch hardens and connects the [bounded decimal calculator](calculator-chat.md) to both chat entry points.
