@@ -58,3 +58,47 @@ describe('voice controls', () => {
     unmount(); expect(recognition.abort).toHaveBeenCalled();
   });
 });
+
+
+it('requires session consent and defaults to wake transcript review', () => {
+  const transcript = vi.fn(); const send = vi.fn(() => true);
+  render(<ShyVoice conversationId="one" disabled={false} onTranscript={transcript} onHandsfreeMessage={send}/>);
+  const start = screen.getByRole('button', {name:'Start wake voice session'}); expect(start).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('Allow a bounded wake voice session.')); fireEvent.click(start);
+  act(() => FakeRecognition.latest.result('Hey SHY draft this'));
+  expect(transcript).toHaveBeenCalledExactlyOnceWith('draft this'); expect(send).not.toHaveBeenCalled();
+});
+it('requires fresh consent after changing automatic sending and stops playback consent', () => {
+  const send = vi.fn(() => true);
+  render(<ShyVoice conversationId="one" disabled={false} onTranscript={vi.fn()} onHandsfreeMessage={send}/>);
+  fireEvent.click(screen.getByLabelText('Allow a bounded wake voice session.'));
+  fireEvent.click(screen.getByLabelText('Send wake-recognized messages automatically for this session.'));
+  const start = screen.getByRole('button', {name:'Start wake voice session'}); expect(start).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('Allow a bounded wake voice session.')); fireEvent.click(start);
+  act(() => FakeRecognition.latest.result('Hey SHY send this')); expect(send).toHaveBeenCalledExactlyOnceWith('send this');
+  fireEvent.click(screen.getByRole('button', {name:'Stop voice'})); expect(start).toBeDisabled();
+  expect(screen.getByLabelText('Read new replies aloud')).not.toBeChecked();
+});
+it('a tool approval stops capture and blocks automatic restart', () => {
+  const props = {conversationId:'one',disabled:false,onTranscript:vi.fn(),onHandsfreeMessage:vi.fn(() => true)};
+  const {rerender} = render(<ShyVoice {...props}/>);
+  fireEvent.click(screen.getByLabelText('Send wake-recognized messages automatically for this session.'));
+  fireEvent.click(screen.getByLabelText('Allow a bounded wake voice session.'));
+  fireEvent.click(screen.getByRole('button', {name:'Start wake voice session'}));
+  const recognition = FakeRecognition.latest;
+  rerender(<ShyVoice {...props} reply={{...reply,responseStatus:'AWAITING_APPROVAL'}}/>);
+  act(() => recognition.result('Hey SHY approve it'));
+  expect(props.onHandsfreeMessage).not.toHaveBeenCalled(); expect(recognition.abort).toHaveBeenCalled();
+  fireEvent.click(screen.getByLabelText('Allow a bounded wake voice session.'));
+  expect(screen.getByRole('button', {name:'Start wake voice session'})).toBeDisabled();
+});
+it('pagehide cancels capture, invalidates consent and ignores late wake messages', () => {
+  const send = vi.fn(() => true);
+  render(<ShyVoice conversationId="one" disabled={false} onTranscript={vi.fn()} onHandsfreeMessage={send}/>);
+  fireEvent.click(screen.getByLabelText('Send wake-recognized messages automatically for this session.'));
+  fireEvent.click(screen.getByLabelText('Allow a bounded wake voice session.'));
+  fireEvent.click(screen.getByRole('button', {name:'Start wake voice session'}));
+  const recognition = FakeRecognition.latest; act(() => window.dispatchEvent(new Event('pagehide')));
+  act(() => recognition.result('Hey SHY late')); expect(send).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', {name:'Start wake voice session'})).toBeDisabled();
+});

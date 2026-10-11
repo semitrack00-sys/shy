@@ -91,7 +91,7 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.6', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.7', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -218,8 +218,38 @@ let browser;
   assert.equal(extractionRequests, 1);
   assert.equal(documentWrites, 3);
   assert.equal(await page.getByRole('button', { name: 'Save reviewed document', exact: true }).isDisabled(), true);
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent (fixtures).');
+  await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+  await page.getByText('Voice settings and privacy', { exact: true }).click();
+  const startWake = page.getByRole('button', { name: 'Start wake voice session', exact: true });
+  assert.equal(await startWake.isDisabled(), true);
+  const beforeWake = submitted;
+  await page.getByLabel('Allow a bounded wake voice session.', { exact: true }).check();
+  await startWake.click();
+  await page.evaluate(() => window.voiceFixture.recognition.onresult({results:[{isFinal:true,0:{transcript:'Hey SHY browser wake draft'}}]}));
+  await page.waitForFunction(() => document.querySelector('#shy-composer-input').value === 'browser wake draft');
+  assert.equal(submitted, beforeWake, 'default wake mode must not send');
+  await page.getByLabel('Message SHY', { exact: true }).fill('');
+  await page.getByLabel('Allow a bounded wake voice session.', { exact: true }).check();
+  await page.getByLabel('Send wake-recognized messages automatically for this session.', { exact: true }).check();
+  assert.equal(await startWake.isDisabled(), true, 'changing automatic sending invalidates prior consent');
+  await page.getByLabel('Allow a bounded wake voice session.', { exact: true }).check();
+  await startWake.click();
+  await page.evaluate(() => window.voiceFixture.recognition.onresult({results:[{isFinal:true,0:{transcript:'Hey SHY automatic browser question'}}]}));
+  await page.getByRole('main').getByText('automatic browser question', { exact: true }).waitFor();
+  await page.waitForFunction(() => window.voiceFixture.spoken.length > 0);
+  assert.equal(submitted, beforeWake + 1);
+  assert.equal(lastChatBody.message, 'automatic browser question');
+  assert.equal(lastChatBody.project_id, 'gud-express');
+  assert.equal(lastChatBody.approval_token, undefined);
+  await page.getByRole('button', { name: 'Stop voice', exact: true }).click();
+  assert.equal(await startWake.isDisabled(), true);
+  assert.equal(await page.getByLabel('Read new replies aloud', { exact: true }).isChecked(), false);
+  await page.reload();
+  assert.equal(await page.getByLabel('Allow a bounded wake voice session.', { exact: true }).isChecked(), false);
+  assert.equal(await page.getByLabel('Send wake-recognized messages automatically for this session.', { exact: true }).isChecked(), false);
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();
 });
+
