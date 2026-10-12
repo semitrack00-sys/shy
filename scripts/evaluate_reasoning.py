@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'services'));sys.path.insert(0, str(ROOT/'services/core'))
 from tools.arithmetic import calculator_result
 from comparisons import ComparisonRequest, compare_options
+from document_diff import ordered_preview
 from research.synthesis_guard import synthesis_sources, validate_synthesis
 from research.claim_checks import disagreement_pairs
 from research.freshness import source_timing
@@ -22,6 +23,9 @@ def evaluate_case(case):
     if kind == 'arithmetic': return calculator_result(data)['decimal_result']
     if kind == 'comparison':
         return [(row['id'],row['score']) for row in compare_options(ComparisonRequest.model_validate(data))['ranking']]
+    if kind == 'ordered_document_lines':
+        result=ordered_preview(data['left'],data['right'])
+        return {key:result.get(key) for key in ['status','inserted_lines','deleted_lines','line_sequence_equal','text_identical']}
     if kind == 'citation_membership':
         sources=synthesis_sources(data['evidence']);validate_synthesis(data['answer'],sources);return 'accepted'
     if kind == 'possible_disagreement':
@@ -45,7 +49,7 @@ def run_benchmark(path=FIXTURE):
         except Exception as exc:
             passed=False;detail={'unexpected_error':type(exc).__name__}
         results.append({'id':case['id'],'kind':case['kind'],'passed':passed,**detail})
-    return {'benchmark':'bounded_research_reasoning_v1','fixture_sha256':hashlib.sha256(raw).hexdigest(),
+    return {'benchmark':'bounded_research_reasoning_v2','fixture_sha256':hashlib.sha256(raw).hexdigest(),
             'case_count':len(results),'passed_count':sum(r['passed'] for r in results),'results':results,
             'live_model_quality_measured':False,'source_truth_verified':False,'hardware_performance_measured':False,
             'qualification_complete':False,

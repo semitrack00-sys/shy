@@ -10,6 +10,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 import memory
+from document_diff import ordered_preview
 from document_extraction import ExtractRequest, extract_selected
 
 router = APIRouter(prefix='/documents', tags=['Local documents'])
@@ -267,6 +268,7 @@ def compare_documents(request: Compare, project_id: ProjectId = None):
     try:
         with memory.connect() as conn:
             with conn.cursor() as cur:
+                cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
                 rows = [require_document(cur,uuid.UUID(item),memory.local_memory_user(project_id)) for item in request.document_ids]
         # Literal line-set comparison, bounded output; no semantic equivalence claim.
         lines = [list(dict.fromkeys(row['content'].splitlines())) for row in rows]
@@ -275,7 +277,8 @@ def compare_documents(request: Compare, project_id: ProjectId = None):
                         if text not in sets[1-index]][:30] for index,row in enumerate(rows)]
         return {'method':'literal_line_comparison', 'documents':[metadata(row) for row in rows],
                 'common_unique_lines':len(sets[0] & sets[1]), 'unique_line_counts':[len(sets[0]-sets[1]),len(sets[1]-sets[0])],
-                'differences':differences, 'difference_excerpt_limit':30, 'semantic_equivalence_checked':False}
+                'differences':differences, 'difference_excerpt_limit':30, 'semantic_equivalence_checked':False,
+                'ordered_comparison':ordered_preview(rows[0]['content'], rows[1]['content'])}
     except HTTPException: raise
     except Exception: raise unavailable() from None
 

@@ -5,6 +5,7 @@ import unittest
 import uuid
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'services/core'))
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -72,6 +73,36 @@ class PostgreSQLDocuments(unittest.TestCase):
         response=self.client.patch('/documents/'+row['id'],params={'project_id':self.projects[0]},
             json=dict(name=row['name'],kind='text',content='Original source.',expected_revision=current['revision'],confirmed=True))
         self.assertEqual(response.status_code,200);self.assertNotEqual(response.json()['document']['revision'],row['revision'])
+    def test_ordered_comparison_duplicates_reorders_and_project_boundary(self):
+        a=self.upload('A\nA\nB',name='a.txt');b=self.upload('A\nB',name='b.txt')
+        body={'document_ids':[a['id'],b['id']]}
+        response=self.client.post('/documents/compare',params={'project_id':self.projects[0]},json=body)
+        self.assertEqual(response.status_code,200,response.text);data=response.json()
+        self.assertEqual(data['unique_line_counts'],[0,0])
+        self.assertEqual(data['ordered_comparison']['deleted_lines'],1)
+        self.assertEqual(data['documents'][0]['revision'],a['revision'])
+        self.assertEqual(self.client.post('/documents/compare',params={'project_id':self.projects[1]},json=body).status_code,404)
+        long=self.upload('x\n'*1001,name='long.txt')
+        large=self.client.post('/documents/compare',params={'project_id':self.projects[0]},json={'document_ids':[a['id'],long['id']]}).json()
+        self.assertEqual(large['ordered_comparison']['status'],'unavailable')
+        self.assertEqual(large['ordered_comparison']['reason'],'ordered_logical_line_limit')
+    def test_both_revision_reads_share_a_snapshot_during_refresh(self):
+        a=self.upload('A\nB',name='a.txt');b=self.upload('B\nA',name='b.txt')
+        original=documents.require_document;reads=0
+        def read(cur,document_id,owner,locked=False):
+            nonlocal reads
+            row=original(cur,document_id,owner,locked);reads+=1
+            if reads==1:
+                with patch.object(documents,'require_document',original):
+                    documents.refresh_document(uuid.UUID(b['id']),documents.Refresh(name='b.txt',kind='text',content='A\nB',confirmed=True,expected_revision=b['revision']),self.projects[0])
+            return row
+        with patch.object(documents,'require_document',side_effect=read):
+            response=self.client.post('/documents/compare',params={'project_id':self.projects[0]},json={'document_ids':[a['id'],b['id']]})
+        self.assertEqual(response.status_code,200,response.text);data=response.json()
+        self.assertEqual(data['documents'][1]['revision'],b['revision'])
+        self.assertFalse(data['ordered_comparison']['line_sequence_equal'])
+        self.assertNotEqual(self.client.get('/documents/'+b['id'],params={'project_id':self.projects[0]}).json()['document']['revision'],b['revision'])
+
     def test_literal_comparison_and_project_quota(self):
         a=self.upload('Shared line\nFirst exclusive');b=self.upload('Shared line\nSecond exclusive')
         compared=self.client.post('/documents/compare',params={'project_id':self.projects[0]},json=dict(document_ids=[a['id'],b['id']])).json()
@@ -83,3 +114,4 @@ class PostgreSQLDocuments(unittest.TestCase):
         self.assertEqual(len(self.client.get('/documents',params={'project_id':self.projects[0]}).json()['documents']),30)
 
 if __name__=='__main__':unittest.main()
+
