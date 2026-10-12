@@ -29,6 +29,7 @@ export function ShyShell() {
   const [composerValue, setComposerValue] = useState('');
   const [storageReady, setStorageReady] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [cloudContextConsent, setCloudContextConsent] = useState<Record<string, boolean>>({});
   const [health, setHealth] = useState<ShyHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -147,7 +148,8 @@ export function ShyShell() {
             nextConversation.projectId,
             optionComparison,
             documentQuestion,
-            researchRequest
+            researchRequest,
+            cloudContextConsent[nextConversation.id] === true
           )
         ),
       });
@@ -174,6 +176,7 @@ export function ShyShell() {
       updateConversationState(failedConversation);
     } finally {
       setIsSending(false);
+      void refreshHealth();
     }
   }
 
@@ -274,6 +277,12 @@ export function ShyShell() {
           )}
 
           <div className="shy-composer-shell">
+            {health?.model_backend === 'runpod' && activeConversation && <div className="shy-muted">
+              <label><input type="checkbox" disabled={isSending} checked={cloudContextConsent[activeConversation.id] === true}
+                onChange={event => setCloudContextConsent(current => ({...current, [activeConversation.id]:event.target.checked}))} />
+                Allow RunPod to use this chat’s recent messages for follow-ups</label>
+              <p>This can include private information in this conversation. Saved memories and other chats stay local. Permission ends when you reload this page.</p>
+            </div>}
             <ShyResearchRequest key={`research-${activeConversation?.id ?? "new"}`} disabled={isSending} onResearch={(query,request) => void submitMessage(query, undefined, undefined, request)} />
             <ShyComparison key={`comparison-${activeConversation?.id ?? "new"}`} disabled={isSending} onCompare={data => void submitMessage("Compare these options using my supplied criteria and weights.", data)} />
             <ShyVoice key={activeConversation?.id} conversationId={activeConversation?.id ?? null}
