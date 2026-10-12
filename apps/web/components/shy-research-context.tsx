@@ -18,6 +18,7 @@ export function ShyResearchContext({ value }: { value: unknown }) {
     haitian_creole_hint: 'This window comes from Haitian Creole recency phrases.',
     mixed_hint: 'This window comes from recency phrases in multiple languages.',
     no_window: '',
+    user_selected: 'You selected this date window for this request.',
   };
   const origin = answer.date_window_basis ? windowOrigins[answer.date_window_basis] : 'The origin of this date window was not recorded.';
   return (
@@ -31,7 +32,7 @@ export function ShyResearchContext({ value }: { value: unknown }) {
           {answer.source_count !== undefined && <li>{answer.source_count} source {answer.source_count === 1 ? 'record' : 'records'} checked. This is not a count of independent authorities.</li>}
           {(answer.mode === 'model_synthesis' || answer.mode === 'possible_disagreement') && <li>Numeric citations were checked against the supplied sources.</li>}
           {answer.date_window_days !== undefined && <li>{answer.date_window_days === null
-            ? 'No recency window was selected; older or undated excerpts may be used.'
+            ? (answer.date_window_basis === 'user_selected' ? 'You selected any source date; older or undated excerpts may be used.' : 'No recency window was selected; older or undated excerpts may be used.')
             : `Recent sources must be within ${answer.date_window_days} UTC calendar days. ${origin}`}</li>}
           <li>Fixed phrase rules do not interpret negation, quotations or general language intent.</li>
           <li>Any provider dates are estimates. Retrieval time does not prove publication time.</li>

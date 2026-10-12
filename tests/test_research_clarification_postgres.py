@@ -87,6 +87,51 @@ class ClarificationIntegration(unittest.TestCase):
                     self.assertFalse(metadata['model_invoked'])
                     self.assertFalse(metadata['semantic_truth_verified'])
 
+    def test_explicit_research_without_english_prefix_and_date_override(self):
+        data=self.search([''],['2026-10-01'])
+        for endpoint in ['/chat','/agent']:
+            for mode,days,status in [('same_day',0,'missing_recent_evidence'),('past_week',7,'missing_recent_evidence'),('past_month',30,'missing_excerpts'),('any_date',None,'missing_excerpts')]:
+                service=SimpleNamespace(search=lambda query,max_results:data)
+                with self.subTest(endpoint=endpoint,mode=mode), patch.object(self.core,'research_service',service), patch.object(self.core,'utc_now',return_value=NOW), patch.object(self.core,'generate_intelligence_response',AsyncMock(side_effect=AssertionError('Must not generate'))) as generation, patch.object(self.core.agent_runtime,'run',side_effect=AssertionError('Must not dispatch action')), patch.object(self.core,'_run_basic_system_response',side_effect=AssertionError('Must not use direct response')), patch.object(self.core,'decide_chat_tool_request',side_effect=AssertionError('Must not dispatch tool')):
+                    response=self.client.post(endpoint,json={'message':'Kisa ki pase jodi a?','project_id':self.project,'research_request':{'freshness':mode}})
+                self.assertEqual(response.status_code,200,response.text)
+                answer=response.json()
+                self.assertEqual(answer['execution_mode'],'RESEARCH')
+                self.assertEqual(answer['research_answer']['mode'],status)
+                self.assertEqual(answer['research_answer']['date_window_days'],days)
+                self.assertEqual(answer['research_answer']['date_window_basis'],'user_selected')
+                self.assertEqual(answer['sources'][0]['source_date_status'],'stale' if days in [0,7] else 'recent')
+                self.assertEqual(generation.await_count,0)
+                history=self.memory.load_messages(uuid.UUID(answer['conversation_id']),user_id=self.memory.local_memory_user(self.project))
+                self.assertEqual(history[-1]['content'],answer['message'])
+                with self.memory.connect() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute('SELECT user_id FROM conversations WHERE id=%s',(answer['conversation_id'],))
+                        self.assertEqual(cur.fetchone()['user_id'],self.memory.local_memory_user(self.project))
+
+    def test_explicit_research_keeps_generated_answer_instead_of_direct_override(self):
+        data=self.search(['Supplied factual excerpt'],['2026-10-11'])
+        service=SimpleNamespace(search=lambda query,max_results:data)
+        with patch.object(self.core,'research_service',service), patch.object(self.core,'utc_now',return_value=NOW), patch.object(self.core,'generate_intelligence_response',AsyncMock(return_value='Supplied factual excerpt [1].')) as generation, patch.object(self.core,'_run_cognitive_deterministic_response',side_effect=AssertionError('Must not replace research answer')), patch.object(self.core,'decide_chat_tool_request',side_effect=AssertionError('Must not dispatch tool')):
+            response=self.client.post('/chat',json={'message':'Calculate 2 + 2','project_id':self.project,'research_request':{'freshness':'same_day'}})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['message'],'Supplied factual excerpt [1].')
+        self.assertEqual(response.json()['research_answer']['mode'],'model_synthesis')
+        self.assertEqual(response.json()['research_answer']['date_window_basis'],'user_selected')
+        self.assertEqual(generation.await_count,1)
+
+    def test_invalid_explicit_research_rejected_before_writes_or_search(self):
+        base={'message':'Research question','project_id':self.project,'research_request':{'freshness':'past_month'}}
+        patches=[{'local_only':True},{'pending_step_id':0},{'task_id':'id'},{'cancel_task':True},
+                 {'approval_token':'token'},{'document_question':{}},{'option_comparison':{}},
+                 {'message':'x'*1001},{'message':' '},{'research_request':{}},
+                 {'research_request':{'freshness':'any_date','shell':'run'}}]
+        for endpoint in ['/chat','/agent']:
+            for data in patches:
+                with self.subTest(endpoint=endpoint,data=data), patch.object(self.core,'create_conversation',side_effect=AssertionError('Must not write')), patch.object(self.core,'run_research_pipeline',AsyncMock(side_effect=AssertionError('Must not search'))), patch.object(self.core,'save_message',side_effect=AssertionError('Must not write')):
+                    response=self.client.post(endpoint,json={**base,**data})
+                self.assertEqual(response.status_code,422,response.text)
+
     def test_actual_chat_missing_recent_evidence_does_not_report_model_invocation(self):
         service=SimpleNamespace(search=lambda query,max_results:self.search(['Supplied undated evidence']))
         with patch.object(self.core,'research_service',service), patch.object(self.core,'generate_intelligence_response',AsyncMock(side_effect=AssertionError('Must not generate'))):

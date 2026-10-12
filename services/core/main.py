@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.18"
+SHY_VERSION = "0.105.19"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -2480,16 +2480,17 @@ async def run_research_pipeline(message: str):
 
 from research.synthesis_guard import synthesis_sources, validate_synthesis
 from research.freshness import utc_now, requested_window, window_selection, evidence_timing, source_timing, validate_current_citations
+from research.request import ResearchRequest, validate_research_action
 from research.claim_checks import ResearchAnswer, disagreement_pairs, disagreement_clarification
 
 
-async def generate_research_response(message: str, research_output: dict | None = None, research_result: Any | None = None):
+async def generate_research_response(message: str, research_output: dict | None = None, research_result: Any | None = None, freshness: str = "auto"):
     payload = _coerce_research_public_payload(research_result=research_result, research_output=research_output)
     try:
         checked_sources = synthesis_sources(payload)
     except ValueError:
         raise ResearchSynthesisError("Research evidence has invalid source provenance.") from None
-    window, window_basis = window_selection(message)
+    window, window_basis = window_selection(message, freshness)
     timing = evidence_timing(payload, checked_sources, utc_now(), window)
     if window is not None and not any(item["source_date_status"] == "recent" for item in timing):
         return ResearchAnswer(f"I need dated evidence within {window} UTC calendar days to answer this as current. "
@@ -3141,6 +3142,12 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
 
 
 class ChatRequest(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def validate_public_research(cls, value):
+        return validate_research_action(value)
+
+    research_request: ResearchRequest | None = None
     document_question: DocumentQuestion | None = None
     option_comparison: ComparisonRequest | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
@@ -3165,6 +3172,12 @@ class SyntheticApprovalRequest(BaseModel):
 
 
 class AgentRequest(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def validate_public_research(cls, value):
+        return validate_research_action(value)
+
+    research_request: ResearchRequest | None = None
     @model_validator(mode="before")
     @classmethod
     def reject_document_action_mix(cls, value):
@@ -4517,7 +4530,7 @@ async def testing_task_approval(request: SyntheticApprovalRequest):
 
 @app.post("/agent")
 async def agent(request: AgentRequest):
-    if request.document_question is not None or request.option_comparison is not None or calculator_expression(request.message) is not None:
+    if request.research_request is not None or request.document_question is not None or request.option_comparison is not None or calculator_expression(request.message) is not None:
         return await chat(ChatRequest(**request.model_dump()))
     return await with_preferences(request, _agent_with_preferences, _effective_user_uuid_from_request(request))
 
@@ -4543,7 +4556,7 @@ async def _agent_with_preferences(request: AgentRequest):
                 "title": item.get("title", ""),
                 "url": item.get("url", ""),
                 "source": item.get("source", ""),
-                **(source_timing(item.get("source_date"), utc_now(), requested_window(request.message) if requested_window(request.message) is not None else 30) if item.get("source_date") or item.get("retrieved_at") else {}),
+                **(source_timing(item.get("source_date"), utc_now(), requested_window(request.message, request.research_request.freshness if request.research_request else "auto") if requested_window(request.message, request.research_request.freshness if request.research_request else "auto") is not None else 30) if item.get("source_date") or item.get("retrieved_at") else {}),
                 **({"retrieved_at": item["retrieved_at"]} if isinstance(item.get("retrieved_at"), str) and len(item["retrieved_at"]) <= 120 else {}),
             }
             for index, item in enumerate(
@@ -5008,7 +5021,7 @@ async def _chat_with_preferences(request: ChatRequest):
                 "research_invoked": False, "hidden_reasoning_exposed": False, "model_routing": None,
                 "cognitive": {"model_invoked": False, "model_roles": [], "verification_status": "NOT_RUN"}}
 
-    basic_system_response = _run_basic_system_response(request)
+    basic_system_response = None if request.research_request else _run_basic_system_response(request)
     if basic_system_response is not None:
         assistant_message, cognitive_metadata, basic_kind = basic_system_response
         try:
@@ -5049,7 +5062,7 @@ async def _chat_with_preferences(request: ChatRequest):
             "cognitive": cognitive_metadata,
         }
 
-    linear_equation = _solve_single_variable_linear_equation(request.message)
+    linear_equation = None if request.research_request else _solve_single_variable_linear_equation(request.message)
     if linear_equation is not None:
         deterministic = _run_cognitive_deterministic_response(
             request,
@@ -5096,8 +5109,8 @@ async def _chat_with_preferences(request: ChatRequest):
                 "cognitive": cognitive_metadata,
             }
 
-    execution_mode = decide_chat_execution_mode(request.message)
-    tool_decision = decide_chat_tool_request(request.message)
+    execution_mode = "DIRECT" if request.research_request else decide_chat_execution_mode(request.message)
+    tool_decision = {"decision": "NO_TOOL"} if request.research_request else decide_chat_tool_request(request.message)
     if tool_decision.get("tool_id") == "calculator" and not request.task_id and not request.cancel_task:
         return await _handle_chat_tool_request(request, conversation_id, route, tool_decision)
 
@@ -5112,6 +5125,8 @@ async def _chat_with_preferences(request: ChatRequest):
         request.message,
         response_mode,
     )
+    if request.research_request is not None:
+        response_mode = "research"
     model_routing_metadata: dict[str, Any] | None = None
 
     research_evidence_count = 0
@@ -5170,6 +5185,7 @@ async def _chat_with_preferences(request: ChatRequest):
             assistant_message = await generate_research_response(
                 message=request.message,
                 research_result=research_result,
+                **({"freshness": request.research_request.freshness} if request.research_request else {}),
             )
             model_routing_metadata = dict(_last_model_routing_metadata or {})
             if isinstance(assistant_message, ResearchAnswer):
@@ -5184,7 +5200,7 @@ async def _chat_with_preferences(request: ChatRequest):
                     research_sources.append({
                         "number": source["number"], "url": source["url"],
                         "title": row.get("title", ""), "source": row.get("source") or row.get("domain", ""),
-                        **source_timing(row.get("source_date"), utc_now(), requested_window(request.message) if requested_window(request.message) is not None else 30),
+                        **source_timing(row.get("source_date"), utc_now(), requested_window(request.message, request.research_request.freshness if request.research_request else "auto") if requested_window(request.message, request.research_request.freshness if request.research_request else "auto") is not None else 30),
                         **({"retrieved_at": row["retrieved_at"]} if isinstance(row.get("retrieved_at"), str) and len(row["retrieved_at"]) <= 120 else {}),
                     })
         except (HTTPException, ResearchSynthesisError) as exc:
@@ -5242,7 +5258,7 @@ async def _chat_with_preferences(request: ChatRequest):
         model_routing_metadata = dict(_last_model_routing_metadata or {})
 
     deterministic_research = bool(research_answer_metadata and not research_answer_metadata["model_invoked"])
-    cognitive_override = None if deterministic_research else _run_cognitive_deterministic_response(
+    cognitive_override = None if (deterministic_research or request.research_request is not None) else _run_cognitive_deterministic_response(
         request,
         history,
         model_routing_metadata,

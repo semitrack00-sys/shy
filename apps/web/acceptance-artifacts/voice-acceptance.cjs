@@ -114,7 +114,7 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.18', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.19', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -124,6 +124,7 @@ let browser;
       assert.deepEqual(lastChatBody.document_question.document_ids,[document.id]);
       return route.fulfill({json:{status:'RESPOND',message:'Selected excerpt fixture: [untrusted](https://evil.example) PostgreSQL.',conversation_id:'fixture',document_answer:{method:'local_keyword_search',answer_kind:'verbatim_evidence_excerpts_not_generated_claims',model_invoked:false,semantic_support_verified:false,found_evidence:true,selected_documents:[document.id],evidence:[{document_id:document.id,name:document.name,revision:document.revision,chunk:1,start_line:1,end_line:2,excerpt:document.content}]}}});
     }
+    if (lastChatBody.research_request) return route.fulfill({json:{status:'RESPOND',message:'Explicit historical research fixture needs source text.',conversation_id:'fixture',research_answer:{mode:'missing_excerpts',model_invoked:false,semantic_truth_verified:false,source_count:1,date_window_days:null,date_window_basis:'user_selected'}}});
     if (lastChatBody.option_comparison) return route.fulfill({json:{status:'RESPOND',message:'Comparison fixture: A scores 100.000000; B scores 0.000000.',conversation_id:'fixture'}});
     if (lastChatBody.message === 'Research context fixture') return route.fulfill({ json: {
       status:'RESPOND',message:'Please provide newer dated evidence.',conversation_id:'fixture',
@@ -336,12 +337,31 @@ let browser;
   await page.reload();
   assert.equal(await page.getByLabel('Allow a bounded wake voice session.', { exact: true }).isChecked(), false);
   assert.equal(await page.getByLabel('Send wake-recognized messages automatically for this session.', { exact: true }).isChecked(), false);
+  await page.getByText('Research public sources', {exact:true}).click();
+  await page.getByLabel('Public research question',{exact:true}).fill('Istwa Ayiti jodi a');
+  await page.getByLabel('Research source date window',{exact:true}).selectOption('any_date');
+  await page.getByRole('button',{name:'Search public web',exact:true}).click();
+  await page.getByText('Explicit historical research fixture needs source text.',{exact:true}).waitFor();
+  assert.deepEqual(lastChatBody.research_request,{freshness:'any_date'});
+  assert.equal(lastChatBody.message,'Istwa Ayiti jodi a');
+  assert.equal(lastChatBody.project_id,'gud-express');
+  const explicitContext=page.getByRole('region',{name:'Research answer context'}).last();
+  await explicitContext.getByText('Checks and limits',{exact:true}).click();
+  assert.equal(await explicitContext.getByText('You selected any source date; older or undated excerpts may be used.',{exact:true}).isVisible(),true);
+  for (const width of [360,390,768,1440]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),true,`explicit research overflow at ${width}px`);
+  }
+  await page.reload();
+  await page.getByText('Explicit historical research fixture needs source text.',{exact:true}).waitFor();
+  await page.getByRole('region',{name:'Research answer context'}).last().getByText('Checks and limits',{exact:true}).click();
+  assert.equal(await page.getByText('You selected any source date; older or undated excerpts may be used.',{exact:true}).isVisible(),true);
   await page.getByLabel('Message SHY', { exact: true }).fill('Research context fixture');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.getByText('Research context source', { exact: true }).waitFor();
-  await page.getByText('SHY generated this clarification without a model.', { exact: true }).waitFor();
-  await page.getByText('Checks and limits', { exact: true }).click();
-  assert.equal(await page.getByText('1 source record checked. This is not a count of independent authorities.', { exact: true }).isVisible(),true);
+  await page.getByText('SHY generated this clarification without a model.', { exact: true }).last().waitFor();
+  await page.getByRole('region',{name:'Research answer context'}).last().getByText('Checks and limits', { exact: true }).click();
+  assert.equal(await page.getByRole('region',{name:'Research answer context'}).last().getByText('1 source record checked. This is not a count of independent authorities.', { exact: true }).isVisible(),true);
   assert.equal(await page.getByText('Recent sources must be within 7 UTC calendar days. This window comes from English recency phrases.', { exact: true }).isVisible(),true);
   assert.equal(lastChatBody.project_id,'gud-express');
   for (const width of [360,390,768,1440]) {
@@ -350,8 +370,8 @@ let browser;
   }
   await page.reload();
   await page.getByText('Research context source', { exact: true }).waitFor();
-  assert.equal(await page.getByText('SHY generated this clarification without a model.', { exact: true }).isVisible(),true);
-  assert.equal(await page.getByText('Checks and limits', { exact: true }).evaluate(element => element.closest('details').open),false);
+  assert.equal(await page.getByText('SHY generated this clarification without a model.', { exact: true }).last().isVisible(),true);
+  assert.equal(await page.getByRole('region',{name:'Research answer context'}).last().getByText('Checks and limits', { exact: true }).evaluate(element => element.closest('details').open),false);
   await page.getByText('Compare options', {exact:true}).click();
   await page.getByLabel('Criterion 1 name', {exact:true}).fill('Cost');
   await page.getByLabel('Criterion 1 unit', {exact:true}).fill('USD');

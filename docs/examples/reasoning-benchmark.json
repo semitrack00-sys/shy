@@ -641,6 +641,66 @@
         "days": null,
         "basis": "no_window"
       }
+    },
+    {
+      "id": "explicit-window-same_day",
+      "kind": "explicit_recency_window",
+      "input": {
+        "message": "Latest jodi a",
+        "freshness": "same_day"
+      },
+      "expected": {
+        "days": 0,
+        "basis": "user_selected"
+      }
+    },
+    {
+      "id": "explicit-window-past_week",
+      "kind": "explicit_recency_window",
+      "input": {
+        "message": "Latest jodi a",
+        "freshness": "past_week"
+      },
+      "expected": {
+        "days": 7,
+        "basis": "user_selected"
+      }
+    },
+    {
+      "id": "explicit-window-past_month",
+      "kind": "explicit_recency_window",
+      "input": {
+        "message": "Latest jodi a",
+        "freshness": "past_month"
+      },
+      "expected": {
+        "days": 30,
+        "basis": "user_selected"
+      }
+    },
+    {
+      "id": "explicit-window-any_date",
+      "kind": "explicit_recency_window",
+      "input": {
+        "message": "Latest jodi a",
+        "freshness": "any_date"
+      },
+      "expected": {
+        "days": null,
+        "basis": "user_selected"
+      }
+    },
+    {
+      "id": "explicit-window-auto",
+      "kind": "explicit_recency_window",
+      "input": {
+        "message": "Latest jodi a",
+        "freshness": "auto"
+      },
+      "expected": {
+        "days": 0,
+        "basis": "haitian_creole_hint"
+      }
     }
   ]
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { parseReplyPreferences } from '@/lib/shy-api';
+import { parseReplyPreferences, parseResearchRequest } from '@/lib/shy-api';
 import { parseDocumentAnswer } from '@/lib/document-answer';
 
 import React, { useState } from 'react';
@@ -8,11 +8,11 @@ import { ShyMarkdown } from './shy-markdown';
 import { ShySourceCards } from './shy-source-cards';
 import { ShyResearchContext } from './shy-research-context';
 import { getLocalTimeLabel } from '@/lib/config';
-import type { ChatMessage, DocumentQuestion } from '@/lib/types';
+import type { ChatMessage, DocumentQuestion, ResearchRequest } from '@/lib/types';
 
 interface ShyMessageProps {
   message: ChatMessage;
-  onRetry?: (message: string, documentQuestion?: DocumentQuestion) => void;
+  onRetry?: (message: string, documentQuestion?: DocumentQuestion, researchRequest?: ResearchRequest) => void;
 }
 
 function prettyObject(value: unknown): string {
@@ -55,7 +55,11 @@ export function ShyMessage({ message, onRetry }: ShyMessageProps) {
               {copied ? 'Copied' : 'Copy'}
             </button>
             {message.status === 'failed' && onRetry ? (
-              <button type="button" className="shy-chip" onClick={() => onRetry(message.documentQuestion?.query ?? message.error ?? message.content, message.documentQuestion)}>
+              <button type="button" className="shy-chip" onClick={() => {
+                const request = parseResearchRequest(message.researchRequest);
+                if (request && typeof message.researchQuery === 'string') onRetry(message.researchQuery, undefined, request);
+                else onRetry(message.documentQuestion?.query ?? message.error ?? message.content, message.documentQuestion);
+              }}>
                 Retry
               </button>
             ) : null}
