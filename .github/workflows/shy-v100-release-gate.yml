@@ -60,6 +60,25 @@ jobs:
       - name: Remove disposable runtime
         if: always()
         run: docker rm -f shy-core-ci || true
+      - name: Build protected hosted app image
+        run: docker build -f Dockerfile.hosted -t shy-hosted:ci .
+      - name: Verify protected hosted app against real PostgreSQL
+        env:
+          SHY_OWNER_PASSWORD: fixture-owner-password-12345678901234567890
+          SHY_ACCESS_TOKEN: fixture-backend-token-12345678901234567890
+        run: |
+          docker run -d --name shy-hosted-ci --network host \
+            -e DATABASE_URL="$DATABASE_URL" -e SHY_REQUIRE_AUTH=1 \
+            -e SHY_OWNER_USERNAME=owner -e SHY_OWNER_PASSWORD="$SHY_OWNER_PASSWORD" \
+            -e SHY_ACCESS_TOKEN="$SHY_ACCESS_TOKEN" -e SHY_PUBLIC_ORIGIN=http://127.0.0.1:8019 \
+            -e PORT=8019 -e OLLAMA_URL=http://127.0.0.1:11434 shy-hosted:ci
+          python scripts/verify_hosted_release.py
+      - name: Hosted container diagnostics
+        if: failure()
+        run: docker logs --tail 100 shy-hosted-ci || true
+      - name: Remove disposable hosted runtime
+        if: always()
+        run: docker rm -f shy-hosted-ci || true
       - run: git diff --check
       - uses: actions/upload-artifact@v4
         if: always()
@@ -89,6 +108,8 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm run build
+      - name: Hosted owner access in production server (fixtures)
+        run: node acceptance-artifacts/hosted-access-acceptance.cjs
       - run: npm audit --omit=dev --audit-level=high
       - run: npx playwright install --with-deps chromium
       - name: Browser voice and history acceptance (fixtures)

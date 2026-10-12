@@ -1,0 +1,30 @@
+# The already-provisioned shy-db must exist in the same Render workspace.
+services:
+  - type: web
+    name: shy-ai
+    runtime: docker
+    repo: https://github.com/semitrack00-sys/shy
+    branch: main
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile.hosted
+    dockerContext: .
+    healthCheckPath: /livez
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shy-db
+          property: connectionString
+      - key: SHY_REQUIRE_AUTH
+        value: "1"
+      - key: SHY_OWNER_USERNAME
+        value: owner
+      - key: SHY_OWNER_PASSWORD
+        generateValue: true
+      - key: SHY_ACCESS_TOKEN
+        generateValue: true
+      - key: SHY_LOCAL_MODEL
+        value: qwen3.5:4b
+      - key: OLLAMA_URL
+        value: http://127.0.0.1:11434

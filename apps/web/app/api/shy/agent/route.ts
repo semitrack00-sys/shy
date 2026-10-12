@@ -1,3 +1,4 @@
+import { getBackendHeaders } from '@/lib/deployment-access';
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendBaseUrl } from '@/lib/config';
 
@@ -9,6 +10,7 @@ export async function POST(request: NextRequest) {
       cache: 'no-store',
       headers: {
         'content-type': 'application/json',
+        ...getBackendHeaders(),
       },
       body,
     });

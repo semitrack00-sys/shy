@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.20"
+SHY_VERSION = "0.105.21"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1439,6 +1439,8 @@ app.add_middleware(MemoryBodyLimit)
 app.include_router(documents_router)
 app.add_middleware(DocumentBodyLimit)
 app.add_middleware(VoiceBodyLimit)
+from deployment_access import DeploymentAccess
+app.add_middleware(DeploymentAccess)
 
 OLLAMA_URL = os.getenv(
     "OLLAMA_URL",
