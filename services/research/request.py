@@ -18,4 +18,4 @@ def validate_research_action(value):
     message = value.get('message')
     if not isinstance(message, str) or not 1 <= len(message.strip()) <= 1000:
         raise ValueError('explicit_research_query_requires_1_to_1000_characters')
-    return value
+    return {**value, 'message': message.strip()}

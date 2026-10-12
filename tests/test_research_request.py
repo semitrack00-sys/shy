@@ -18,6 +18,7 @@ class Requests(unittest.TestCase):
     def test_mixed_actions_and_query_bounds(self):
         valid={'research_request':{'freshness':'any_date'},'message':'Istwa Ayiti'}
         self.assertEqual(validate_research_action(valid),valid)
+        self.assertEqual(validate_research_action({**valid,'message':' '*2000+'Istwa Ayiti'+' '*2000})['message'],'Istwa Ayiti')
         for patch in [{'message':' '},{'message':'x'*1001},{'message':7},{'task_id':'id'},{'cancel_task':True},{'pending_step_id':0},{'approval_token':'token'},{'document_question':{}},{'option_comparison':{}},{'local_only':True}]:
             with self.subTest(patch=patch),self.assertRaises(ValueError):validate_research_action({**valid,**patch})
         self.assertEqual(validate_research_action({'message':'ordinary'}),{'message':'ordinary'})
