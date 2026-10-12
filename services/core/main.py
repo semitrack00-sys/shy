@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.22"
+SHY_VERSION = "0.105.23"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -2293,6 +2293,12 @@ async def _generate_intelligence_response_internal(
         routing_decision = None
 
     if routing_decision is None:
+        if (
+            os.getenv("SHY_MODEL_BACKEND", "").strip().lower() == "runpod"
+            and privacy_requirement not in {PrivacyClass.LOCAL_ONLY, PrivacyClass.PRIVATE_REMOTE_ALLOWED}
+            and selected_role not in {ModelRole.VERIFIER, ModelRole.PLANNER}
+        ):
+            raise HTTPException(status_code=503, detail="Hosted intelligence is temporarily unavailable. Please try again shortly.")
         # Deterministic local fallback preserves local-first behavior.
         fallback_text = await _execute_ollama_candidate(messages, route.model, generation_options)
         return fallback_text, {
@@ -2397,6 +2403,14 @@ async def _generate_intelligence_response_internal(
                 executed_model=model_id,
             )
         except Exception as exc:
+            if provider_id == "runpod":
+                provider = router.registry.get_provider(provider_id)
+                public_error = provider.public_error(exc)
+                if public_error:
+                    if getattr(exc, "code", None) != "busy":
+                        router.registry.report_provider_failure(provider_id)
+                    _record_model_routing_failure("execution", exc)
+                    raise HTTPException(status_code=503, detail=public_error) from None
             router.registry.report_provider_failure(provider_id)
             _record_model_routing_failure("execution", exc)
             if isinstance(exc, HTTPException) and index >= len(bounded_candidates) - 1:

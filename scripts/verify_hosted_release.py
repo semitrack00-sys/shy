@@ -27,7 +27,7 @@ def check(base):
     status,html=request('/',{'Authorization':auth});assert status==200
     assert password not in html and os.environ['SHY_ACCESS_TOKEN'] not in html
     status,raw=request('/api/shy/health',{'Authorization':auth});assert status==200
-    health=json.loads(raw);assert health['version']=='0.105.22' and health['database_connected'] is True
+    health=json.loads(raw);assert health['version']=='0.105.23' and health['database_connected'] is True
     assert health['ollama_connected'] is False and health['application_healthy'] is False
     body={'message':'Calculate 0.1 + 0.2','project_id':'hosted-deployment-check'}
     assert request('/api/shy/agent',body=body)[0]==401
@@ -35,6 +35,9 @@ def check(base):
     status,raw=request('/api/shy/agent',{'Authorization':auth,'Origin':base,'Content-Type':'application/json'},body)
     answer=json.loads(raw);assert status==200 and answer['status']=='RESPOND' and '0.3' in answer['message']
     assert answer['cognitive']['model_invoked'] is False
+    status,raw=request('/api/shy/agent',{'Authorization':auth,'Origin':base,'Content-Type':'application/json'}, {'message':'Hello, please introduce yourself.','project_id':'hosted-deployment-check'})
+    failure=json.loads(raw);assert status==503 and failure['status']=='FAILED'
+    assert failure['reason']=='Local intelligence unavailable.'
     print('PASS: real packaged hosted HTTP owner access, PostgreSQL health, rejected unauthorized/cross-site writes and deterministic calculator; model remains unavailable.')
 
 if __name__=='__main__':
