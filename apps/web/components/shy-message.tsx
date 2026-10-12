@@ -1,5 +1,6 @@
 'use client';
 
+import { parseReplyPreferences } from '@/lib/shy-api';
 import { parseDocumentAnswer } from '@/lib/document-answer';
 
 import React, { useState } from 'react';
@@ -24,6 +25,7 @@ function prettyObject(value: unknown): string {
 
 export function ShyMessage({ message, onRetry }: ShyMessageProps) {
   const [copied, setCopied] = useState(false);
+  const replyDefaults = parseReplyPreferences(message.replyPreferences);
 
   async function handleCopy() {
     try {
@@ -71,6 +73,8 @@ export function ShyMessage({ message, onRetry }: ShyMessageProps) {
           : <ShyMarkdown content={message.content} />
       ) : null}
 
+      {message.role === 'assistant' && message.status !== 'failed' && replyDefaults?.applied_to_model_prompt && <p className="shy-muted">Shy supplied your reply defaults to generation. The final language and style were not verified.</p>}
+      {message.role === 'assistant' && message.status !== 'failed' && replyDefaults?.status === 'unavailable' && <p className="shy-muted">Reply defaults could not be loaded for this request.</p>}
       {message.role === 'assistant' && message.status !== 'failed' && <ShyResearchContext value={message.researchAnswer} />}
       {message.role === 'assistant' && message.status !== 'failed' && Array.isArray(message.sources) && message.sources.length ? <ShySourceCards sources={message.sources} /> : null}
 

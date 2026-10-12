@@ -53,6 +53,7 @@ export function makeAssistantMessage(response: ShyAgentResponse): ChatMessage {
     toolStatus: response.tool_status,
     researchProvider: response.research_provider,
     researchAnswer: response.research_answer,
+    replyPreferences: response.reply_preferences,
     documentAnswer: response.document_answer,
     sources: response.sources,
     responseStatus: response.status,

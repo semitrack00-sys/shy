@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.16. A future number must not be added
+shipped. The current implementation is v0.105.17. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -36,7 +36,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.113 | Conversation summaries | Implemented early in v0.105.1: bounded excerpts with links; no inferred facts or completion |
 | v0.114 | Explicit remember-this requests | Implemented early in v0.105.1: reviewed facts saved in existing durable memory; automatic chat promotion unchanged |
 | v0.115 | Review, correct, delete saved memories | Implemented early in v0.105.1: local-user pagination and revision-checked changes; original history remains |
-| v0.116 | Personal preferences with consent | Partial early in v0.105.3: confirmed persistent automatic-memory pause/resume; legacy default enabled until reviewed; broader consent preferences pending |
+| v0.116 | Personal preferences with consent | Partial early in v0.105.3: confirmed persistent automatic-memory pause/resume; legacy default enabled until reviewed; v0.105.17 adds separately confirmed, project-scoped generated-reply language/detail/tone defaults, disabled until saved; model style/language quality and broader consent preferences remain pending |
 | v0.117 | Separate memory for each project | Implemented early in v0.105.4: local project conversation, durable-memory and saving-preference scopes; not authenticated account isolation |
 | v0.118 | Memory conflict correction | Partial early in v0.105.14: read-only exact-subject/value preview with revision-preserving, separately reviewed correction; semantic conflict detection remains pending |
 | v0.119 | Long-conversation context management | Implemented early in v0.105.2: ordinary chat history uses hard excerpt budgets, including fallback; older context can be omitted |
@@ -178,3 +178,5 @@ The v0.105.14 patch adds [memory preview and local data checks](memory-preview.m
 The v0.105.15 patch adds [selected document chat](selected-document-chat.md). Only explicitly selected, owner-checked keyword excerpts are returned; broad semantic document answers remain unqualified.
 
 The v0.105.16 patch adds [ordered document comparisons](ordered-document-comparison.md). Repeated and reordered logical lines are checked within explicit limits, with unchanged source semantics qualification.
+
+The v0.105.17 patch adds [reviewed reply defaults](reply-preferences.md) with request-isolated instructions and transparent, unverified style provenance. These settings do not change tool approval or data-sharing rules.

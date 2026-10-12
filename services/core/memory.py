@@ -161,6 +161,15 @@ def ensure_memory_schema():
                 )
                 """
             )
+            cur.execute("""CREATE TABLE IF NOT EXISTS response_preferences (
+                user_id UUID PRIMARY KEY,
+                enabled BOOLEAN NOT NULL,
+                language TEXT NOT NULL CHECK(language IN ('auto','en','fr','ht','es','pt','ko','sw')),
+                detail TEXT NOT NULL CHECK(detail IN ('short','standard','detailed')),
+                tone TEXT NOT NULL CHECK(tone IN ('plain','formal')),
+                revision BIGINT NOT NULL CHECK(revision > 0),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )""")
             cur.execute("""CREATE TABLE IF NOT EXISTS memory_save_preferences (
                 user_id UUID PRIMARY KEY,
                 automatic_saving BOOLEAN NOT NULL,
@@ -1340,4 +1349,5 @@ class InMemoryDurableMemoryStore:
             truncated_by_limit=truncated_by_limit,
             truncated_by_budget=truncated_by_budget,
         )
+
 
