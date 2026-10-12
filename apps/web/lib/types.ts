@@ -17,7 +17,7 @@ export interface ShyResearchAnswer {
   semantic_truth_verified: false;
   source_count?: number;
   date_window_days?: number | null;
-  date_window_basis?: 'english_hint' | 'french_hint' | 'haitian_creole_hint' | 'mixed_hint' | 'no_window';
+  date_window_basis?: 'english_hint' | 'french_hint' | 'haitian_creole_hint' | 'mixed_hint' | 'no_window' | 'user_selected';
 }
 
 export interface ShyToolOutput {
@@ -70,6 +70,8 @@ export interface ChatMessage {
   researchAnswer?: ShyResearchAnswer;
   documentAnswer?: ShyDocumentAnswer;
   documentQuestion?: DocumentQuestion;
+  researchRequest?: ResearchRequest;
+  researchQuery?: string;
   sources?: ShyResearchSource[];
   responseStatus?: ShyAgentStatus;
   output?: ShyToolOutput | null;
@@ -106,3 +108,5 @@ export interface ShyReplyPreferences {
   status:'enabled'|'disabled'|'not_configured'|'unavailable';
   applied_to_model_prompt:boolean; output_style_verified:false; revision:string|null;
 }
+
+export interface ResearchRequest { freshness: 'auto' | 'same_day' | 'past_week' | 'past_month' | 'any_date' }

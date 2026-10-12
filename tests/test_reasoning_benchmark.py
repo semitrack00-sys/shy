@@ -6,9 +6,9 @@ from evaluate_reasoning import run_benchmark
 class Benchmark(unittest.TestCase):
     def test_fixed_reference_cases_and_honest_qualification(self):
         report=run_benchmark()
-        self.assertEqual(report['case_count'],45)
-        self.assertEqual(report['passed_count'],45,report['results'])
-        self.assertEqual(len({r['id'] for r in report['results']}),45)
+        self.assertEqual(report['case_count'],50)
+        self.assertEqual(report['passed_count'],50,report['results'])
+        self.assertEqual(len({r['id'] for r in report['results']}),50)
         self.assertFalse(report['qualification_complete'])
         self.assertFalse(report['live_model_quality_measured'])
         self.assertFalse(report['source_truth_verified'])

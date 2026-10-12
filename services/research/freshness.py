@@ -23,8 +23,13 @@ _HINTS = (
 _PATTERNS = tuple((days, basis, re.compile(pattern)) for days, basis, pattern in _HINTS)
 
 
-def window_selection(message):
+def window_selection(message, freshness="auto"):
     """Choose the shortest matched UTC window; never infer unstated dates."""
+    if freshness != 'auto':
+        windows = {'same_day': 0, 'past_week': 7, 'past_month': 30, 'any_date': None}
+        if freshness not in windows:
+            raise ValueError('Invalid research freshness selection')
+        return windows[freshness], 'user_selected'
     text = ' '.join(unicodedata.normalize('NFKC', message).casefold().replace('’', "'").split())
     matches = [(days, basis) for days, basis, pattern in _PATTERNS if pattern.search(text)]
     if not matches:
@@ -34,9 +39,9 @@ def window_selection(message):
     return days, next(iter(bases)) if len(bases) == 1 else 'mixed_hint'
 
 
-def requested_window(message):
+def requested_window(message, freshness="auto"):
     """Compatibility helper for source cards and citation gates."""
-    return window_selection(message)[0]
+    return window_selection(message, freshness)[0]
 
 
 def source_timing(raw, now, max_age_days=30):

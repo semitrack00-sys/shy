@@ -4,8 +4,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FRONTEND_API_BASE } from '@/lib/config';
 import { buildAgentRequest, parseShyAgentResponse, parseShyHealthResponse } from '@/lib/shy-api';
 import { createEmptyConversation, createInitialStore, makeAssistantMessage, makeFailureMessage, makeUserMessage, patchConversationResponse, updateConversationFromMessage, upsertConversation, loadStore, saveStore, renameConversation } from '@/lib/chat-state';
-import type { ChatStore, ConversationThread, ShyHealthResponse, DocumentQuestion } from '@/lib/types';
+import type { ChatStore, ConversationThread, ShyHealthResponse, DocumentQuestion, ResearchRequest } from '@/lib/types';
 import { ShyComparison, type OptionComparison } from './shy-comparison';
+import { ShyResearchRequest } from './shy-research-request';
 import { ShyComposer } from './shy-composer';
 import { ShyMessage } from './shy-message';
 import { ShySidebar } from './shy-sidebar';
@@ -118,7 +119,7 @@ export function ShyShell() {
     }));
   }
 
-  async function submitMessage(messageText: string, optionComparison?: OptionComparison, documentQuestion?: DocumentQuestion) {
+  async function submitMessage(messageText: string, optionComparison?: OptionComparison, documentQuestion?: DocumentQuestion, researchRequest?: ResearchRequest) {
     const trimmed = messageText.trim();
     if (!trimmed || isSending) return;
 
@@ -127,7 +128,7 @@ export function ShyShell() {
       setStore((current) => ({ ...current, activeConversationId: conversation.id, conversations: sortByUpdatedAt([conversation, ...current.conversations]) }));
     }
 
-    const userMessage = { ...makeUserMessage(trimmed), ...(documentQuestion ? {documentQuestion} : {}) };
+    const userMessage = { ...makeUserMessage(trimmed), ...(documentQuestion ? {documentQuestion} : {}), ...(researchRequest ? {researchRequest, researchQuery:trimmed} : {}) };
     const nextConversation = updateConversationFromMessage(conversation, userMessage);
     updateConversationState(nextConversation);
     setComposerValue('');
@@ -145,14 +146,15 @@ export function ShyShell() {
             Intl.DateTimeFormat().resolvedOptions().timeZone,
             nextConversation.projectId,
             optionComparison,
-            documentQuestion
+            documentQuestion,
+            researchRequest
           )
         ),
       });
 
       const parsed = parseShyAgentResponse(await response.json());
       const assistantMessage = parsed.status === 'FAILED'
-        ? { ...makeFailureMessage(parsed.reason ?? 'SHY could not complete that request right now.'), ...(documentQuestion ? {documentQuestion} : {}) }
+        ? { ...makeFailureMessage(parsed.message ?? parsed.reason ?? 'SHY could not complete that request right now.'), ...(documentQuestion ? {documentQuestion} : {}), ...(researchRequest ? {researchRequest, researchQuery:trimmed} : {}) }
         : makeAssistantMessage(parsed);
 
       const updatedConversation = patchConversationResponse(nextConversation, parsed, assistantMessage);
@@ -163,7 +165,7 @@ export function ShyShell() {
         activeConversationId: updatedConversation.id,
       }));
     } catch (error) {
-      const failureMessage = { ...makeFailureMessage(error instanceof Error ? error.message : 'Unable to reach SHY right now.'), ...(documentQuestion ? {documentQuestion} : {}) };
+      const failureMessage = { ...makeFailureMessage(error instanceof Error ? error.message : 'Unable to reach SHY right now.'), ...(documentQuestion ? {documentQuestion} : {}), ...(researchRequest ? {researchRequest, researchQuery:trimmed} : {}) };
       const failedConversation: ConversationThread = {
         ...nextConversation,
         updatedAt: failureMessage.createdAt,
@@ -175,8 +177,8 @@ export function ShyShell() {
     }
   }
 
-  function retryMessage(message: string, documentQuestion?: DocumentQuestion) {
-    void submitMessage(message, undefined, documentQuestion);
+  function retryMessage(message: string, documentQuestion?: DocumentQuestion, researchRequest?: ResearchRequest) {
+    void submitMessage(message, undefined, documentQuestion, researchRequest);
   }
 
   return (
@@ -267,6 +269,7 @@ export function ShyShell() {
           )}
 
           <div className="shy-composer-shell">
+            <ShyResearchRequest key={`research-${activeConversation?.id ?? "new"}`} disabled={isSending} onResearch={(query,request) => void submitMessage(query, undefined, undefined, request)} />
             <ShyComparison key={`comparison-${activeConversation?.id ?? "new"}`} disabled={isSending} onCompare={data => void submitMessage("Compare these options using my supplied criteria and weights.", data)} />
             <ShyVoice key={activeConversation?.id} conversationId={activeConversation?.id ?? null}
               disabled={isSending} onTranscript={text => setComposerValue(current => current.trim() ? `${current.trim()} ${text}` : text)}

@@ -20,6 +20,9 @@ FIXTURE = ROOT/'docs/examples/reasoning-benchmark.json'
 
 def evaluate_case(case):
     kind, data = case['kind'], case['input']
+    if kind == 'explicit_recency_window':
+        days,basis=window_selection(data['message'],data['freshness'])
+        return {'days':days,'basis':basis}
     if kind == 'recency_window':
         days,basis=window_selection(data)
         return {'days':days,'basis':basis}

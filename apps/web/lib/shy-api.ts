@@ -1,6 +1,6 @@
 import { parseDocumentAnswer } from './document-answer';
 import type { OptionComparison } from '@/components/shy-comparison';
-import type { ShyAgentResponse, ShyHealthResponse, ShyResearchAnswer, DocumentQuestion, ShyReplyPreferences } from './types';
+import type { ShyAgentResponse, ShyHealthResponse, ShyResearchAnswer, DocumentQuestion, ShyReplyPreferences, ResearchRequest } from './types';
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -18,6 +18,11 @@ export function parseReplyPreferences(value: unknown): ShyReplyPreferences | und
   return {status:value.status as ShyReplyPreferences['status'],applied_to_model_prompt:value.applied_to_model_prompt,output_style_verified:false,revision:value.revision as string|null};
 }
 
+export function parseResearchRequest(value: unknown): ResearchRequest | undefined {
+  if (!isObject(value) || typeof value.freshness !== 'string' || !['auto','same_day','past_week','past_month','any_date'].includes(value.freshness)) return undefined;
+  return {freshness:value.freshness as ResearchRequest['freshness']};
+}
+
 export function parseResearchAnswer(value: unknown): ShyResearchAnswer | undefined {
   if (!isObject(value) || value.semantic_truth_verified !== false || typeof value.model_invoked !== 'boolean') return undefined;
   if (typeof value.mode !== 'string' || !['model_synthesis', 'missing_recent_evidence', 'missing_excerpts', 'possible_disagreement'].includes(value.mode)) return undefined;
@@ -25,7 +30,7 @@ export function parseResearchAnswer(value: unknown): ShyResearchAnswer | undefin
   if (value.model_invoked !== (mode === 'model_synthesis')) return undefined;
   if (value.source_count !== undefined && (typeof value.source_count !== 'number' || !Number.isInteger(value.source_count) || value.source_count < 1 || value.source_count > 12)) return undefined;
   if (value.date_window_days !== undefined && value.date_window_days !== null && (typeof value.date_window_days !== 'number' || !Number.isInteger(value.date_window_days) || value.date_window_days < 0 || value.date_window_days > 3650)) return undefined;
-  if (value.date_window_basis !== undefined && (typeof value.date_window_basis !== 'string' || !['english_hint','french_hint','haitian_creole_hint','mixed_hint','no_window'].includes(value.date_window_basis) || (value.date_window_basis === 'no_window' ? value.date_window_days !== null : ![0,7].includes(value.date_window_days as number)))) return undefined;
+  if (value.date_window_basis !== undefined && (typeof value.date_window_basis !== 'string' || !['english_hint','french_hint','haitian_creole_hint','mixed_hint','no_window','user_selected'].includes(value.date_window_basis) || (value.date_window_basis === 'user_selected' ? value.date_window_days !== null && ![0,7,30].includes(value.date_window_days as number) : value.date_window_basis === 'no_window' ? value.date_window_days !== null : ![0,7].includes(value.date_window_days as number)))) return undefined;
   return {
     mode, model_invoked: value.model_invoked, semantic_truth_verified: false,
     ...(typeof value.date_window_basis === 'string' ? {date_window_basis:value.date_window_basis as ShyResearchAnswer['date_window_basis']} : {}),
@@ -114,18 +119,21 @@ export function buildAgentRequest(
   clientTimezone?: string,
   projectId?: string,
   optionComparison?: OptionComparison,
-  documentQuestion?: DocumentQuestion
+  documentQuestion?: DocumentQuestion,
+  researchRequest?: ResearchRequest
 ) {
   const body: {
     message: string;
     project_id?: string;
     option_comparison?: OptionComparison;
     document_question?: DocumentQuestion;
+    research_request?: ResearchRequest;
     conversation_id?: string;
     client_utc_offset_minutes?: number;
     client_timezone?: string;
   } = { message };
 
+  if (researchRequest) body.research_request = researchRequest;
   if (documentQuestion) body.document_question = documentQuestion;
   if (optionComparison) body.option_comparison = optionComparison;
   if (projectId) body.project_id = projectId;
