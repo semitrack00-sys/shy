@@ -25,6 +25,7 @@ function prettyObject(value: unknown): string {
 
 export function ShyMessage({ message, onRetry }: ShyMessageProps) {
   const [copied, setCopied] = useState(false);
+  const documentContext = parseDocumentAnswer(message.documentAnswer);
   const replyDefaults = parseReplyPreferences(message.replyPreferences);
 
   async function handleCopy() {
@@ -72,11 +73,12 @@ export function ShyMessage({ message, onRetry }: ShyMessageProps) {
           <strong>Request failed.</strong> {message.error ?? 'SHY could not complete this request right now.'}
         </div>
       ) : message.content ? (
-        message.role === 'assistant' && parseDocumentAnswer(message.documentAnswer)
+        message.role === 'assistant' && documentContext
           ? <pre className="shy-document-preview">{message.content}</pre>
           : <ShyMarkdown content={message.content} />
       ) : null}
 
+      {message.role === 'assistant' && message.status !== 'failed' && documentContext?.model_invoked && <p className="shy-muted">A local model generated this reply from selected keyword excerpts. Numeric reference membership was checked; factual support and completeness were not independently verified.</p>}
       {message.role === 'assistant' && message.status !== 'failed' && replyDefaults?.applied_to_model_prompt && <p className="shy-muted">Shy supplied your reply defaults to generation. The final language and style were not verified.</p>}
       {message.role === 'assistant' && message.status !== 'failed' && replyDefaults?.status === 'unavailable' && <p className="shy-muted">Reply defaults could not be loaded for this request.</p>}
       {message.role === 'assistant' && message.status !== 'failed' && <ShyResearchContext value={message.researchAnswer} />}

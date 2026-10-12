@@ -96,12 +96,13 @@ export interface ChatStore {
 }
 
 
-export interface DocumentQuestion { document_ids: string[]; query: string; limit?: number }
+export interface DocumentQuestion { document_ids: string[]; query: string; limit?: number; answer_mode?: 'excerpts' | 'local_answer'; confirmed_local_generation?: boolean }
 export interface ShyDocumentAnswer {
-  method: 'local_keyword_search'; answer_kind: 'verbatim_evidence_excerpts_not_generated_claims';
-  model_invoked: false; semantic_support_verified: false; found_evidence: boolean;
+  method: 'local_keyword_search'; answer_kind: 'verbatim_evidence_excerpts_not_generated_claims' | 'model_answer_from_selected_excerpts';
+  model_invoked: boolean; semantic_support_verified: false;
+  citation_membership_checked?: true; cited_source_numbers?: number[]; found_evidence: boolean;
   selected_documents: string[];
-  evidence: {document_id:string;name:string;revision:string;chunk:number;start_line:number;end_line:number;excerpt:string}[];
+  evidence: {number?:number;document_id:string;name:string;revision:string;chunk:number;start_line:number;end_line:number;excerpt:string}[];
 }
 
 export interface ShyReplyPreferences {

@@ -75,3 +75,15 @@ it('hands only explicitly selected IDs and keywords to chat and respects chat bu
   await user.click(ask);expect(onAsk).toHaveBeenCalledWith({document_ids:[row.id],query:'PostgreSQL',limit:5});
   expect(fetch).toHaveBeenCalledTimes(1);view.rerender(<ShyDocuments onAsk={onAsk} chatDisabled/>);expect(ask).toBeDisabled();
 });
+
+it('requires a separate local-generation choice without changing the excerpt-only default',async()=>{
+  const fetch=vi.fn().mockResolvedValue(response({documents:[row]}));vi.stubGlobal('fetch',fetch);
+  const ask=vi.fn();const user=userEvent.setup();render(<ShyDocuments projectId="gud" onAsk={ask}/>);
+  await user.click(screen.getByRole('button',{name:'Review local documents'}));await user.click(await screen.findByLabelText('Select notes.txt'));
+  await user.type(screen.getByLabelText('Document search keywords'),'PostgreSQL');
+  const generate=screen.getByRole('button',{name:'Answer from selected excerpts locally'});expect(generate).toBeDisabled();
+  await user.click(screen.getByRole('button',{name:'Show selected excerpts in chat'}));expect(ask).toHaveBeenLastCalledWith({document_ids:[row.id],query:'PostgreSQL',limit:5});
+  await user.click(screen.getByLabelText('Use my configured local model to answer from selected excerpts.'));await user.click(generate);
+  expect(ask).toHaveBeenLastCalledWith({document_ids:[row.id],query:'PostgreSQL',limit:5,answer_mode:'local_answer',confirmed_local_generation:true});
+  expect(fetch).toHaveBeenCalledTimes(1);
+});

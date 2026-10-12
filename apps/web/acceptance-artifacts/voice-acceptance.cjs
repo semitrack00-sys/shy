@@ -114,7 +114,7 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.19', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.20', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -122,6 +122,10 @@ let browser;
     lastChatBody = route.request().postDataJSON();
     if (lastChatBody.document_question) {
       assert.deepEqual(lastChatBody.document_question.document_ids,[document.id]);
+      if (lastChatBody.document_question.answer_mode === 'local_answer') {
+        assert.equal(lastChatBody.document_question.confirmed_local_generation,true);
+        return route.fulfill({json:{status:'RESPOND',message:'Local document answer fixture: PostgreSQL [1].',conversation_id:'fixture',document_answer:{method:'local_keyword_search',answer_kind:'model_answer_from_selected_excerpts',model_invoked:true,semantic_support_verified:false,citation_membership_checked:true,cited_source_numbers:[1],found_evidence:true,selected_documents:[document.id],evidence:[{number:1,document_id:document.id,name:document.name,revision:document.revision,chunk:1,start_line:1,end_line:2,excerpt:document.content}]}}});
+      }
       return route.fulfill({json:{status:'RESPOND',message:'Selected excerpt fixture: [untrusted](https://evil.example) PostgreSQL.',conversation_id:'fixture',document_answer:{method:'local_keyword_search',answer_kind:'verbatim_evidence_excerpts_not_generated_claims',model_invoked:false,semantic_support_verified:false,found_evidence:true,selected_documents:[document.id],evidence:[{document_id:document.id,name:document.name,revision:document.revision,chunk:1,start_line:1,end_line:2,excerpt:document.content}]}}});
     }
     if (lastChatBody.research_request) return route.fulfill({json:{status:'RESPOND',message:'Explicit historical research fixture needs source text.',conversation_id:'fixture',research_answer:{mode:'missing_excerpts',model_invoked:false,semantic_truth_verified:false,source_count:1,date_window_days:null,date_window_basis:'user_selected'}}});
@@ -266,6 +270,19 @@ let browser;
   }
   await page.reload();
   await page.getByText('Selected excerpt fixture: [untrusted](https://evil.example) PostgreSQL.',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('link',{name:'untrusted',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('button',{name:'Review local documents',exact:true}).click();
+  await page.getByLabel('Select notes.txt',{exact:true}).check();
+  await page.getByLabel('Document search keywords',{exact:true}).fill('PostgreSQL');
+  assert.equal(await page.getByRole('button',{name:'Answer from selected excerpts locally',exact:true}).isDisabled(),true);
+  await page.getByLabel('Use my configured local model to answer from selected excerpts.',{exact:true}).check();
+  await page.getByRole('button',{name:'Answer from selected excerpts locally',exact:true}).click();
+  await page.getByText('Local document answer fixture: PostgreSQL [1].',{exact:true}).waitFor();
+  assert.equal(lastChatBody.project_id,'gud-express');
+  await page.getByText('A local model generated this reply from selected keyword excerpts. Numeric reference membership was checked; factual support and completeness were not independently verified.',{exact:true}).waitFor();
+  await page.reload();
+  await page.getByText('Local document answer fixture: PostgreSQL [1].',{exact:true}).waitFor();
   assert.equal(await page.getByRole('link',{name:'untrusted',exact:true}).count(),0);
   showComparisonFixture = true;
   await page.getByRole('button',{name:'Settings',exact:true}).click();

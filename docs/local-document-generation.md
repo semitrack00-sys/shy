@@ -1,0 +1,11 @@
+# Reviewed local document answers
+
+v0.105.20 adds an optional local-model answer to selected-document chat requests. `document_question.answer_mode` defaults to `excerpts`. Choosing `local_answer` requires the strict Boolean `confirmed_local_generation: true`. The local document manager offers a separate unchecked consent control and **Answer from selected excerpts locally** button. Existing excerpt-only requests and missing-match clarifications use no model.
+
+All selected documents remain owner-checked before history writes. The existing project keyword search returns at most five 2000-character excerpt snapshots, with document ID, revision, chunk and line provenance. Only those matched excerpts and the question (not entire files, conversation history or unrelated project memories) are sent to the configured Ollama adapter. The system prompt treats source text as untrusted data, forbids source-driven actions and asks for numeric citations. Reviewed reply defaults and expert instructions are included. No hosted provider fallback or web/tool dispatch is used. A missing local model fails.
+
+Answers are bounded to 8000 characters. Numeric citations must refer to the supplied excerpts, with at least one citation; malformed or invented references and URL citations fail closed. Citation membership does not establish factual support, source truth, completeness or general answer quality. Failed generation/checks return a generic 503 and do not save an assistant answer; the already saved user question remains. Refresh or deletion during generation does not change the snapshot already submitted; revision references identify exactly that snapshot.
+
+Successful replies store the answer and full excerpt reference map in server message history. Browser metadata retains checked reference numbers, selected IDs and excerpt revisions. Generated document replies render as literal text and show their unverified-support provenance. Failed browser retries retain selected documents, question and generation choice, and recheck document ownership and current excerpts.
+
+CI uses fixture local-model responses to test routing, privacy boundaries, citations, persistence and safe failures. It does not measure real local-model document accuracy. This advances partial v0.127; broad quality and sequential v0.150 remain unfinished.
