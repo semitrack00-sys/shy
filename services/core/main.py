@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.19"
+SHY_VERSION = "0.105.20"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1423,6 +1423,7 @@ app = FastAPI(
 from intelligence_api import IntelligenceBodyLimit, router as intelligence_router
 from voice_api import VoiceBodyLimit, router as voice_router, provider_url as speech_provider_url
 from memory_controls import MemoryBodyLimit, router as memory_controls_router
+from document_generation import evidence_prompt, checked_answer, rendered_answer, INSTRUCTIONS as DOCUMENT_GENERATION_INSTRUCTIONS
 from documents import DocumentBodyLimit, DocumentQuestion, chat_document_answer, ensure_document_schema, router as documents_router
 from context_budget import bound_context
 
@@ -4990,19 +4991,34 @@ async def _chat_with_preferences(request: ChatRequest):
         )
 
     if request.document_question is not None:
+        generated_document = False
+        if request.document_question.answer_mode == 'local_answer' and document_answer['found_evidence']:
+            try:
+                prompt = evidence_prompt(request.document_question.query, document_answer['evidence'])
+                guidance = expert_generation_guidance(select_expert(request.document_question.query))
+                preferences = reply_prompt_guidance()
+                messages = [{'role':'system','content':SYSTEM_PROMPT.strip() + '\n\n' + guidance + '\n\n' + DOCUMENT_GENERATION_INSTRUCTIONS + ('\n\n'+preferences if preferences else '')}, {'role':'user','content':prompt}]
+                answer = await _execute_ollama_candidate(messages, LOCAL_MODEL, {'num_predict':1200,'temperature':0.1})
+                citations = checked_answer(answer, document_answer['evidence'])
+                document_message, document_answer = rendered_answer(answer, request.document_question, document_answer, citations)
+                generated_document = True
+            except (HTTPException, ValueError):
+                raise HTTPException(503, 'local_document_answer_unavailable_or_failed_citation_checks') from None
+        document_model = LOCAL_MODEL if generated_document else 'selected-document-excerpts'
+        document_provider = 'ollama' if generated_document else 'shy-core'
         try:
-            save_message(conversation_id=conversation_id, role="assistant", content=document_message,
-                         model="selected-document-excerpts", provider="shy-core", task_type="document_question")
+            save_message(conversation_id=conversation_id, role='assistant', content=document_message,
+                         model=document_model, provider=document_provider, task_type='document_question')
         except psycopg.Error as exc:
-            raise HTTPException(503, f"SHY response generated but memory save failed: {exc}")
-        return {"assistant": "SHY", "status": "RESPOND", "message": document_message,
-                "conversation_id": str(conversation_id), "model": "selected-document-excerpts", "provider": "shy-core",
-                "task_type": "document_question", "document_answer": document_answer,
-                "routing_reason": "Local keyword search of explicitly selected project documents.",
-                "approval_required": False, "tool_decision": {"decision": "NO_TOOL"},
-                "execution_status": "NOT_REQUESTED", "verifier_invoked": False, "research_invoked": False,
-                "hidden_reasoning_exposed": False, "model_routing": None,
-                "cognitive": {"model_invoked": False, "model_roles": [], "verification_status": "NOT_RUN"}}
+            raise HTTPException(503, f'SHY response generated but memory save failed: {exc}')
+        return {'assistant':'SHY','status':'RESPOND','message':document_message,
+                'conversation_id':str(conversation_id),'model':document_model,'provider':document_provider,
+                'task_type':'document_question','document_answer':document_answer,
+                'routing_reason':'Local-model synthesis of selected keyword excerpts.' if generated_document else 'Local keyword search of explicitly selected project documents.',
+                'approval_required':False,'tool_decision':{'decision':'NO_TOOL'},
+                'execution_status':'NOT_REQUESTED','verifier_invoked':False,'research_invoked':False,
+                'hidden_reasoning_exposed':False,'model_routing':None,
+                'cognitive':{'model_invoked':generated_document,'model_roles':['GENERATION'] if generated_document else [],'verification_status':'NOT_RUN'}}
 
     if request.option_comparison is not None:
         comparison = compare_options(request.option_comparison)

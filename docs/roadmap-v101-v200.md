@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.19. A future number must not be added
+shipped. The current implementation is v0.105.20. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -47,7 +47,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.124 | Spreadsheet and CSV reading | Implemented early in v0.105.6: bounded CSV and visible XLSX stored-cell text; formulas/macros never executed; legacy XLS unsupported |
 | v0.125 | Local document indexing | Implemented early in v0.105.5: PostgreSQL project-scoped text index |
 | v0.126 | Search selected documents | Implemented early in v0.105.5: explicit selection, local keyword search and source provenance |
-| v0.127 | Document-grounded answers with citations | Partial early in v0.105.5: extractive source excerpts with document/chunk/revision citations; v0.105.15 brings explicitly selected excerpts into ordinary chat/history with literal rendering and no-model provenance; generated answers pending |
+| v0.127 | Document-grounded answers with citations | Partial early in v0.105.5: extractive source excerpts with document/chunk/revision citations; v0.105.15 brings explicitly selected excerpts into ordinary chat/history with literal rendering and no-model provenance; v0.105.20 adds explicitly confirmed local-model answers from matched excerpt snapshots with citation membership checks; semantic support and generated answer quality remain unqualified |
 | v0.128 | Compare documents and changes | Partial early in v0.105.5: bounded literal line comparison; v0.105.16 adds ordered logical-line changes, repeated-line counts, bounded previews and a consistent revision snapshot; semantic comparison pending |
 | v0.129 | Refresh and remove indexed documents | Implemented early in v0.105.5: reviewed revision refresh/delete; index updated atomically |
 | v0.130 | Document-answer accuracy benchmarks | Partial early in v0.105.14: fixed English/French/Haitian Creole and CSV excerpt/provenance/isolation checks; generated answer accuracy and representative corpus qualification remain pending |
@@ -184,3 +184,5 @@ The v0.105.17 patch adds [reviewed reply defaults](reply-preferences.md) with re
 The v0.105.18 patch adds [multilingual research date rules](multilingual-research-dates.md), with recorded window origin and fixed English/French/Haitian Creole phrases. Broader language intent, source truth and live research quality remain unqualified.
 
 The v0.105.19 patch adds [explicit public research requests](explicit-research-requests.md) with per-request date selection and ordinary chat history. It advances partial v0.144/v0.146/v0.147; provider, model, source-truth and hardware qualification remain pending.
+
+The v0.105.20 patch adds [reviewed local document answers](local-document-generation.md). These use only selected keyword excerpt snapshots and the configured Ollama engine, without hosted fallback. Source truth and broad answer quality remain unqualified.

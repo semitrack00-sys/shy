@@ -39,6 +39,7 @@ export function ShyDocuments({ projectId, onAsk, chatDisabled = false }: { proje
   const [extractionConfirmed, setExtractionConfirmed] = useState(false);
   const [review, setReview] = useState<Review>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const [allowLocalAnswer, setAllowLocalAnswer] = useState(false);
   const [query, setQuery] = useState('');
   const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [preview, setPreview] = useState('');
@@ -187,6 +188,9 @@ export function ShyDocuments({ projectId, onAsk, chatDisabled = false }: { proje
       <div><label htmlFor={`${formId}-query`}>Document search keywords</label><input id={`${formId}-query`} value={query} maxLength={500} disabled={busy} onChange={event => { setQuery(event.target.value); setEvidence([]); }} /></div>
       <button className="shy-button" type="button" disabled={busy || !selected.length || !query.trim()} onClick={() => void search()}>Search selected documents</button>
       {onAsk && <button className="shy-button" type="button" disabled={busy || chatDisabled || !selected.length || !query.trim()} onClick={() => onAsk({ document_ids: [...selected], query: query.trim(), limit: 5 })}>Show selected excerpts in chat</button>}
+      {onAsk && <div><label><input type="checkbox" checked={allowLocalAnswer} disabled={busy || chatDisabled} onChange={event => setAllowLocalAnswer(event.target.checked)} />Use my configured local model to answer from selected excerpts.</label>
+        <p className="shy-muted">Requires a working local model. Answers may omit facts or misread sources; citation checks do not verify the claims.</p>
+        <button className="shy-button" type="button" disabled={busy || chatDisabled || !allowLocalAnswer || !selected.length || !query.trim()} onClick={() => onAsk({document_ids:[...selected],query:query.trim(),limit:5,answer_mode:'local_answer',confirmed_local_generation:true})}>Answer from selected excerpts locally</button></div>}
       <button className="shy-button" type="button" disabled={busy || selected.length !== 2} onClick={() => void compare()}>Compare two selected documents</button>
       {comparison && <pre className="shy-document-preview">{comparison}</pre>}
       <ul className="shy-memory-list">{evidence.map(item => <li key={`${item.document_id}:${item.chunk}`}>

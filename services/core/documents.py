@@ -8,7 +8,7 @@ import re
 import uuid
 from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 import memory
 from document_diff import ordered_preview
 from document_extraction import ExtractRequest, extract_selected
@@ -105,6 +105,13 @@ class Compare(BaseModel):
 
 
 class DocumentQuestion(Search):
+    answer_mode: Literal['excerpts','local_answer'] = 'excerpts'
+    confirmed_local_generation: bool = False
+    @model_validator(mode='after')
+    def reviewed_generation(self):
+        if self.answer_mode == 'local_answer' and self.confirmed_local_generation is not True:
+            raise ValueError('confirmed_local_document_generation_required')
+        return self
     limit: int = Field(default=5, ge=1, le=5)
 
 
