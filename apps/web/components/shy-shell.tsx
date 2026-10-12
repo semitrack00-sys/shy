@@ -259,6 +259,11 @@ export function ShyShell() {
               {activeConversation.messages.map((message) => (
                 <ShyMessage key={message.id} message={message} onRetry={retryMessage} />
               ))}
+              {isSending && <p role="status" className="shy-muted">
+                {health?.model_backend === 'runpod'
+                  ? 'SHY is responding. The first cloud answer can take several minutes.'
+                  : 'SHY is responding.'}
+              </p>}
               <div ref={messagesEndRef} />
             </div>
           ) : (

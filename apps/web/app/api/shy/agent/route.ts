@@ -1,6 +1,7 @@
 import { getBackendHeaders } from '@/lib/deployment-access';
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendBaseUrl } from '@/lib/config';
+import { safeAgentFailure } from '@/lib/agent-errors';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,6 +16,9 @@ export async function POST(request: NextRequest) {
       body,
     });
     const payload = await response.text();
+    if (!response.ok) {
+      return NextResponse.json(safeAgentFailure(payload), { status: response.status });
+    }
     return new NextResponse(payload, {
       status: response.status,
       headers: {

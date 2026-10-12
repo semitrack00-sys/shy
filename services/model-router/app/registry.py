@@ -78,6 +78,12 @@ class ModelRegistry:
         provider = self.get_provider(provider_id)
         base_health = provider.health()
         override = self._provider_health_overrides.get(provider_id)
+        if hasattr(provider, "retry_ready"):
+            if not provider.retry_ready:
+                return base_health
+            if override == ProviderHealthStatus.UNAVAILABLE:
+                self.clear_provider_runtime_health(provider_id)
+                override = None
         if override is None:
             return base_health
         return ProviderHealth(
@@ -153,3 +159,4 @@ class ModelRegistry:
             provider_ids=tuple(self._provider_order),
             model_ids=tuple(self._model_order),
         )
+

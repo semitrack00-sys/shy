@@ -16,9 +16,12 @@ Use the served model name from the endpoint, which can differ in capitalization 
 Hugging Face repository name. Credentials must never be added to Git, browser bundles,
 NEXT_PUBLIC variables, or chat messages.
 
-The RunPod vLLM worker exposes `/openai/v1/chat/completions` through its authenticated
-queue-based endpoint. SHY limits requests to 512 generated tokens, one transport attempt,
-180 seconds, and bounded text context. GPU startup and failed requests can also consume credits.
+SHY submits one job to the authenticated `/run` queue endpoint using the vLLM worker's
+OpenAI chat envelope, then polls `/status` for that same job. It waits up to 280 seconds
+including GPU startup, bounds worker execution to 180 seconds, and sets a 285-second job
+TTL. A failed wait attempts cancellation without submitting another job. Requests are
+limited to 512 generated tokens and bounded text context. One request can be in flight per
+SHY process; failures pause routing for 30 seconds before allowing another attempt. GPU startup and failed requests can also consume credits.
 Use a maximum of one worker, zero active workers, five seconds of idle timeout, and an
 execution timeout of 180 seconds. These scaling settings do not impose a dollar budget;
 monitor spending independently. No automatic credit reload is configured by this change.
@@ -34,5 +37,6 @@ SHY process. Configuration alone is not proof of model readiness. Failed request
 indicator. Ollama health fields continue to describe the local engine truthfully.
 
 Validation: `python tests/test_runpod_provider.py` checks actual HTTP request construction with
-a fixture transport, routing isolation, missing configuration, error redaction, and token bounds.
+a fixture transport, routing isolation, missing configuration, error redaction, token bounds, a simulated 264-second cold start, cancellation,
+single-job concurrency, and recovery after repeated failures.
 It does not measure production accuracy or assert a cloud endpoint has answered.
