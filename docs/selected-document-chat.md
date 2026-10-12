@@ -1,0 +1,11 @@
+# Selected document excerpts in chat
+
+v0.105.15 connects explicitly selected project documents to ordinary `/chat` and `/agent` requests using a bounded `document_question` object (one to five unique document UUIDs, keywords up to 500 characters, and an excerpt limit of one to five). The local document manager offers **Show selected excerpts in chat** after selecting documents and entering keywords. It does not attach documents to unrelated messages or voice requests.
+
+Every selected document is checked against the requested local project before conversation creation or message writes. Legacy identity fields, task approval/resumption/cancellation and option comparisons cannot be mixed into this request. Missing, deleted or cross-project documents fail rather than falling through to a model. Existing conversation ownership checks remain enforced.
+
+The response uses the existing PostgreSQL keyword index and returns verbatim matching chunks, names, document UUIDs, revision hashes, line ranges and chunk citations. No model, web search or external tool runs. With no matches, it asks for relevant documents or different keywords. The answer includes selected IDs and search terms, remains explicit about untrusted source text and unverified claim support, and is stored in durable conversation history. Refreshed documents return their current revision.
+
+The browser validates bounded source metadata and renders these replies as literal text, so source Markdown does not become active links or fabricated message structure. The parsed metadata persists in local history. Failed retries retain the selected document IDs and keywords. A document removed after selection still fails on retry. Project switches remount the document manager and clear selection.
+
+Qualification covers actual PostgreSQL chat/agent history, document ownership, refreshed/deleted sources, absent matches, invalid action combinations, no-model/tool invocation, browser selection, literal rendering, provenance parsing and reload persistence. These checks advance the partial v0.127 milestone. Semantic question answering, broad retrieval accuracy, independently verified source claims and v0.150 live-model/hardware qualification remain unfinished.

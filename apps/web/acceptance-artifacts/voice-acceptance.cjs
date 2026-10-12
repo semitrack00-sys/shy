@@ -97,12 +97,16 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.14', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.15', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
     submitted++;
     lastChatBody = route.request().postDataJSON();
+    if (lastChatBody.document_question) {
+      assert.deepEqual(lastChatBody.document_question.document_ids,[document.id]);
+      return route.fulfill({json:{status:'RESPOND',message:'Selected excerpt fixture: [untrusted](https://evil.example) PostgreSQL.',conversation_id:'fixture',document_answer:{method:'local_keyword_search',answer_kind:'verbatim_evidence_excerpts_not_generated_claims',model_invoked:false,semantic_support_verified:false,found_evidence:true,selected_documents:[document.id],evidence:[{document_id:document.id,name:document.name,revision:document.revision,chunk:1,start_line:1,end_line:2,excerpt:document.content}]}}});
+    }
     if (lastChatBody.option_comparison) return route.fulfill({json:{status:'RESPOND',message:'Comparison fixture: A scores 100.000000; B scores 0.000000.',conversation_id:'fixture'}});
     if (lastChatBody.message === 'Research context fixture') return route.fulfill({ json: {
       status:'RESPOND',message:'Please provide newer dated evidence.',conversation_id:'fixture',
@@ -215,6 +219,21 @@ let browser;
   await page.getByLabel('Document search keywords', { exact: true }).fill('PostgreSQL');
   await page.getByRole('button', { name: 'Search selected documents', exact: true }).click();
   await page.getByText('notes.txt · lines 1–2 · chunk 1', { exact: true }).waitFor();
+  await page.getByRole('button',{name:'Show selected excerpts in chat',exact:true}).click();
+  await page.getByText('Selected excerpt fixture: [untrusted](https://evil.example) PostgreSQL.',{exact:true}).waitFor();
+  assert.equal(lastChatBody.project_id,'gud-express');
+  assert.equal(lastChatBody.document_question.query,'PostgreSQL');
+  assert.equal(lastChatBody.document_question.limit,5);
+  assert.equal(await page.getByRole('link',{name:'untrusted',exact:true}).count(),0);
+  for (const width of [360,390,768,1440]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),true,`document chat overflow at ${width}px`);
+  }
+  await page.reload();
+  await page.getByText('Selected excerpt fixture: [untrusted](https://evil.example) PostgreSQL.',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('link',{name:'untrusted',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('button',{name:'Review local documents',exact:true}).click();
   await page.getByRole('button', { name: 'Review refresh notes.txt', exact: true }).click();
   await page.getByLabel('Selected document file', { exact: true }).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Revised project source.')});
   assert.equal(await page.getByRole('button', { name: 'Save reviewed document', exact: true }).isDisabled(), true);
@@ -305,7 +324,7 @@ let browser;
   assert.equal(lastChatBody.option_comparison.options[1].values.c1,'200');
   await page.reload();
   await page.getByText('Comparison fixture: A scores 100.000000; B scores 0.000000.',{exact:true}).waitFor();
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context, numeric comparison requests and reload persistence, read-only memory preview and separately reviewed corrections (fixtures).');
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context, numeric comparison requests and reload persistence, read-only memory preview and separately reviewed corrections, selected document chat with literal source rendering and reload persistence (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();

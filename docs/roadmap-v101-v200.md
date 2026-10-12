@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.14. A future number must not be added
+shipped. The current implementation is v0.105.15. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -47,7 +47,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.124 | Spreadsheet and CSV reading | Implemented early in v0.105.6: bounded CSV and visible XLSX stored-cell text; formulas/macros never executed; legacy XLS unsupported |
 | v0.125 | Local document indexing | Implemented early in v0.105.5: PostgreSQL project-scoped text index |
 | v0.126 | Search selected documents | Implemented early in v0.105.5: explicit selection, local keyword search and source provenance |
-| v0.127 | Document-grounded answers with citations | Partial early in v0.105.5: extractive source excerpts with document/chunk/revision citations; generated answers pending |
+| v0.127 | Document-grounded answers with citations | Partial early in v0.105.5: extractive source excerpts with document/chunk/revision citations; v0.105.15 brings explicitly selected excerpts into ordinary chat/history with literal rendering and no-model provenance; generated answers pending |
 | v0.128 | Compare documents and changes | Partial early in v0.105.5: bounded literal line comparison; semantic comparison pending |
 | v0.129 | Refresh and remove indexed documents | Implemented early in v0.105.5: reviewed revision refresh/delete; index updated atomically |
 | v0.130 | Document-answer accuracy benchmarks | Partial early in v0.105.14: fixed English/French/Haitian Creole and CSV excerpt/provenance/isolation checks; generated answer accuracy and representative corpus qualification remain pending |
@@ -174,3 +174,5 @@ The v0.105.12 patch adds [research answer context](research-answer-context.md) a
 The v0.105.13 patch adds [criteria comparisons and bounded reasoning checks](option-comparisons.md). These do not complete the speech, visual, live research or hardware qualification required across v0.106–v0.150.
 
 The v0.105.14 patch adds [memory preview and local data checks](memory-preview.md), with a hashed per-case PostgreSQL report. Exact supplied-data checks are not representative language or generated-answer accuracy measurements.
+
+The v0.105.15 patch adds [selected document chat](selected-document-chat.md). Only explicitly selected, owner-checked keyword excerpts are returned; broad semantic document answers remain unqualified.

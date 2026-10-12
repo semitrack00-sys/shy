@@ -1,5 +1,6 @@
+import { parseDocumentAnswer } from './document-answer';
 import type { OptionComparison } from '@/components/shy-comparison';
-import type { ShyAgentResponse, ShyHealthResponse, ShyResearchAnswer } from './types';
+import type { ShyAgentResponse, ShyHealthResponse, ShyResearchAnswer, DocumentQuestion } from './types';
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -42,6 +43,7 @@ export function parseShyAgentResponse(value: unknown): ShyAgentResponse {
     tool_status: toOptionalString(value.tool_status),
     research_provider: toOptionalString(value.research_provider),
     research_answer: parseResearchAnswer(value.research_answer),
+    document_answer: parseDocumentAnswer(value.document_answer),
     conversation_id: toOptionalString(value.conversation_id),
     model: toOptionalString(value.model),
     provider: toOptionalString(value.provider),
@@ -100,17 +102,20 @@ export function buildAgentRequest(
   clientUtcOffsetMinutes?: number,
   clientTimezone?: string,
   projectId?: string,
-  optionComparison?: OptionComparison
+  optionComparison?: OptionComparison,
+  documentQuestion?: DocumentQuestion
 ) {
   const body: {
     message: string;
     project_id?: string;
     option_comparison?: OptionComparison;
+    document_question?: DocumentQuestion;
     conversation_id?: string;
     client_utc_offset_minutes?: number;
     client_timezone?: string;
   } = { message };
 
+  if (documentQuestion) body.document_question = documentQuestion;
   if (optionComparison) body.option_comparison = optionComparison;
   if (projectId) body.project_id = projectId;
   if (conversationId) {
