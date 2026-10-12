@@ -1,5 +1,6 @@
 """Bounded provider date estimates; retrieval time is never publication proof."""
 import re
+import unicodedata
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 
@@ -10,13 +11,32 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
+# Fixed phrase matching, not language detection, translation or intent analysis.
+_HINTS = (
+    (0, 'english_hint', r"\b(?:today|right now)\b"),
+    (7, 'english_hint', r"\b(?:latest|current|recent|this week|up to date)\b"),
+    (0, 'french_hint', r"\b(?:aujourd'hui|en ce moment)\b"),
+    (7, 'french_hint', r"\b(?:cette semaine|récent(?:e|s|es)?|dernières nouvelles|à jour)\b"),
+    (0, 'haitian_creole_hint', r"\b(?:jodi a|jodia|kounye a)\b"),
+    (7, 'haitian_creole_hint', r"\b(?:semèn sa a|dènye nouvèl|dènye enfòmasyon)\b"),
+)
+_PATTERNS = tuple((days, basis, re.compile(pattern)) for days, basis, pattern in _HINTS)
+
+
+def window_selection(message):
+    """Choose the shortest matched UTC window; never infer unstated dates."""
+    text = ' '.join(unicodedata.normalize('NFKC', message).casefold().replace('’', "'").split())
+    matches = [(days, basis) for days, basis, pattern in _PATTERNS if pattern.search(text)]
+    if not matches:
+        return None, 'no_window'
+    days = min(item[0] for item in matches)
+    bases = {basis for candidate, basis in matches if candidate == days}
+    return days, next(iter(bases)) if len(bases) == 1 else 'mixed_hint'
+
+
 def requested_window(message):
-    """Conservative English recency hints, measured in UTC calendar days."""
-    if re.search(r'\b(today|right now)\b', message, re.I):
-        return 0
-    if re.search(r'\b(latest|current|recent|this week|up to date)\b', message, re.I):
-        return 7
-    return None
+    """Compatibility helper for source cards and citation gates."""
+    return window_selection(message)[0]
 
 
 def source_timing(raw, now, max_age_days=30):

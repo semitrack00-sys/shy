@@ -66,6 +66,27 @@ class ClarificationIntegration(unittest.TestCase):
         history=self.memory.load_messages(uuid.UUID(answer['conversation_id']),user_id=self.memory.local_memory_user(self.project))
         self.assertEqual([row['role'] for row in history],['user','assistant'])
         self.assertEqual(history[-1]['content'],answer['message'])
+    def test_multilingual_actual_routes_gate_undated_evidence(self):
+        cases=[("aujourd’hui",0,'french_hint'),("cette semaine",7,'french_hint'),
+               ("jodi a",0,'haitian_creole_hint'),("semèn sa a",7,'haitian_creole_hint'),
+               ("today jodi a",0,'mixed_hint')]
+        data=self.search(['Supplied undated evidence'])
+        for query,days,basis in cases:
+            with self.subTest(query=query):
+                agent=self.agent(data,'Search Acme '+query)
+                service=SimpleNamespace(search=lambda query,max_results:data)
+                with patch.object(self.core,'research_service',service), patch.object(self.core,'utc_now',return_value=NOW), patch.object(self.core,'generate_intelligence_response',AsyncMock(side_effect=AssertionError('Must not generate'))) as generation:
+                    response=self.client.post('/chat',json={'message':'Research Acme '+query,'project_id':self.project})
+                self.assertEqual(response.status_code,200,response.text)
+                self.assertEqual(generation.await_count,0)
+                for answer in [agent,response.json()]:
+                    metadata=answer['research_answer']
+                    self.assertEqual(metadata['mode'],'missing_recent_evidence')
+                    self.assertEqual(metadata['date_window_days'],days)
+                    self.assertEqual(metadata['date_window_basis'],basis)
+                    self.assertFalse(metadata['model_invoked'])
+                    self.assertFalse(metadata['semantic_truth_verified'])
+
     def test_actual_chat_missing_recent_evidence_does_not_report_model_invocation(self):
         service=SimpleNamespace(search=lambda query,max_results:self.search(['Supplied undated evidence']))
         with patch.object(self.core,'research_service',service), patch.object(self.core,'generate_intelligence_response',AsyncMock(side_effect=AssertionError('Must not generate'))):

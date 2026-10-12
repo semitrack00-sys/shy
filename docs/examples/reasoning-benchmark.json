@@ -578,6 +578,69 @@
         "line_sequence_equal": null,
         "text_identical": null
       }
+    },
+    {
+      "id": "recency-en-today",
+      "kind": "recency_window",
+      "input": "today",
+      "expected": {
+        "days": 0,
+        "basis": "english_hint"
+      }
+    },
+    {
+      "id": "recency-fr-today",
+      "kind": "recency_window",
+      "input": "Aujourd’hui",
+      "expected": {
+        "days": 0,
+        "basis": "french_hint"
+      }
+    },
+    {
+      "id": "recency-fr-week",
+      "kind": "recency_window",
+      "input": "cette semaine",
+      "expected": {
+        "days": 7,
+        "basis": "french_hint"
+      }
+    },
+    {
+      "id": "recency-ht-today",
+      "kind": "recency_window",
+      "input": "jodi a",
+      "expected": {
+        "days": 0,
+        "basis": "haitian_creole_hint"
+      }
+    },
+    {
+      "id": "recency-ht-week",
+      "kind": "recency_window",
+      "input": "semèn sa a",
+      "expected": {
+        "days": 7,
+        "basis": "haitian_creole_hint"
+      }
+    },
+    {
+      "id": "recency-mixed-shortest",
+      "kind": "recency_window",
+      "input": "latest nouvèl jodi a",
+      "expected": {
+        "days": 0,
+        "basis": "haitian_creole_hint"
+      }
+    },
+    {
+      "id": "recency-historical-no-window",
+      "kind": "recency_window",
+      "input": "history of Rome",
+      "expected": {
+        "days": null,
+        "basis": "no_window"
+      }
     }
   ]
 }

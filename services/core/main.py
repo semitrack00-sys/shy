@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.17"
+SHY_VERSION = "0.105.18"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -2479,7 +2479,7 @@ async def run_research_pipeline(message: str):
 
 
 from research.synthesis_guard import synthesis_sources, validate_synthesis
-from research.freshness import utc_now, requested_window, evidence_timing, source_timing, validate_current_citations
+from research.freshness import utc_now, requested_window, window_selection, evidence_timing, source_timing, validate_current_citations
 from research.claim_checks import ResearchAnswer, disagreement_pairs, disagreement_clarification
 
 
@@ -2489,27 +2489,27 @@ async def generate_research_response(message: str, research_output: dict | None 
         checked_sources = synthesis_sources(payload)
     except ValueError:
         raise ResearchSynthesisError("Research evidence has invalid source provenance.") from None
-    window = requested_window(message)
+    window, window_basis = window_selection(message)
     timing = evidence_timing(payload, checked_sources, utc_now(), window)
     if window is not None and not any(item["source_date_status"] == "recent" for item in timing):
         return ResearchAnswer(f"I need dated evidence within {window} UTC calendar days to answer this as current. "
                 "The available sources have missing, invalid, future or older date estimates. "
                 "Would you like historical context, or can you provide a newer dated source?",
-                mode="missing_recent_evidence", model_invoked=False, source_count=len(checked_sources), date_window_days=window)
+                mode="missing_recent_evidence", model_invoked=False, source_count=len(checked_sources), date_window_days=window, date_window_basis=window_basis)
     rows = payload.get("evidence") or payload.get("results") or []
     eligible = None if window is None else {item["number"] for item in timing if item["source_date_status"] == "recent"}
     number_by_url = {source["url"]: source["number"] for source in checked_sources}
     usable_rows = rows if eligible is None else [row for row in rows if number_by_url[str(row.get("url", "")).strip()] in eligible]
     if not any(isinstance(row.get("snippet"), str) and row["snippet"].strip() for row in usable_rows):
         return ResearchAnswer("I have source links but no usable evidence excerpts. Please provide source text or try a more specific search before I answer the factual question.",
-                              mode="missing_excerpts", model_invoked=False, source_count=len(checked_sources), date_window_days=window)
+                              mode="missing_excerpts", model_invoked=False, source_count=len(checked_sources), date_window_days=window, date_window_basis=window_basis)
     try:
         disagreements = disagreement_pairs(payload, checked_sources, eligible)
         if disagreements:
             clarification = disagreement_clarification(disagreements)
             validate_synthesis(clarification, checked_sources)
             validate_current_citations(clarification, checked_sources, timing, window)
-            return ResearchAnswer(clarification, mode="possible_disagreement", model_invoked=False, source_count=len(checked_sources), date_window_days=window)
+            return ResearchAnswer(clarification, mode="possible_disagreement", model_invoked=False, source_count=len(checked_sources), date_window_days=window, date_window_basis=window_basis)
     except ValueError:
         raise ResearchSynthesisError("Research disagreement checks failed evidence validation.") from None
     timing_block = json.dumps(timing, ensure_ascii=True)
@@ -2568,7 +2568,7 @@ Answer the user's original question clearly and concisely.
         validate_current_citations(synthesis, checked_sources, timing, window)
     except ValueError:
         raise ResearchSynthesisError("Research synthesis failed citation or source-date validation.") from None
-    return ResearchAnswer(synthesis, mode="model_synthesis", model_invoked=True, source_count=len(checked_sources), date_window_days=window)
+    return ResearchAnswer(synthesis, mode="model_synthesis", model_invoked=True, source_count=len(checked_sources), date_window_days=window, date_window_basis=window_basis)
 
 def _sanitize_tool_payload(value: Any, max_chars: int = 4000) -> Any:
     if value is None:

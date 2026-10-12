@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.17. A future number must not be added
+shipped. The current implementation is v0.105.18. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -70,7 +70,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.147 | Show assumptions and concise explanations | Partial early in v0.105.12: research answer context explains model invocation, checked source records, date-window assumptions and unresolved truth/subject limits; general reasoning explanations and quality benchmarks remain pending |
 | v0.148 | Calculator-backed numerical answers | Implemented early in v0.105.8: bounded explicit decimal arithmetic through actual agent/chat paths, stored replies and project ownership; no inferred units or word-problem solver |
 | v0.149 | Compare options against user criteria | Implemented early in v0.105.13 for explicitly supplied numeric criteria: weighted min/max ranking, ties, input table and project-scoped chat; natural-language criteria extraction and factual value gathering are not implemented |
-| v0.150 | Research and reasoning benchmarks | Partial early in v0.105.13: 33 fixed offline reference cases with a hashed JSON report and CI gate (expanded to 38 in v0.105.16 for ordered document lines); live model quality, semantic claim support, representative questions and target hardware latency remain pending |
+| v0.150 | Research and reasoning benchmarks | Partial early in v0.105.13: 33 fixed offline reference cases with a hashed JSON report and CI gate (expanded to 45 in v0.105.18 for ordered document lines and multilingual recency rules); live model quality, semantic claim support, representative questions and target hardware latency remain pending |
 | v0.151 | Read approved local folders | Planned: target-machine filesystem access required |
 | v0.152 | Preview file creation and edits | Planned |
 | v0.153 | Approved edits with backups | Planned |
@@ -180,3 +180,5 @@ The v0.105.15 patch adds [selected document chat](selected-document-chat.md). On
 The v0.105.16 patch adds [ordered document comparisons](ordered-document-comparison.md). Repeated and reordered logical lines are checked within explicit limits, with unchanged source semantics qualification.
 
 The v0.105.17 patch adds [reviewed reply defaults](reply-preferences.md) with request-isolated instructions and transparent, unverified style provenance. These settings do not change tool approval or data-sharing rules.
+
+The v0.105.18 patch adds [multilingual research date rules](multilingual-research-dates.md), with recorded window origin and fixed English/French/Haitian Creole phrases. Broader language intent, source truth and live research quality remain unqualified.
