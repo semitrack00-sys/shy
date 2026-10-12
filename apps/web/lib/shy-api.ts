@@ -124,7 +124,8 @@ export function buildAgentRequest(
   projectId?: string,
   optionComparison?: OptionComparison,
   documentQuestion?: DocumentQuestion,
-  researchRequest?: ResearchRequest
+  researchRequest?: ResearchRequest,
+  allowCloudHistory = false
 ) {
   const body: {
     message: string;
@@ -132,11 +133,13 @@ export function buildAgentRequest(
     option_comparison?: OptionComparison;
     document_question?: DocumentQuestion;
     research_request?: ResearchRequest;
+    allow_cloud_history?: boolean;
     conversation_id?: string;
     client_utc_offset_minutes?: number;
     client_timezone?: string;
   } = { message };
 
+  if (allowCloudHistory) body.allow_cloud_history = true;
   if (researchRequest) body.research_request = researchRequest;
   if (documentQuestion) body.document_question = documentQuestion;
   if (optionComparison) body.option_comparison = optionComparison;

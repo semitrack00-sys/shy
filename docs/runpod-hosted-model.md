@@ -40,3 +40,25 @@ Validation: `python tests/test_runpod_provider.py` checks actual HTTP request co
 a fixture transport, routing isolation, missing configuration, error redaction, token bounds, a simulated 264-second cold start, cancellation,
 single-job concurrency, and recovery after repeated failures.
 It does not measure production accuracy or assert a cloud endpoint has answered.
+
+
+## Conversation quality (v0.105.25)
+
+Runtime prompts name the actual executed adapter and model and supply the server UTC date
+without implying access to current information. Guidance covers corrections, ambiguity,
+language/format constraints, practical plans, uncertainty and truthful action claims. This
+changes instructions and context handling; it does not upgrade the underlying 4B model.
+
+The cloud follow-up checkbox is off by default, separate for each chat and reset on page
+reload. Explicit `allow_cloud_history: true` permits up to 20 recent messages / 3,200
+characters from that same owned conversation to be supplied to RunPod. This may include
+private information typed or quoted in the thread. The path never retrieves durable memory
+or another conversation. Local-only requests, document questions and private reply settings
+retain local routing. Current-message privacy classification still applies. Without consent,
+retrieved history keeps its existing local-only policy and may be unavailable on the host.
+Model health refreshes after each completed or failed UI request.
+
+Fixture checks cover consent defaults, thread isolation, context bounds, local-only behavior,
+actual `/chat` integration and executed adapter facts. A small live synthetic test is useful
+for spotting regressions but does not establish overall model accuracy or a measured quality
+gain over the previous prompt.

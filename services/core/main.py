@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.24"
+SHY_VERSION = "0.105.25"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1848,24 +1848,9 @@ chat_task_engine = TaskEngine(
 
 chat_task_repository = PostgresTaskRepository()
 
-SYSTEM_PROMPT = """
-You are SHY, a high-capability AI system.
+from chat_prompt import BASE_SYSTEM_PROMPT, build_system_prompt
 
-IDENTITY:
-- Your name is SHY.
-- SHY is the AI platform you are operating within.
-- You are not Qwen, Ollama, OpenAI, Anthropic, Google, Alibaba Cloud, or any other model provider.
-- Qwen 3.5 may currently serve as one underlying local model, but the underlying model is not your identity.
-- Never claim that SHY was created or developed by the provider of an underlying model.
-- If asked which model is currently serving the request, say that SHY is currently using Qwen 3.5 4B through its local Ollama adapter.
-- SHY is designed to be model-independent and may use different intelligence providers for different tasks.
-
-Be accurate, useful, concise when appropriate, and honest about uncertainty.
-Do not claim to have performed actions, accessed systems, or obtained information
-unless you actually did so through an available tool.
-
-You are currently running through SHY's local intelligence layer.
-"""
+SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 
 RESEARCH_EVIDENCE_SNIPPET_MAX_CHARS = 800
 RESEARCH_GENERATION_OPTIONS = {
@@ -1950,6 +1935,18 @@ def _load_memory_history_for_message(message: str, conversation_id: uuid.UUID, u
     recent = bound_context(history, max_chars=3200, max_messages=20)
     combined = list(durable.messages) + list(recent.messages)
     return combined, bool(combined)
+
+
+def _load_request_history(request, conversation_id, user_id):
+    if (os.getenv("SHY_MODEL_BACKEND", "").strip().lower() == "runpod"
+            and request.allow_cloud_history and not request.local_only
+            and getattr(request, "document_question", None) is None
+            and not reply_generation_requires_local()):
+        recent = load_messages(conversation_id, user_id=user_id)
+        bounded = bound_context(_filter_prompt_safe_messages(recent), max_chars=3200, max_messages=20)
+        # Explicit consent covers this thread, not durable or cross-conversation retrieval.
+        return list(bounded.messages), False
+    return _load_memory_history_for_message(request.message, conversation_id, user_id)
 
 
 def _normalize_research_text(value: Any) -> str:
@@ -2268,7 +2265,7 @@ async def _generate_intelligence_response_internal(
     generation_expert = select_expert(message)
     expert_guidance = expert_generation_guidance(generation_expert)
     reply_guidance = reply_prompt_guidance()
-    effective_system_prompt = f"{SYSTEM_PROMPT.strip()}\n\n{expert_guidance}" + (f"\n\n{reply_guidance}" if reply_guidance else "")
+    effective_system_prompt = f"{build_system_prompt()}\n\n{expert_guidance}" + (f"\n\n{reply_guidance}" if reply_guidance else "")
     messages = [{"role": "system", "content": effective_system_prompt}]
     for item in history:
         messages.append({"role": item["role"], "content": item["content"]})
@@ -2300,6 +2297,7 @@ async def _generate_intelligence_response_internal(
         ):
             raise HTTPException(status_code=503, detail="Hosted intelligence is temporarily unavailable. Please try again shortly.")
         # Deterministic local fallback preserves local-first behavior.
+        messages[0] = {"role": "system", "content": build_system_prompt("ollama", route.model) + "\n\n" + expert_guidance + ("\n\n" + reply_guidance if reply_guidance else "")}
         fallback_text = await _execute_ollama_candidate(messages, route.model, generation_options)
         return fallback_text, {
             "selected_model": route.model,
@@ -2351,6 +2349,8 @@ async def _generate_intelligence_response_internal(
     for index, candidate in enumerate(bounded_candidates):
         provider_id = str(candidate["provider_id"])
         model_id = str(candidate["model_id"])
+        effective_system_prompt = build_system_prompt(provider_id, model_id) + "\n\n" + expert_guidance + ("\n\n" + reply_guidance if reply_guidance else "")
+        messages[0] = {"role": "system", "content": effective_system_prompt}
         try:
             if provider_id == "ollama":
                 text = await _execute_ollama_candidate(messages, model_id, generation_options)
@@ -3198,6 +3198,7 @@ class ChatRequest(BaseModel):
     pending_step_id: int | None = None
     cancel_task: bool = False
     local_only: bool = False
+    allow_cloud_history: bool = Field(default=False, strict=True)
     testing_disable_memory_context: bool = False
     user_id: str | None = None
     workspace_id: str | None = None
@@ -3234,6 +3235,7 @@ class AgentRequest(BaseModel):
     message: str
     conversation_id: uuid.UUID | None = None
     local_only: bool = False
+    allow_cloud_history: bool = Field(default=False, strict=True)
     user_id: str | None = None
     workspace_id: str | None = None
     business_id: str | None = None
@@ -4671,11 +4673,7 @@ async def _agent_with_preferences(request: AgentRequest):
             history, local_memory_context_used = [], False
         else:
             try:
-                history, local_memory_context_used = _load_memory_history_for_message(
-                    request.message,
-                    conversation_id,
-                    _effective_user_uuid_from_request(request),
-                )
+                history, local_memory_context_used = _load_request_history(request, conversation_id, _effective_user_uuid_from_request(request))
             except TypeError as exc:
                 if "positional arguments" not in str(exc) or _effective_user_uuid_from_request(request) != DEFAULT_USER_ID:
                     raise
@@ -4977,11 +4975,7 @@ async def _chat_with_preferences(request: ChatRequest):
         effective_user_id = _effective_user_uuid_from_request(request)
 
         try:
-            history, local_memory_context_used = _load_memory_history_for_message(
-                request.message,
-                conversation_id,
-                effective_user_id,
-            )
+            history, local_memory_context_used = _load_request_history(request, conversation_id, effective_user_id)
         except TypeError as exc:
             if "positional arguments" not in str(exc) or _effective_user_uuid_from_request(request) != DEFAULT_USER_ID:
                 raise
@@ -5036,7 +5030,7 @@ async def _chat_with_preferences(request: ChatRequest):
                 prompt = evidence_prompt(request.document_question.query, document_answer['evidence'])
                 guidance = expert_generation_guidance(select_expert(request.document_question.query))
                 preferences = reply_prompt_guidance()
-                messages = [{'role':'system','content':SYSTEM_PROMPT.strip() + '\n\n' + guidance + '\n\n' + DOCUMENT_GENERATION_INSTRUCTIONS + ('\n\n'+preferences if preferences else '')}, {'role':'user','content':prompt}]
+                messages = [{'role':'system','content':build_system_prompt('ollama', LOCAL_MODEL) + '\n\n' + guidance + '\n\n' + DOCUMENT_GENERATION_INSTRUCTIONS + ('\n\n'+preferences if preferences else '')}, {'role':'user','content':prompt}]
                 answer = await _execute_ollama_candidate(messages, LOCAL_MODEL, {'num_predict':1200,'temperature':0.1})
                 citations = checked_answer(answer, document_answer['evidence'])
                 document_message, document_answer = rendered_answer(answer, request.document_question, document_answer, citations)
