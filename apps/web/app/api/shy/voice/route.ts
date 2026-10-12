@@ -1,3 +1,4 @@
+import { getBackendHeaders } from '@/lib/deployment-access';
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendBaseUrl } from '@/lib/config';
 
@@ -21,7 +22,7 @@ async function boundedResponse(response: Response) {
 export async function GET() {
   try {
     const response = await fetch(`${getBackendBaseUrl()}/voice/status`, {
-      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(5000),
+      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(5000), headers: getBackendHeaders(),
     });
     return await boundedResponse(response);
   } catch {
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
       chunks.push(result.value);
     }
     const response = await fetch(`${getBackendBaseUrl()}/voice/transcribe`, {
-      method: 'POST', cache: 'no-store', redirect: 'error', headers: { 'content-type': 'application/json' },
+      method: 'POST', cache: 'no-store', redirect: 'error', headers: { 'content-type': 'application/json', ...getBackendHeaders() },
       body: Buffer.concat(chunks), signal: AbortSignal.timeout(50_000),
     });
     return await boundedResponse(response);
@@ -54,3 +55,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ detail: 'local_speech_unavailable_or_timed_out' }, { status: 503 });
   }
 }
+

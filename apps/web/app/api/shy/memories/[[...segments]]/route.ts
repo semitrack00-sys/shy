@@ -1,3 +1,4 @@
+import { getBackendHeaders } from '@/lib/deployment-access';
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendBaseUrl } from '@/lib/config';
 
@@ -35,7 +36,7 @@ async function forward(request: NextRequest, context: { params: Promise<{ segmen
       if (value !== null) query.set(key, value);
     }
     const response = await fetch(`${getBackendBaseUrl()}/memories${suffix ? '/' + suffix : ''}?${query}`, {
-      method: request.method, body, headers: { 'content-type': 'application/json' },
+      method: request.method, body, headers: { 'content-type': 'application/json', ...getBackendHeaders() },
       cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(15000),
     });
     const reader = response.body?.getReader();

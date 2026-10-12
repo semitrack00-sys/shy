@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.20. A future number must not be added
+shipped. The current implementation is v0.105.21. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -186,3 +186,5 @@ The v0.105.18 patch adds [multilingual research date rules](multilingual-researc
 The v0.105.19 patch adds [explicit public research requests](explicit-research-requests.md) with per-request date selection and ordinary chat history. It advances partial v0.144/v0.146/v0.147; provider, model, source-truth and hardware qualification remain pending.
 
 The v0.105.20 patch adds [reviewed local document answers](local-document-generation.md). These use only selected keyword excerpt snapshots and the configured Ollama engine, without hosted fallback. Source truth and broad answer quality remain unqualified.
+
+The v0.105.21 deployment patch adds owner-only hosted access and server-side API credentials. It does not turn local project IDs into independent authenticated customer accounts. Cloud model access and production hosting qualification remain separate.

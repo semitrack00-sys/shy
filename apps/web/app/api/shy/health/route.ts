@@ -1,3 +1,4 @@
+import { getBackendHeaders } from '@/lib/deployment-access';
 import { NextResponse } from 'next/server';
 import { getBackendBaseUrl } from '@/lib/config';
 
@@ -5,6 +6,7 @@ export async function GET() {
   try {
     const response = await fetch(`${getBackendBaseUrl()}/health`, {
       cache: 'no-store',
+      headers: getBackendHeaders(),
     });
     const payload = await response.text();
     return new NextResponse(payload, {
