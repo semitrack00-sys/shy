@@ -109,6 +109,10 @@ export function parseShyHealthResponse(value: unknown): ShyHealthResponse {
     ollama_connected: typeof value.ollama_connected === 'boolean' ? value.ollama_connected : undefined,
     database_connected: typeof value.database_connected === 'boolean' ? value.database_connected : undefined,
     local_model_available: typeof value.local_model_available === 'boolean' ? value.local_model_available : undefined,
+    model_backend: toOptionalString(value.model_backend),
+    hosted_model: toOptionalString(value.hosted_model),
+    hosted_model_configured: typeof value.hosted_model_configured === 'boolean' ? value.hosted_model_configured : undefined,
+    hosted_model_inference_verified: typeof value.hosted_model_inference_verified === 'boolean' ? value.hosted_model_inference_verified : undefined,
   };
 }
 

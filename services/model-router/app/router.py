@@ -2,6 +2,7 @@ import importlib.util
 import os
 import sys
 from dataclasses import dataclass
+from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 from typing import Literal
@@ -26,6 +27,7 @@ selection_module = _load_module("shy_model_selection", app_path / "selection.py"
 orchestrator_module = _load_module("shy_model_orchestrator", app_path / "orchestrator.py")
 ollama_module = _load_module("shy_provider_ollama", app_path / "providers" / "ollama.py")
 fake_module = _load_module("shy_provider_fake", app_path / "providers" / "fake.py")
+runpod_module = _load_module("shy_provider_runpod", app_path / "providers" / "runpod.py")
 intelligence_candidates = (
     services_path / "agent-runtime" / "intelligence_router.py",
     services_path / "agent_runtime" / "intelligence_router.py",
@@ -219,7 +221,13 @@ class ModelRouter:
         local_provider = OllamaLocalProvider(_model_id=self.local_model)
         registry.register_provider(local_provider)
         for model in local_provider.list_models():
-            registry.register_model(model)
+            registry.register_model(replace(model, enabled=False) if os.getenv("SHY_MODEL_BACKEND", "ollama").strip() == "runpod" else model)
+
+        if os.getenv("SHY_MODEL_BACKEND", "ollama").strip() == "runpod":
+            hosted_provider = runpod_module.RunPodProvider()
+            registry.register_provider(hosted_provider)
+            for model in hosted_provider.list_models():
+                registry.register_model(model)
 
         if self.include_fake_providers:
             for provider in build_default_fake_providers():
@@ -505,3 +513,4 @@ def map_verification_escalation(action: VerificationEscalationAction) -> int | N
     ):
         return 0
     return None
+

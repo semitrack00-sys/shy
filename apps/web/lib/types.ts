@@ -53,6 +53,10 @@ export interface ShyHealthResponse {
   ollama_connected?: boolean;
   database_connected?: boolean;
   local_model_available?: boolean;
+  model_backend?: string;
+  hosted_model?: string;
+  hosted_model_configured?: boolean;
+  hosted_model_inference_verified?: boolean;
 }
 
 export type MessageRole = 'user' | 'assistant';

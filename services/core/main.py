@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.21"
+SHY_VERSION = "0.105.22"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1509,7 +1509,20 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
     except Exception:
         local_model_available = False
 
-    application_healthy = database_connected and ollama_connected and local_model_available
+    model_backend = os.getenv("SHY_MODEL_BACKEND", "ollama").strip()
+    hosted_model_configured = False
+    hosted_model_verified = False
+    hosted_model = None
+    if model_backend == "runpod":
+        try:
+            hosted_provider = router.registry.get_provider("runpod")
+            hosted_model_configured = hosted_provider.configured
+            hosted_model_verified = hosted_provider.last_generation_succeeded
+            hosted_model = hosted_provider.model_id
+        except KeyError:
+            pass
+    model_ready = hosted_model_verified if model_backend == "runpod" else ollama_connected and local_model_available
+    application_healthy = database_connected and model_ready
     status = "ok" if application_healthy else "degraded"
 
     return {
@@ -1521,6 +1534,10 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
         "ollama_connected": ollama_connected,
         "database_connected": database_connected,
         "local_model_available": local_model_available,
+        "model_backend": model_backend,
+        "hosted_model": hosted_model,
+        "hosted_model_configured": hosted_model_configured,
+        "hosted_model_inference_verified": hosted_model_verified,
         "knowledge_store": {
             "type": knowledge_store.__class__.__name__,
             "durable": isinstance(knowledge_store, PostgresKnowledgeStore),
@@ -2337,9 +2354,15 @@ async def _generate_intelligence_response_internal(
                     messages=tuple(ModelMessage(role=item["role"], content=item["content"]) for item in messages),
                     capability=routing_decision.required_capability,
                     system_instruction=effective_system_prompt,
-                    metadata={},
+                    max_output_tokens=(generation_options or {}).get("num_predict"),
+                    temperature=(generation_options or {}).get("temperature"),
+                    metadata={"privacy_requirement": (privacy_requirement or router._privacy_requirement(message)).value},
                 )
-                response = provider.generate(request=model_request, model_id=model_id)
+                if provider_id == "runpod":
+                    import asyncio
+                    response = await asyncio.to_thread(provider.generate, request=model_request, model_id=model_id)
+                else:
+                    response = provider.generate(request=model_request, model_id=model_id)
                 if str(getattr(response, "status", "")).upper() != "OK":
                     raise RuntimeError("Provider execution error")
                 text = _validate_public_model_content(getattr(response, "content", ""))
