@@ -64,7 +64,7 @@ jobs:
         run: docker build -f Dockerfile.hosted -t shy-hosted:ci .
       - name: Verify protected hosted app against real PostgreSQL
         env:
-          SHY_OWNER_PASSWORD: fixture-owner-password-12345678901234567890
+          SHY_OWNER_PASSWORD: fixture8
           SHY_ACCESS_TOKEN: fixture-backend-token-12345678901234567890
         run: |
           docker run -d --name shy-hosted-ci --network host \

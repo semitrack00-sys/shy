@@ -6,7 +6,7 @@ import { parseShyHealthResponse } from '../lib/shy-api';
 
 describe('hosted model status', () => {
   it('does not report configured credentials as verified inference', () => {
-    const health = parseShyHealthResponse({status:'degraded', system:'SHY', version:'0.105.23',
+    const health = parseShyHealthResponse({status:'degraded', system:'SHY', version:'0.105.24',
       model_backend:'runpod', hosted_model:'qwen/qwen3.5-4b', hosted_model_configured:true,
       hosted_model_inference_verified:false, application_healthy:false, ollama_connected:false});
     render(<ShyStatus health={health} loading={false} />);

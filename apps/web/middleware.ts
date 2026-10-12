@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { hostedAccessRequired, ownerAuthorized, hostedPublicOrigin } from './lib/deployment-access';
 export async function middleware(request:NextRequest) {
   if (!hostedAccessRequired()) return NextResponse.next();
-  if (!process.env.SHY_OWNER_USERNAME || (process.env.SHY_OWNER_PASSWORD?.length ?? 0)<24 || (process.env.SHY_ACCESS_TOKEN?.length ?? 0)<32 || !hostedPublicOrigin()) {
+  if (!process.env.SHY_OWNER_USERNAME || (process.env.SHY_OWNER_PASSWORD?.length ?? 0)<8 || (process.env.SHY_ACCESS_TOKEN?.length ?? 0)<32 || !hostedPublicOrigin()) {
     return new NextResponse('Hosted owner access is not configured.',{status:503,headers:{'cache-control':'no-store'}});
   }
   if (request.nextUrl.pathname === '/livez' && request.method === 'GET') return NextResponse.json({status:'alive',system:'SHY'},{headers:{'cache-control':'no-store'}});

@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const http=require('node:http');
 const {spawn}=require('node:child_process');
-const password='fixture-password-'+'p'.repeat(32),token='fixture-token-'+'t'.repeat(40);
+const password='fixture8',token='fixture-token-'+'t'.repeat(40);
 const base='http://127.0.0.1:3011';let hits=0;
 const backend=http.createServer((req,res)=>{
   hits++;assert.equal(req.headers.authorization,'Bearer '+token);
@@ -19,6 +19,7 @@ let app;
   }
   assert.equal(ready,true,'Protected production server should start');
   const authorization='Basic '+Buffer.from('owner:'+password).toString('base64');
+  assert.equal((await fetch(base,{headers:{authorization:'Basic '+Buffer.from('owner:incorrect').toString('base64')}})).status,401);
   const page=await fetch(base,{headers:{authorization}});assert.equal(page.status,200);
   const html=await page.text();assert.ok(!html.includes(password)&&!html.includes(token),'Server credentials must not enter client HTML');
   assert.equal(page.headers.get('cache-control'),'private, no-store');

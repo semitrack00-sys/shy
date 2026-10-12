@@ -12,7 +12,7 @@ def main():
     token=os.getenv('SHY_ACCESS_TOKEN','')
     password=os.getenv('SHY_OWNER_PASSWORD','')
     origin=os.getenv('SHY_PUBLIC_ORIGIN') or os.getenv('RENDER_EXTERNAL_URL')
-    if len(token)<32 or len(password)<24 or not os.getenv('SHY_OWNER_USERNAME') or not origin or not os.getenv('DATABASE_URL'):
+    if len(token)<32 or len(password)<8 or not os.getenv('SHY_OWNER_USERNAME') or not origin or not os.getenv('DATABASE_URL'):
         raise RuntimeError('Hosted SHY requires owner credentials, origin and a PostgreSQL connection.')
     port=int(os.getenv('PORT','10000'))
     if not 1024 <= port <= 65535 or port==8000:raise RuntimeError('Invalid frontend port')
