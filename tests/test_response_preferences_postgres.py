@@ -39,7 +39,8 @@ class PreferencePersistence(unittest.TestCase):
     def test_enabled_defaults_never_reach_a_hosted_candidate_even_with_bad_routing_labels(self):
         self.assertEqual(self.save().status_code,200)
         route=SimpleNamespace(selected_provider='hosted',selected_model='hosted-model',provider_health='HEALTHY',latency_tier='FAST',cost_tier='LOW',fallback_candidates=[],reason_code='COMPLEXITY')
-        with patch.object(self.core.router,'build_routing_decision',return_value=route),patch.object(self.core,'_execute_ollama_candidate',new_callable=AsyncMock,side_effect=AssertionError('No local candidate in bad routing fixture')),patch.object(self.core.router.registry,'get_provider',side_effect=AssertionError('Hosted provider must not receive preferences')):
+        base_route=self.core.router.route('Describe how a library catalogue works.',privacy_requirement=self.core.PrivacyClass.LOCAL_ONLY)
+        with patch.object(self.core.router,'route',return_value=base_route),patch.object(self.core.router,'build_routing_decision',return_value=route),patch.object(self.core,'_execute_ollama_candidate',new_callable=AsyncMock,side_effect=AssertionError('No local candidate in bad routing fixture')),patch.object(self.core.router.registry,'get_provider',side_effect=AssertionError('Hosted provider must not receive preferences')):
             response=self.client.post('/chat',json={'message':'Describe how a library catalogue works.','project_id':self.projects[0]})
         self.assertEqual(response.status_code,503,response.text)
         self.assertIsNone(self.prefs.current_preferences.get())
