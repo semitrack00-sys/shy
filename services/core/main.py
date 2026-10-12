@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.16"
+SHY_VERSION = "0.105.17"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1431,6 +1431,8 @@ app.include_router(comparisons_router)
 app.include_router(intelligence_router)
 app.add_middleware(IntelligenceBodyLimit)
 app.include_router(voice_router)
+from response_preferences import router as response_preference_router, prompt_guidance as reply_prompt_guidance, local_generation_required as reply_generation_requires_local, with_preferences
+app.include_router(response_preference_router)
 app.include_router(memory_controls_router)
 app.add_middleware(MemoryBodyLimit)
 app.include_router(documents_router)
@@ -2240,9 +2242,13 @@ async def _generate_intelligence_response_internal(
     role: ModelRole | None = None,
     privacy_requirement: PrivacyClass | None = None,
 ) -> tuple[str, dict[str, Any]]:
+    private_reply_defaults = reply_generation_requires_local()
+    if private_reply_defaults:
+        privacy_requirement = PrivacyClass.LOCAL_ONLY
     generation_expert = select_expert(message)
     expert_guidance = expert_generation_guidance(generation_expert)
-    effective_system_prompt = f"{SYSTEM_PROMPT.strip()}\n\n{expert_guidance}"
+    reply_guidance = reply_prompt_guidance()
+    effective_system_prompt = f"{SYSTEM_PROMPT.strip()}\n\n{expert_guidance}" + (f"\n\n{reply_guidance}" if reply_guidance else "")
     messages = [{"role": "system", "content": effective_system_prompt}]
     for item in history:
         messages.append({"role": item["role"], "content": item["content"]})
@@ -2314,7 +2320,7 @@ async def _generate_intelligence_response_internal(
     ]
 
     bounded_candidates = candidates[:3]
-    if privacy_requirement == PrivacyClass.LOCAL_ONLY and str(getattr(routing_decision.reason_code, "value", routing_decision.reason_code)) == "LOCAL_PRIVACY":
+    if private_reply_defaults or (privacy_requirement == PrivacyClass.LOCAL_ONLY and str(getattr(routing_decision.reason_code, "value", routing_decision.reason_code)) == "LOCAL_PRIVACY"):
         bounded_candidates = [item for item in bounded_candidates if str(item.get("provider_id")) == "ollama"][:1]
     for index, candidate in enumerate(bounded_candidates):
         provider_id = str(candidate["provider_id"])
@@ -4513,6 +4519,10 @@ async def testing_task_approval(request: SyntheticApprovalRequest):
 async def agent(request: AgentRequest):
     if request.document_question is not None or request.option_comparison is not None or calculator_expression(request.message) is not None:
         return await chat(ChatRequest(**request.model_dump()))
+    return await with_preferences(request, _agent_with_preferences, _effective_user_uuid_from_request(request))
+
+
+async def _agent_with_preferences(request: AgentRequest):
     if request.project_id:
         if request.user_id or request.workspace_id or request.business_id:
             raise HTTPException(422, "project_scope_cannot_mix_with_legacy_identity_fields")
@@ -4632,7 +4642,7 @@ async def agent(request: AgentRequest):
 
     effective_user_id = _effective_user_uuid_from_request(request)
 
-    privacy_requirement = PrivacyClass.LOCAL_ONLY if (local_memory_context_used or bool(request.local_only)) else None
+    privacy_requirement = PrivacyClass.LOCAL_ONLY if (local_memory_context_used or bool(request.local_only) or reply_generation_requires_local()) else None
     route = router.route(request.message, privacy_requirement=privacy_requirement)
 
     try:
@@ -4879,6 +4889,10 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    return await with_preferences(request, _chat_with_preferences, _effective_user_uuid_from_request(request))
+
+
+async def _chat_with_preferences(request: ChatRequest):
     if request.document_question is not None:
         if request.option_comparison is not None or request.task_id or request.cancel_task or request.approval_token or request.pending_step_id is not None:
             raise HTTPException(422, "document_question_cannot_mix_with_other_actions")
@@ -4932,7 +4946,7 @@ async def chat(request: ChatRequest):
             detail=f"SHY memory unavailable: {exc}"
         )
 
-    privacy_requirement = PrivacyClass.LOCAL_ONLY if (local_memory_context_used or bool(request.local_only)) else None
+    privacy_requirement = PrivacyClass.LOCAL_ONLY if (local_memory_context_used or bool(request.local_only) or reply_generation_requires_local()) else None
     route = router.route(request.message, privacy_requirement=privacy_requirement)
 
     try:

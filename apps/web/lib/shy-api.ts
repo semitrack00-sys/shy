@@ -1,6 +1,6 @@
 import { parseDocumentAnswer } from './document-answer';
 import type { OptionComparison } from '@/components/shy-comparison';
-import type { ShyAgentResponse, ShyHealthResponse, ShyResearchAnswer, DocumentQuestion } from './types';
+import type { ShyAgentResponse, ShyHealthResponse, ShyResearchAnswer, DocumentQuestion, ShyReplyPreferences } from './types';
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -8,6 +8,14 @@ export function isObject(value: unknown): value is Record<string, unknown> {
 
 export function toOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+export function parseReplyPreferences(value: unknown): ShyReplyPreferences | undefined {
+  if (!isObject(value) || typeof value.status !== 'string' || !['enabled','disabled','not_configured','unavailable'].includes(value.status) || typeof value.applied_to_model_prompt !== 'boolean' || value.output_style_verified !== false) return undefined;
+  if (value.applied_to_model_prompt && value.status !== 'enabled') return undefined;
+  if (value.status === 'unavailable' ? value.revision !== null : (typeof value.revision !== 'string' || !/^(0|[1-9][0-9]{0,18})$/.test(value.revision))) return undefined;
+  if (value.status === 'not_configured' && value.revision !== '0' || ['enabled','disabled'].includes(value.status) && value.revision === '0') return undefined;
+  return {status:value.status as ShyReplyPreferences['status'],applied_to_model_prompt:value.applied_to_model_prompt,output_style_verified:false,revision:value.revision as string|null};
 }
 
 export function parseResearchAnswer(value: unknown): ShyResearchAnswer | undefined {
@@ -43,6 +51,7 @@ export function parseShyAgentResponse(value: unknown): ShyAgentResponse {
     tool_status: toOptionalString(value.tool_status),
     research_provider: toOptionalString(value.research_provider),
     research_answer: parseResearchAnswer(value.research_answer),
+    reply_preferences: parseReplyPreferences(value.response_preferences),
     document_answer: parseDocumentAnswer(value.document_answer),
     conversation_id: toOptionalString(value.conversation_id),
     model: toOptionalString(value.model),

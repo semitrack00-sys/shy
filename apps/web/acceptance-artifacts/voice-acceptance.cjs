@@ -38,12 +38,23 @@ let browser;
   let lastMemoryUrl;
   let memoryWrites = 0;
   let preferenceWrites = 0;
+  let replyWrites = 0;
+  const replyProfiles = new Map();
+  const defaultReply = {enabled:false,language:"auto",detail:"standard",tone:"plain",revision:"0",reviewed:false};
   let preference = { automatic_saving: true, revision: "0", reviewed: false };
   let memory = { id: '00000000-0000-0000-0000-000000000002', subject_key: 'project.shy.database',
     category: 'PROJECT', content: 'SHY uses PostgreSQL.', status: 'ACTIVE', revision: 'a'.repeat(64) };
   await page.route('**/api/shy/memories**', async route => {
     const request = route.request();
     lastMemoryUrl = request.url();
+    if (new URL(request.url()).pathname.endsWith('/response-preferences')) {
+      const project=new URL(request.url()).searchParams.get('project_id') ?? 'default';
+      const current=replyProfiles.get(project) ?? defaultReply;
+      if(request.method()==='GET')return route.fulfill({json:current});
+      const payload=request.postDataJSON();assert.equal(payload.confirmed,true);assert.equal(payload.expected_revision,current.revision);
+      replyWrites++;const updated={enabled:payload.enabled,language:payload.language,detail:payload.detail,tone:payload.tone,revision:String(Number(current.revision)+1),reviewed:true};replyProfiles.set(project,updated);
+      return route.fulfill({json:updated});
+    }
     if (new URL(request.url()).pathname.endsWith('/preferences')) {
       if (request.method() === 'GET') return route.fulfill({ json: preference });
       const payload = request.postDataJSON();
@@ -103,7 +114,7 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.16', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.17', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -146,6 +157,19 @@ let browser;
   await page.getByText('Conversation summary', { exact: true }).click();
   assert.equal(await page.getByRole('link', { name: 'This is a fixture reply.', exact: true }).count(), 1);
   assert.equal(preferenceWrites, 0);
+  await page.getByRole('button',{name:'Review reply preferences',exact:true}).click();
+  await page.getByLabel('Use reviewed reply defaults',{exact:true}).check();
+  await page.getByLabel('Reply language',{exact:true}).selectOption('ht');
+  await page.getByLabel('Reply detail',{exact:true}).selectOption('short');
+  assert.equal(await page.getByRole('button',{name:'Save reviewed reply defaults',exact:true}).isDisabled(),true);
+  await page.getByLabel('I reviewed these exact reply defaults and confirm them.',{exact:true}).check();
+  await page.getByRole('button',{name:'Save reviewed reply defaults',exact:true}).click();
+  await page.getByText('Reviewed reply defaults saved.',{exact:true}).waitFor();
+  assert.equal(replyWrites,1);assert.equal(replyProfiles.get('default').language,'ht');
+  for(const width of [360,390,768,1440]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth),true,`reply preferences overflow at ${width}px`);
+  }
   await page.getByRole('button', { name: 'Review automatic memory saving', exact: true }).click();
   await page.getByLabel('Allow automatic memory saving', { exact: true }).uncheck();
   assert.equal(await page.getByRole('button', { name: 'Save memory saving setting', exact: true }).isDisabled(), true);
@@ -214,6 +238,10 @@ let browser;
   });
   assert.equal(storedProject, 'gud-express');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button',{name:'Review reply preferences',exact:true}).click();
+  assert.equal(await page.getByLabel('Reply language',{exact:true}).inputValue(),'auto');
+  assert.equal(await page.getByLabel('Use reviewed reply defaults',{exact:true}).isChecked(),false);
+  assert.equal(replyWrites,1,'project switch must not write preferences');
   await page.getByRole('button', { name: 'Review local documents', exact: true }).click();
   await page.getByLabel('Selected document file', { exact: true }).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Project uses PostgreSQL.\nSource line two.')});
   assert.equal(await page.getByRole('button', { name: 'Save reviewed document', exact: true }).isDisabled(), true);
@@ -343,7 +371,7 @@ let browser;
   assert.equal(lastChatBody.option_comparison.options[1].values.c1,'200');
   await page.reload();
   await page.getByText('Comparison fixture: A scores 100.000000; B scores 0.000000.',{exact:true}).waitFor();
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context, numeric comparison requests and reload persistence, read-only memory preview and separately reviewed corrections, selected document chat with literal source rendering and reload persistence, ordered document comparisons with revision provenance (fixtures).');
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context, numeric comparison requests and reload persistence, read-only memory preview and separately reviewed corrections, selected document chat with literal source rendering and reload persistence, ordered document comparisons with revision provenance, reviewed reply defaults and project isolation (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();

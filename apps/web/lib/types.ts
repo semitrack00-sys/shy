@@ -31,6 +31,7 @@ export interface ShyAgentResponse {
   tool_name?: string;
   tool_status?: string;
   research_provider?: string;
+  reply_preferences?: ShyReplyPreferences;
   research_answer?: ShyResearchAnswer;
   document_answer?: ShyDocumentAnswer;
   sources?: ShyResearchSource[];
@@ -64,6 +65,7 @@ export interface ChatMessage {
   toolName?: string;
   toolStatus?: string;
   researchProvider?: string;
+  replyPreferences?: ShyReplyPreferences;
   researchAnswer?: ShyResearchAnswer;
   documentAnswer?: ShyDocumentAnswer;
   documentQuestion?: DocumentQuestion;
@@ -97,4 +99,9 @@ export interface ShyDocumentAnswer {
   model_invoked: false; semantic_support_verified: false; found_evidence: boolean;
   selected_documents: string[];
   evidence: {document_id:string;name:string;revision:string;chunk:number;start_line:number;end_line:number;excerpt:string}[];
+}
+
+export interface ShyReplyPreferences {
+  status:'enabled'|'disabled'|'not_configured'|'unavailable';
+  applied_to_model_prompt:boolean; output_style_verified:false; revision:string|null;
 }
