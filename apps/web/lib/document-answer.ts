@@ -9,7 +9,7 @@ export function parseDocumentAnswer(value: unknown): ShyDocumentAnswer | undefin
   const evidence: ShyDocumentAnswer['evidence'] = [];
   const seen = new Set<string>();
   for (const row of value.evidence) {
-    if (!object(row) || typeof row.document_id !== 'string' || !selected.includes(row.document_id.toLowerCase()) || typeof row.name !== 'string' || row.name.length > 120 || typeof row.revision !== 'string' || !/^[0-9a-f]{64}$/.test(row.revision) || typeof row.excerpt !== 'string' || row.excerpt.length > 2000) return undefined;
+    if (!object(row) || typeof row.document_id !== 'string' || !selected.includes(row.document_id.toLowerCase()) || typeof row.name !== 'string' || Array.from(row.name).length > 120 || typeof row.revision !== 'string' || !/^[0-9a-f]{64}$/.test(row.revision) || typeof row.excerpt !== 'string' || row.excerpt.length > 2000) return undefined;
     for (const key of ['chunk','start_line','end_line']) if (typeof row[key] !== 'number' || !Number.isInteger(row[key]) || (row[key] as number) < 1 || (row[key] as number) > (key === 'chunk' ? 250 : 100001)) return undefined;
     if ((row.end_line as number) < (row.start_line as number)) return undefined;
     const key = `${row.document_id.toLowerCase()}:${row.chunk}`;

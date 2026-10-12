@@ -10,6 +10,7 @@ const metadata={method:'local_keyword_search',answer_kind:'verbatim_evidence_exc
 afterEach(()=>{cleanup();localStorage.clear();});
 it('validates bounded document provenance and rejects forged verification or references',()=>{
   expect(parseDocumentAnswer(metadata)).toBeDefined();
+  expect(parseDocumentAnswer({...metadata,evidence:[{...metadata.evidence[0],name:"📄".repeat(120)}]})).toBeDefined();
   for(const invalid of [{...metadata,model_invoked:true},{...metadata,semantic_support_verified:true},{...metadata,found_evidence:false},{...metadata,selected_documents:[]},{...metadata,selected_documents:[id,id]},{...metadata,evidence:[{...metadata.evidence[0],document_id:'other'}]},{...metadata,evidence:[{...metadata.evidence[0],revision:'fake'}]},{...metadata,evidence:[{...metadata.evidence[0],start_line:3}]},{...metadata,evidence:[...metadata.evidence,...metadata.evidence]}])expect(parseDocumentAnswer(invalid)).toBeUndefined();
 });
 it('renders source content as literal text and preserves it on history reload',()=>{

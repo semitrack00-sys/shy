@@ -45,7 +45,8 @@ class DocumentChat(unittest.TestCase):
     def test_invalid_actions_identifiers_and_identity_mix_rejected_before_history_write(self):
         with patch.object(self.core,'save_message',side_effect=AssertionError('No writes')):
             for extra in [{'task_id':'other'},{'cancel_task':True},{'pending_step_id':0},{'approval_token':'x'},{'user_id':str(uuid.uuid4())}]:
-                response=self.client.post('/chat',json={**self.body(),**extra});self.assertEqual(response.status_code,422,response.text)
+                for route in ['/chat','/agent']:
+                    response=self.client.post(route,json={**self.body(),**extra});self.assertEqual(response.status_code,422,response.text)
             for ids in [[],[self.row['id']]*2,['not-a-uuid']]:
                 body=self.body();body['document_question']['document_ids']=ids
                 self.assertEqual(self.client.post('/chat',json=body).status_code,422)

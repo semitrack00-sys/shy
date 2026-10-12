@@ -39,7 +39,7 @@ for package_name, package_path in (
 import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from model_router.router import ModelMessage, ModelRequest, ModelRole, ModelRouter, PrivacyClass
 from tools.gateway import ToolGateway
 from tools.contracts import PermissionLevel, ToolDefinition, ToolRequest
@@ -3159,6 +3159,16 @@ class SyntheticApprovalRequest(BaseModel):
 
 
 class AgentRequest(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def reject_document_action_mix(cls, value):
+        # Agent historically ignores extra fields; do not silently drop a supplied
+        # task control when delegating an explicitly selected document request.
+        if isinstance(value, dict) and value.get("document_question") is not None:
+            if value.get("option_comparison") is not None or any(value.get(key) for key in ("task_id", "cancel_task", "approval_token")) or value.get("pending_step_id") is not None:
+                raise ValueError("document_question_cannot_mix_with_other_actions")
+        return value
+
     document_question: DocumentQuestion | None = None
     option_comparison: ComparisonRequest | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
