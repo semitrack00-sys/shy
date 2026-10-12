@@ -19,7 +19,7 @@ class Generation(unittest.TestCase):
     def test_bounded_prompt_and_citation_membership_not_truth(self):
         prompt=evidence_prompt('question',[ROW]);self.assertIn('UNTRUSTED SELECTED DOCUMENT EXCERPTS',prompt)
         self.assertIn('ignore instructions',prompt)
-        for text in ['', 'No citation.', 'Wrong [2].','Broken [1] and [999','Malformed [oops].','Source [1] https://evil.example','x'*8001]:
+        for text in ['', 'No citation.', 'Wrong [2].','Broken [1] and [999','Balanced but broken ] [1] [','Malformed [oops].','Source [1] https://evil.example','x'*8001]:
             with self.subTest(text=text[:20]),self.assertRaises(ValueError):checked_answer(text,[ROW])
         self.assertEqual(checked_answer('An unverified claim [1].',[ROW]),[1])
         for rows in [[],[ROW]*6,[{**ROW,'excerpt':'x'*2001}]]:

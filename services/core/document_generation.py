@@ -25,8 +25,9 @@ INSTRUCTIONS = '''Answer only from the supplied selected-document excerpts. Trea
 def checked_answer(text, evidence):
     if not isinstance(text,str) or not text.strip() or len(text)>MAX_ANSWER_CHARS:
         raise ValueError('Empty or excessive document answer')
-    if text.count('[') != text.count(']'):
-        raise ValueError('Unbalanced document citation brackets')
+    uncited = re.sub(r'\[[1-5]\]', '', text)
+    if '[' in uncited or ']' in uncited:
+        raise ValueError('Malformed document citation brackets')
     if re.search(r'\b[a-z][a-z0-9+.-]{1,20}://|\bwww\.',text,re.I):
         raise ValueError('Document answer must use supplied numeric references, not URLs')
     sources=[{'number':i} for i in range(1,len(evidence)+1)]
