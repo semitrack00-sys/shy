@@ -25,8 +25,10 @@ export function parseResearchAnswer(value: unknown): ShyResearchAnswer | undefin
   if (value.model_invoked !== (mode === 'model_synthesis')) return undefined;
   if (value.source_count !== undefined && (typeof value.source_count !== 'number' || !Number.isInteger(value.source_count) || value.source_count < 1 || value.source_count > 12)) return undefined;
   if (value.date_window_days !== undefined && value.date_window_days !== null && (typeof value.date_window_days !== 'number' || !Number.isInteger(value.date_window_days) || value.date_window_days < 0 || value.date_window_days > 3650)) return undefined;
+  if (value.date_window_basis !== undefined && (typeof value.date_window_basis !== 'string' || !['english_hint','french_hint','haitian_creole_hint','mixed_hint','no_window'].includes(value.date_window_basis) || (value.date_window_basis === 'no_window' ? value.date_window_days !== null : ![0,7].includes(value.date_window_days as number)))) return undefined;
   return {
     mode, model_invoked: value.model_invoked, semantic_truth_verified: false,
+    ...(typeof value.date_window_basis === 'string' ? {date_window_basis:value.date_window_basis as ShyResearchAnswer['date_window_basis']} : {}),
     ...(typeof value.source_count === 'number' ? { source_count: value.source_count } : {}),
     ...(value.date_window_days === null || typeof value.date_window_days === 'number' ? { date_window_days: value.date_window_days } : {}),
   };

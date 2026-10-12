@@ -43,3 +43,20 @@ it('rejects malformed, contradictory or excessive metadata instead of showing a 
     expect(container).toBeEmptyDOMElement();cleanup();
   }
 });
+
+it.each([
+  ['english_hint','English'],['french_hint','French'],['haitian_creole_hint','Haitian Creole'],['mixed_hint','multiple languages'],
+])('shows the recorded %s rule without guessing language quality', (basis,label) => {
+  const value={mode:'missing_recent_evidence',model_invoked:false,semantic_truth_verified:false,date_window_days:7,date_window_basis:basis};
+  expect(parseResearchAnswer(value)?.date_window_basis).toBe(basis);
+  render(<ShyResearchContext value={value}/>);
+  expect(screen.getByText(new RegExp(label))).toBeInTheDocument();
+  expect(screen.getByText(/do not interpret negation/)).toBeInTheDocument();
+});
+it('does not attribute older windows to a language and rejects contradictory rule metadata', () => {
+  const value={mode:'missing_recent_evidence',model_invoked:false,semantic_truth_verified:false,date_window_days:7};
+  render(<ShyResearchContext value={value}/>);
+  expect(screen.getByText(/origin of this date window was not recorded/)).toBeInTheDocument();
+  for (const invalid of [{...value,date_window_basis:'no_window'},{...value,date_window_basis:'french_hint',date_window_days:null},{...value,date_window_basis:'haitian_creole_hint',date_window_days:30},{...value,date_window_basis:'language_detected'}]) expect(parseResearchAnswer(invalid)).toBeUndefined();
+  expect(parseResearchAnswer({...value,date_window_days:null,date_window_basis:'no_window'})?.date_window_basis).toBe('no_window');
+});

@@ -17,6 +17,7 @@ export interface ShyResearchAnswer {
   semantic_truth_verified: false;
   source_count?: number;
   date_window_days?: number | null;
+  date_window_basis?: 'english_hint' | 'french_hint' | 'haitian_creole_hint' | 'mixed_hint' | 'no_window';
 }
 
 export interface ShyToolOutput {

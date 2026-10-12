@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'services'))
-from research.freshness import source_timing, requested_window, evidence_timing, validate_current_citations
+from research.freshness import source_timing, requested_window, window_selection, evidence_timing, validate_current_citations
 from research.web_search import SearchResult, WebSearchService, WebSearchProvider
 from research.tavily import TavilySearchProvider
 from research.research_engine import ResearchEngine
@@ -28,6 +28,23 @@ class FreshnessTests(unittest.TestCase):
         for query, expected in [('latest release',7),('today weather',0),('right now',0),
             ('this week',7),('recent developments',7),('history of Rome',None),('currently',None)]:
             self.assertEqual(requested_window(query),expected)
+    def test_multilingual_normalization_minimum_and_boundaries(self):
+        for query, expected in [
+            ("AUJOURD’HUI", (0,'french_hint')),
+            ("re\u0301centes nouvelles", (7,'french_hint')),
+            ("en  ce\n moment", (0,'french_hint')),
+            ("kounye a", (0,'haitian_creole_hint')),
+            ("dènye enfòmasyon", (7,'haitian_creole_hint')),
+            ("semèn sa a", (7,'haitian_creole_hint')),
+            ("latest jodi a", (0,'haitian_creole_hint')),
+            ("today aujourd'hui", (0,'mixed_hint')),
+            ("jodias actuellement recently", (None,'no_window')),
+            ("cette semaine latest", (7,'mixed_hint')),
+        ]:
+            with self.subTest(query=query):
+                self.assertEqual(window_selection(query),expected)
+                self.assertEqual(requested_window(query),expected[0])
+
     def test_retrieval_never_makes_unknown_date_recent_and_numbering_binds_to_url(self):
         payload={'results':[{'url':'https://example.com/b','source_date':'2026-01-01'},
                             {'url':'https://example.com/a','retrieved_at':NOW.isoformat()}]}

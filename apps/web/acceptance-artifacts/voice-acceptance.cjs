@@ -114,7 +114,7 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.17', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.18', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -127,7 +127,7 @@ let browser;
     if (lastChatBody.option_comparison) return route.fulfill({json:{status:'RESPOND',message:'Comparison fixture: A scores 100.000000; B scores 0.000000.',conversation_id:'fixture'}});
     if (lastChatBody.message === 'Research context fixture') return route.fulfill({ json: {
       status:'RESPOND',message:'Please provide newer dated evidence.',conversation_id:'fixture',
-      research_answer:{mode:'missing_recent_evidence',model_invoked:false,semantic_truth_verified:false,source_count:1,date_window_days:7},
+      research_answer:{mode:'missing_recent_evidence',model_invoked:false,semantic_truth_verified:false,source_count:1,date_window_days:7,date_window_basis:'english_hint'},
       sources:[{number:1,title:'Research context source',url:'https://example.com/context',source:'example.com',source_date_status:'unknown'}],
     } });
     return route.fulfill({ json: { status: 'RESPOND', message: 'This is a fixture reply.', conversation_id: 'fixture' } });

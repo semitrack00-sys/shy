@@ -13,13 +13,16 @@ from comparisons import ComparisonRequest, compare_options
 from document_diff import ordered_preview
 from research.synthesis_guard import synthesis_sources, validate_synthesis
 from research.claim_checks import disagreement_pairs
-from research.freshness import source_timing
+from research.freshness import source_timing, window_selection
 
 FIXTURE = ROOT/'docs/examples/reasoning-benchmark.json'
 
 
 def evaluate_case(case):
     kind, data = case['kind'], case['input']
+    if kind == 'recency_window':
+        days,basis=window_selection(data)
+        return {'days':days,'basis':basis}
     if kind == 'arithmetic': return calculator_result(data)['decimal_result']
     if kind == 'comparison':
         return [(row['id'],row['score']) for row in compare_options(ComparisonRequest.model_validate(data))['ranking']]
@@ -49,7 +52,7 @@ def run_benchmark(path=FIXTURE):
         except Exception as exc:
             passed=False;detail={'unexpected_error':type(exc).__name__}
         results.append({'id':case['id'],'kind':case['kind'],'passed':passed,**detail})
-    return {'benchmark':'bounded_research_reasoning_v2','fixture_sha256':hashlib.sha256(raw).hexdigest(),
+    return {'benchmark':'bounded_research_reasoning_v3','fixture_sha256':hashlib.sha256(raw).hexdigest(),
             'case_count':len(results),'passed_count':sum(r['passed'] for r in results),'results':results,
             'live_model_quality_measured':False,'source_truth_verified':False,'hardware_performance_measured':False,
             'qualification_complete':False,

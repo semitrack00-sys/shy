@@ -73,15 +73,20 @@ class ResearchGuardIntegration(unittest.TestCase):
         now=datetime(2026,10,11,12,tzinfo=timezone.utc)
         payload={'results':[{'url':'https://example.com/a','title':'A','snippet':'New','source_date':'2026-10-11'},
                             {'url':'https://example.com/b','title':'B','snippet':'Old','source_date':'2025-01-01'}]}
-        for answer, fails in [('New [1].',False),('Old [2].',True),('New [1] and old [2].',True)]:
-            with patch.object(self.core,'utc_now',return_value=now), patch.object(self.core,'generate_intelligence_response',AsyncMock(return_value=answer)) as generation:
-                if fails:
-                    with self.assertRaises(self.core.ResearchSynthesisError):
-                        asyncio.run(self.core.generate_research_response('Latest information',research_output=payload))
-                else:
-                    self.assertEqual(asyncio.run(self.core.generate_research_response('Latest information',research_output=payload)),answer)
-            self.assertEqual(generation.await_count,1)
-            self.assertIn('provider date estimates',generation.call_args.kwargs['message'])
+        for query,basis in [('Latest information','english_hint'),('Dernières nouvelles','french_hint'),('Dènye nouvèl','haitian_creole_hint')]:
+            for answer, fails in [('New [1].',False),('Old [2].',True),('New [1] and old [2].',True)]:
+                with self.subTest(query=query,answer=answer), patch.object(self.core,'utc_now',return_value=now), patch.object(self.core,'generate_intelligence_response',AsyncMock(return_value=answer)) as generation:
+                    if fails:
+                        with self.assertRaises(self.core.ResearchSynthesisError):
+                            asyncio.run(self.core.generate_research_response(query,research_output=payload))
+                    else:
+                        result=asyncio.run(self.core.generate_research_response(query,research_output=payload))
+                        self.assertEqual(result,answer)
+                        self.assertEqual(result.public_metadata()['date_window_basis'],basis)
+                        self.assertEqual(result.public_metadata()['mode'],'model_synthesis')
+                self.assertEqual(generation.await_count,1)
+                self.assertIn('provider date estimates',generation.call_args.kwargs['message'])
+
 
 
 if __name__ == '__main__': unittest.main()
