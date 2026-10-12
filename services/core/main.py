@@ -5185,7 +5185,7 @@ async def _chat_with_preferences(request: ChatRequest):
             assistant_message = await generate_research_response(
                 message=request.message,
                 research_result=research_result,
-                freshness=request.research_request.freshness if request.research_request else "auto",
+                **({"freshness": request.research_request.freshness} if request.research_request else {}),
             )
             model_routing_metadata = dict(_last_model_routing_metadata or {})
             if isinstance(assistant_message, ResearchAnswer):
