@@ -1,7 +1,7 @@
 # SHY v0.101–v0.200 implementation roadmap
 
 This is the user-approved feature scope, not a claim that every milestone has
-shipped. The current implementation is v0.105.15. A future number must not be added
+shipped. The current implementation is v0.105.16. A future number must not be added
 to the runtime manifest merely because its plan exists. Version numbers identify
 releases; model intelligence and hardware performance require separate measurements.
 
@@ -48,7 +48,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.125 | Local document indexing | Implemented early in v0.105.5: PostgreSQL project-scoped text index |
 | v0.126 | Search selected documents | Implemented early in v0.105.5: explicit selection, local keyword search and source provenance |
 | v0.127 | Document-grounded answers with citations | Partial early in v0.105.5: extractive source excerpts with document/chunk/revision citations; v0.105.15 brings explicitly selected excerpts into ordinary chat/history with literal rendering and no-model provenance; generated answers pending |
-| v0.128 | Compare documents and changes | Partial early in v0.105.5: bounded literal line comparison; semantic comparison pending |
+| v0.128 | Compare documents and changes | Partial early in v0.105.5: bounded literal line comparison; v0.105.16 adds ordered logical-line changes, repeated-line counts, bounded previews and a consistent revision snapshot; semantic comparison pending |
 | v0.129 | Refresh and remove indexed documents | Implemented early in v0.105.5: reviewed revision refresh/delete; index updated atomically |
 | v0.130 | Document-answer accuracy benchmarks | Partial early in v0.105.14: fixed English/French/Haitian Creole and CSV excerpt/provenance/isolation checks; generated answer accuracy and representative corpus qualification remain pending |
 | v0.131 | Connect a local vision model | Planned: model download and hardware validation required |
@@ -70,7 +70,7 @@ smoke test uses a real English recording with the local Whisper engine on CPU.
 | v0.147 | Show assumptions and concise explanations | Partial early in v0.105.12: research answer context explains model invocation, checked source records, date-window assumptions and unresolved truth/subject limits; general reasoning explanations and quality benchmarks remain pending |
 | v0.148 | Calculator-backed numerical answers | Implemented early in v0.105.8: bounded explicit decimal arithmetic through actual agent/chat paths, stored replies and project ownership; no inferred units or word-problem solver |
 | v0.149 | Compare options against user criteria | Implemented early in v0.105.13 for explicitly supplied numeric criteria: weighted min/max ranking, ties, input table and project-scoped chat; natural-language criteria extraction and factual value gathering are not implemented |
-| v0.150 | Research and reasoning benchmarks | Partial early in v0.105.13: 33 fixed offline reference cases with a hashed JSON report and CI gate; live model quality, semantic claim support, representative questions and target hardware latency remain pending |
+| v0.150 | Research and reasoning benchmarks | Partial early in v0.105.13: 33 fixed offline reference cases with a hashed JSON report and CI gate (expanded to 38 in v0.105.16 for ordered document lines); live model quality, semantic claim support, representative questions and target hardware latency remain pending |
 | v0.151 | Read approved local folders | Planned: target-machine filesystem access required |
 | v0.152 | Preview file creation and edits | Planned |
 | v0.153 | Approved edits with backups | Planned |
@@ -176,3 +176,5 @@ The v0.105.13 patch adds [criteria comparisons and bounded reasoning checks](opt
 The v0.105.14 patch adds [memory preview and local data checks](memory-preview.md), with a hashed per-case PostgreSQL report. Exact supplied-data checks are not representative language or generated-answer accuracy measurements.
 
 The v0.105.15 patch adds [selected document chat](selected-document-chat.md). Only explicitly selected, owner-checked keyword excerpts are returned; broad semantic document answers remain unqualified.
+
+The v0.105.16 patch adds [ordered document comparisons](ordered-document-comparison.md). Repeated and reordered logical lines are checked within explicit limits, with unchanged source semantics qualification.

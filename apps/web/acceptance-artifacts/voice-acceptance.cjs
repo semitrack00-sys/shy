@@ -71,11 +71,13 @@ let browser;
   let documentWrites = 0;
   let extractionRequests = 0;
   let document = null;
+  let showComparisonFixture = false;
+  const comparisonSource = {id:"00000000-0000-0000-0000-000000000004",name:"reordered.txt",kind:"text",revision:"e".repeat(64),characters:24};
   await page.route('**/api/shy/documents**', async route => {
     const request = route.request();
     const url = new URL(request.url());
     assert.equal(url.searchParams.get('project_id'), 'gud-express');
-    if (request.method() === 'GET') return route.fulfill({ json: { documents:document ? [document] : [] } });
+    if (request.method() === 'GET') return route.fulfill({ json: { documents:document ? (showComparisonFixture ? [document,comparisonSource] : [document]) : [] } });
     const payload = request.postDataJSON();
     if (url.pathname.endsWith('/extract')) {
       extractionRequests++;
@@ -88,6 +90,10 @@ let browser;
       return route.fulfill({ json: { evidence:[{document_id:document.id,name:document.name,revision:document.revision,
         chunk:1,start_line:1,end_line:2,excerpt:document.content}] } });
     }
+    if (url.pathname.endsWith('/compare')) {
+      assert.deepEqual(payload.document_ids,[document.id,comparisonSource.id]);
+      return route.fulfill({json:{documents:[document,comparisonSource],common_unique_lines:1,unique_line_counts:[1,0],differences:[[{line:2,text:'Source line two.'}],[]],semantic_equivalence_checked:false,ordered_comparison:{status:'evaluated',method:'ordered_logical_lines',line_limit:1000,left_line_count:2,right_line_count:1,inserted_lines:0,deleted_lines:1,equal_lines:1,text_identical:false,line_sequence_equal:false,line_endings_compared:false,semantic_equivalence_checked:false,minimal_patch_guaranteed:false,change_hunk_count:1,hunks:[{kind:'delete',left:{start_line:2,line_count:1,samples:[{line:2,text:'Source line two.',truncated:false}],omitted_lines:0},right:{start_line:2,line_count:0,samples:[],omitted_lines:0}}],omitted_hunks:0,preview_truncated:false,hunk_limit:10,sample_lines_per_side:2,sample_character_limit:150}}});
+    }
     documentWrites++;
     assert.equal(payload.confirmed, true);
     if (document) assert.equal(payload.expected_revision, document.revision);
@@ -97,7 +103,7 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.15', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.16', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -232,8 +238,21 @@ let browser;
   await page.reload();
   await page.getByText('Selected excerpt fixture: [untrusted](https://evil.example) PostgreSQL.',{exact:true}).waitFor();
   assert.equal(await page.getByRole('link',{name:'untrusted',exact:true}).count(),0);
+  showComparisonFixture = true;
   await page.getByRole('button',{name:'Settings',exact:true}).click();
   await page.getByRole('button',{name:'Review local documents',exact:true}).click();
+  await page.getByLabel('Select notes.txt',{exact:true}).check();
+  await page.getByLabel('Select reordered.txt',{exact:true}).check();
+  await page.getByRole('button',{name:'Compare two selected documents',exact:true}).click();
+  const orderedPreview=page.getByText(/Ordered line comparison: 0 inserted, 1 deleted, 1 equal lines/);
+  await orderedPreview.waitFor();
+  assert.equal(await orderedPreview.evaluate(element=>element.textContent.includes('revision '+'e'.repeat(64))),true);
+  assert.equal(documentWrites,1,'comparison must not mutate documents');
+  for (const width of [360,390,768,1440]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth),true,`ordered comparison overflow at ${width}px`);
+  }
+  showComparisonFixture = false;
   await page.getByRole('button', { name: 'Review refresh notes.txt', exact: true }).click();
   await page.getByLabel('Selected document file', { exact: true }).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Revised project source.')});
   assert.equal(await page.getByRole('button', { name: 'Save reviewed document', exact: true }).isDisabled(), true);
@@ -324,7 +343,7 @@ let browser;
   assert.equal(lastChatBody.option_comparison.options[1].values.c1,'200');
   await page.reload();
   await page.getByText('Comparison fixture: A scores 100.000000; B scores 0.000000.',{exact:true}).waitFor();
-  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context, numeric comparison requests and reload persistence, read-only memory preview and separately reviewed corrections, selected document chat with literal source rendering and reload persistence (fixtures).');
+  console.log('PASS: voice transcript review, spoken reply, stop, title persistence, history search, summaries, reviewed memory correction/deletion, confirmed automatic-saving pause, persisted project chat scope, confirmed document upload/search/refresh/deletion, separately confirmed binary extraction, mobile overflow, session-only consent, reviewed wake drafting and separately consented hands-free sending, ordinary research source cards, bounded answer context, numeric comparison requests and reload persistence, read-only memory preview and separately reviewed corrections, selected document chat with literal source rendering and reload persistence, ordered document comparisons with revision provenance (fixtures).');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await browser?.close();
   server?.kill();

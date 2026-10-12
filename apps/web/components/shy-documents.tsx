@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { formatOrderedComparison } from '@/lib/document-diff';
 import type { DocumentQuestion } from '@/lib/types';
 import { FRONTEND_API_BASE } from '@/lib/config';
 
@@ -141,7 +142,9 @@ export function ShyDocuments({ projectId, onAsk, chatDisabled = false }: { proje
           return `Line ${item.line}: ${item.text}`;
         }).join('\n');
       });
-      setComparison(`Literal line comparison; semantic equivalence is not checked.\nCommon unique lines: ${result.common_unique_lines}\nUp to 30 differences per document, 500 characters per line.\n\n${groups.join('\n\n')}`);
+      const ordered = result.ordered_comparison === undefined ? 'Ordered comparison was not provided by this runtime.' : formatOrderedComparison(result.ordered_comparison);
+      const revisions = sources.map((source:Document, i:number) => `${i === 0 ? 'First' : 'Second'} document: ${source.name} · revision ${source.revision}`).join('\n');
+      setComparison(`${revisions}\n\n${ordered}\n\nLiteral line comparison; semantic equivalence is not checked.\nUnique-line summary ignores order and repeated-line counts.\nCommon unique lines: ${result.common_unique_lines}\nUp to 30 differences per document, 500 characters per line.\n\n${groups.join('\n\n')}`);
     });
   }
   return <section className="shy-memory-manager" aria-label="Local documents">
