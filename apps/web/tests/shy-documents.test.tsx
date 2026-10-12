@@ -65,3 +65,13 @@ it('binary extraction requires consent and returned text requires a separate sav
   expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({kind:'pdf',data:btoa('%PDF-fixture'),confirmed:true});
   expect(await screen.findByRole('button',{name:'Save reviewed document'})).toBeDisabled();expect(fetch).toHaveBeenCalledTimes(2);
 });
+
+it('hands only explicitly selected IDs and keywords to chat and respects chat busy state',async()=>{
+  const fetch=vi.fn().mockResolvedValue(response({documents:[row]}));vi.stubGlobal('fetch',fetch);
+  const onAsk=vi.fn();const user=userEvent.setup();const view=render(<ShyDocuments onAsk={onAsk}/>);
+  await user.click(screen.getByText('Review local documents'));await screen.findByLabelText('Select notes.txt');
+  const ask=screen.getByText('Show selected excerpts in chat');expect(ask).toBeDisabled();
+  await user.click(screen.getByLabelText('Select notes.txt'));await user.type(screen.getByLabelText('Document search keywords'),'PostgreSQL');
+  await user.click(ask);expect(onAsk).toHaveBeenCalledWith({document_ids:[row.id],query:'PostgreSQL',limit:5});
+  expect(fetch).toHaveBeenCalledTimes(1);view.rerender(<ShyDocuments onAsk={onAsk} chatDisabled/>);expect(ask).toBeDisabled();
+});

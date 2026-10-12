@@ -232,7 +232,7 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 
 def build_platform_manifest(
     *,
-    version: str = "0.105.14",
+    version: str = "0.105.15",
     capabilities: Sequence[PlatformCapability] = _DEFAULT_CAPABILITIES,
 ) -> PlatformManifest:
     current = _version_tuple(version)

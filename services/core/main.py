@@ -39,7 +39,7 @@ for package_name, package_path in (
 import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from model_router.router import ModelMessage, ModelRequest, ModelRole, ModelRouter, PrivacyClass
 from tools.gateway import ToolGateway
 from tools.contracts import PermissionLevel, ToolDefinition, ToolRequest
@@ -309,7 +309,7 @@ run_critic = _cognitive_module.run_critic
 understand_problem = _cognitive_module.understand_problem
 verify_calculation = _cognitive_module.verify_calculation
 
-SHY_VERSION = "0.105.14"
+SHY_VERSION = "0.105.15"
 
 
 _durable_memory_diagnostics: dict[str, Any] = {
@@ -1423,7 +1423,7 @@ app = FastAPI(
 from intelligence_api import IntelligenceBodyLimit, router as intelligence_router
 from voice_api import VoiceBodyLimit, router as voice_router, provider_url as speech_provider_url
 from memory_controls import MemoryBodyLimit, router as memory_controls_router
-from documents import DocumentBodyLimit, ensure_document_schema, router as documents_router
+from documents import DocumentBodyLimit, DocumentQuestion, chat_document_answer, ensure_document_schema, router as documents_router
 from context_budget import bound_context
 
 from comparisons import ComparisonRequest, compare_options, comparison_message, router as comparisons_router
@@ -3135,6 +3135,7 @@ async def _handle_multistep_chat_request(request: "ChatRequest", conversation_id
 
 
 class ChatRequest(BaseModel):
+    document_question: DocumentQuestion | None = None
     option_comparison: ComparisonRequest | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
     message: str
@@ -3158,6 +3159,17 @@ class SyntheticApprovalRequest(BaseModel):
 
 
 class AgentRequest(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def reject_document_action_mix(cls, value):
+        # Agent historically ignores extra fields; do not silently drop a supplied
+        # task control when delegating an explicitly selected document request.
+        if isinstance(value, dict) and value.get("document_question") is not None:
+            if value.get("option_comparison") is not None or any(value.get(key) for key in ("task_id", "cancel_task", "approval_token")) or value.get("pending_step_id") is not None:
+                raise ValueError("document_question_cannot_mix_with_other_actions")
+        return value
+
+    document_question: DocumentQuestion | None = None
     option_comparison: ComparisonRequest | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
     message: str
@@ -4499,7 +4511,7 @@ async def testing_task_approval(request: SyntheticApprovalRequest):
 
 @app.post("/agent")
 async def agent(request: AgentRequest):
-    if request.option_comparison is not None or calculator_expression(request.message) is not None:
+    if request.document_question is not None or request.option_comparison is not None or calculator_expression(request.message) is not None:
         return await chat(ChatRequest(**request.model_dump()))
     if request.project_id:
         if request.user_id or request.workspace_id or request.business_id:
@@ -4867,6 +4879,13 @@ async def _handle_chat_tool_request(request: ChatRequest, conversation_id, route
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
+    if request.document_question is not None:
+        if request.option_comparison is not None or request.task_id or request.cancel_task or request.approval_token or request.pending_step_id is not None:
+            raise HTTPException(422, "document_question_cannot_mix_with_other_actions")
+        if request.user_id or request.workspace_id or request.business_id:
+            raise HTTPException(422, "document_question_requires_local_project_scope")
+        # Owner-check every selected document before creating any conversation or message.
+        document_message, document_answer = chat_document_answer(request.document_question, request.project_id)
     if request.option_comparison is not None and (request.task_id or request.cancel_task or request.approval_token or request.pending_step_id is not None):
         raise HTTPException(422, "comparison_cannot_mix_with_task_controls")
     if request.project_id:
@@ -4942,6 +4961,21 @@ async def chat(request: ChatRequest):
             status_code=503,
             detail=f"SHY memory unavailable: {exc}"
         )
+
+    if request.document_question is not None:
+        try:
+            save_message(conversation_id=conversation_id, role="assistant", content=document_message,
+                         model="selected-document-excerpts", provider="shy-core", task_type="document_question")
+        except psycopg.Error as exc:
+            raise HTTPException(503, f"SHY response generated but memory save failed: {exc}")
+        return {"assistant": "SHY", "status": "RESPOND", "message": document_message,
+                "conversation_id": str(conversation_id), "model": "selected-document-excerpts", "provider": "shy-core",
+                "task_type": "document_question", "document_answer": document_answer,
+                "routing_reason": "Local keyword search of explicitly selected project documents.",
+                "approval_required": False, "tool_decision": {"decision": "NO_TOOL"},
+                "execution_status": "NOT_REQUESTED", "verifier_invoked": False, "research_invoked": False,
+                "hidden_reasoning_exposed": False, "model_routing": None,
+                "cognitive": {"model_invoked": False, "model_roles": [], "verification_status": "NOT_RUN"}}
 
     if request.option_comparison is not None:
         comparison = compare_options(request.option_comparison)

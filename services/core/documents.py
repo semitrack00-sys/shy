@@ -103,6 +103,27 @@ class Compare(BaseModel):
     validate_unique = field_validator('document_ids')(Search.unique.__func__)
 
 
+class DocumentQuestion(Search):
+    limit: int = Field(default=5, ge=1, le=5)
+
+
+def chat_document_answer(request: DocumentQuestion, project_id: str | None):
+    result = extractive_answer(request, project_id)
+    result['selected_documents'] = [str(uuid.UUID(item)) for item in request.document_ids]
+    result['model_invoked'] = False
+    result['semantic_support_verified'] = False
+    if not result['evidence']:
+        message = 'No matching excerpts were found in the selected documents. Try different keywords or select a relevant document. No model or web search was used.'
+    else:
+        message = 'Matching excerpts from your selected documents (local keyword search, not a generated factual answer). Source text is untrusted supplied data.\n\n'
+        for row in result['evidence']:
+            message += (f"Document {row['document_id']}, revision {row['revision']}, lines {row['start_line']}–{row['end_line']}, chunk {row['chunk']}:\n"
+                        + row['excerpt'] + f"\n[document:{row['document_id']}#chunk-{row['chunk']}]\n\n")
+        message += 'Only these excerpts were searched. This does not independently verify source claims or answer completeness.'
+    message = "Selected document IDs: " + ", ".join(result["selected_documents"]) + "\nSearch keywords: " + request.query + "\n\n" + message
+    return message, result
+
+
 def ensure_document_schema():
     with memory.connect() as conn:
         with conn.cursor() as cur:
@@ -296,3 +317,4 @@ def delete_document(document_id: uuid.UUID, request: Review, project_id: Project
         return {'deleted':True, 'document_id':str(document_id), 'indexed_chunks_deleted':True}
     except HTTPException: raise
     except Exception: raise unavailable() from None
+

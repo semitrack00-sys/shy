@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useId, useRef, useState } from 'react';
+import type { DocumentQuestion } from '@/lib/types';
 import { FRONTEND_API_BASE } from '@/lib/config';
 
 type Document = { id:string; name:string; kind:'text'|'csv'; revision:string; characters:number };
@@ -27,7 +28,7 @@ function parseEvidence(value: unknown): Evidence {
   return item as Evidence;
 }
 
-export function ShyDocuments({ projectId }: { projectId?:string }) {
+export function ShyDocuments({ projectId, onAsk, chatDisabled = false }: { projectId?:string; onAsk?:(question:DocumentQuestion) => void; chatDisabled?:boolean }) {
   const formId = useId();
   const [open, setOpen] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -182,6 +183,7 @@ export function ShyDocuments({ projectId }: { projectId?:string }) {
       {preview && <pre className="shy-document-preview">{preview}</pre>}
       <div><label htmlFor={`${formId}-query`}>Document search keywords</label><input id={`${formId}-query`} value={query} maxLength={500} disabled={busy} onChange={event => { setQuery(event.target.value); setEvidence([]); }} /></div>
       <button className="shy-button" type="button" disabled={busy || !selected.length || !query.trim()} onClick={() => void search()}>Search selected documents</button>
+      {onAsk && <button className="shy-button" type="button" disabled={busy || chatDisabled || !selected.length || !query.trim()} onClick={() => onAsk({ document_ids: [...selected], query: query.trim(), limit: 5 })}>Show selected excerpts in chat</button>}
       <button className="shy-button" type="button" disabled={busy || selected.length !== 2} onClick={() => void compare()}>Compare two selected documents</button>
       {comparison && <pre className="shy-document-preview">{comparison}</pre>}
       <ul className="shy-memory-list">{evidence.map(item => <li key={`${item.document_id}:${item.chunk}`}>
@@ -193,3 +195,4 @@ export function ShyDocuments({ projectId }: { projectId?:string }) {
     </>}
   </section>;
 }
+

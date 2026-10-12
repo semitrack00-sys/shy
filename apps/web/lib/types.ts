@@ -32,6 +32,7 @@ export interface ShyAgentResponse {
   tool_status?: string;
   research_provider?: string;
   research_answer?: ShyResearchAnswer;
+  document_answer?: ShyDocumentAnswer;
   sources?: ShyResearchSource[];
   output?: ShyToolOutput | null;
   conversation_id?: string;
@@ -64,6 +65,8 @@ export interface ChatMessage {
   toolStatus?: string;
   researchProvider?: string;
   researchAnswer?: ShyResearchAnswer;
+  documentAnswer?: ShyDocumentAnswer;
+  documentQuestion?: DocumentQuestion;
   sources?: ShyResearchSource[];
   responseStatus?: ShyAgentStatus;
   output?: ShyToolOutput | null;
@@ -87,3 +90,11 @@ export interface ChatStore {
   theme: 'light' | 'dark';
 }
 
+
+export interface DocumentQuestion { document_ids: string[]; query: string; limit?: number }
+export interface ShyDocumentAnswer {
+  method: 'local_keyword_search'; answer_kind: 'verbatim_evidence_excerpts_not_generated_claims';
+  model_invoked: false; semantic_support_verified: false; found_evidence: boolean;
+  selected_documents: string[];
+  evidence: {document_id:string;name:string;revision:string;chunk:number;start_line:number;end_line:number;excerpt:string}[];
+}

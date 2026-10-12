@@ -1,15 +1,17 @@
 'use client';
 
+import { parseDocumentAnswer } from '@/lib/document-answer';
+
 import React, { useState } from 'react';
 import { ShyMarkdown } from './shy-markdown';
 import { ShySourceCards } from './shy-source-cards';
 import { ShyResearchContext } from './shy-research-context';
 import { getLocalTimeLabel } from '@/lib/config';
-import type { ChatMessage } from '@/lib/types';
+import type { ChatMessage, DocumentQuestion } from '@/lib/types';
 
 interface ShyMessageProps {
   message: ChatMessage;
-  onRetry?: (message: string) => void;
+  onRetry?: (message: string, documentQuestion?: DocumentQuestion) => void;
 }
 
 function prettyObject(value: unknown): string {
@@ -51,7 +53,7 @@ export function ShyMessage({ message, onRetry }: ShyMessageProps) {
               {copied ? 'Copied' : 'Copy'}
             </button>
             {message.status === 'failed' && onRetry ? (
-              <button type="button" className="shy-chip" onClick={() => onRetry(message.error ?? message.content)}>
+              <button type="button" className="shy-chip" onClick={() => onRetry(message.documentQuestion?.query ?? message.error ?? message.content, message.documentQuestion)}>
                 Retry
               </button>
             ) : null}
@@ -64,7 +66,9 @@ export function ShyMessage({ message, onRetry }: ShyMessageProps) {
           <strong>Request failed.</strong> {message.error ?? 'SHY could not complete this request right now.'}
         </div>
       ) : message.content ? (
-        <ShyMarkdown content={message.content} />
+        message.role === 'assistant' && parseDocumentAnswer(message.documentAnswer)
+          ? <pre className="shy-document-preview">{message.content}</pre>
+          : <ShyMarkdown content={message.content} />
       ) : null}
 
       {message.role === 'assistant' && message.status !== 'failed' && <ShyResearchContext value={message.researchAnswer} />}
