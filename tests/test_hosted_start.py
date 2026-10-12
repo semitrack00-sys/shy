@@ -7,10 +7,10 @@ from types import SimpleNamespace
 from unittest.mock import patch,Mock
 P=Path(__file__).resolve().parents[1]/'scripts/hosted_start.py'
 spec=importlib.util.spec_from_file_location('hosted_start',P);mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
-ENV={'SHY_ACCESS_TOKEN':'t'*40,'SHY_OWNER_PASSWORD':'p'*32,'SHY_OWNER_USERNAME':'owner','SHY_PUBLIC_ORIGIN':'https://shy.example','DATABASE_URL':'fixture','PORT':'10000'}
+ENV={'SHY_ACCESS_TOKEN':'t'*40,'SHY_OWNER_PASSWORD':'p'*8,'SHY_OWNER_USERNAME':'owner','SHY_PUBLIC_ORIGIN':'https://shy.example','DATABASE_URL':'fixture','PORT':'10000'}
 class Startup(unittest.TestCase):
     def test_missing_secrets_and_conflicting_public_port_never_launch(self):
-        for extra in [{'SHY_ACCESS_TOKEN':''},{'SHY_OWNER_PASSWORD':''},{'DATABASE_URL':''},{'PORT':'8000'}]:
+        for extra in [{'SHY_ACCESS_TOKEN':''},{'SHY_OWNER_PASSWORD':''},{'SHY_OWNER_PASSWORD':'p'*7},{'DATABASE_URL':''},{'PORT':'8000'}]:
             with patch.dict(os.environ,{**ENV,**extra}),patch.object(mod.subprocess,'Popen',side_effect=AssertionError('Do not launch')):
                 with self.assertRaises(RuntimeError):mod.main()
     def test_failed_child_stops_partner_and_core_is_loopback_only(self):

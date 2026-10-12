@@ -27,7 +27,7 @@ def check(base):
     status,html=request('/',{'Authorization':auth});assert status==200
     assert password not in html and os.environ['SHY_ACCESS_TOKEN'] not in html
     status,raw=request('/api/shy/health',{'Authorization':auth});assert status==200
-    health=json.loads(raw);assert health['version']=='0.105.23' and health['database_connected'] is True
+    health=json.loads(raw);assert health['version']=='0.105.24' and health['database_connected'] is True
     assert health['ollama_connected'] is False and health['application_healthy'] is False
     body={'message':'Calculate 0.1 + 0.2','project_id':'hosted-deployment-check'}
     assert request('/api/shy/agent',body=body)[0]==401

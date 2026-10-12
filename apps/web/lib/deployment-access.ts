@@ -16,6 +16,6 @@ async function sameDigest(a:string,b:string):Promise<boolean> {
 }
 export async function ownerAuthorized(header:string|null):Promise<boolean> {
   const user=process.env.SHY_OWNER_USERNAME,password=process.env.SHY_OWNER_PASSWORD;
-  if (!user || !password || password.length < 24 || !header || header.length > 512 || !header.startsWith('Basic ')) return false;
+  if (!user || !password || password.length < 8 || !header || header.length > 512 || !header.startsWith('Basic ')) return false;
   try { return await sameDigest(atob(header.slice(6)),`${user}:${password}`); } catch { return false; }
 }

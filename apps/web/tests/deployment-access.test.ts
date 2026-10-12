@@ -30,3 +30,15 @@ it('uses Render provided origin and returns only minimal public liveness',async(
   expect(response.status).toBe(200);expect(await response.json()).toEqual({status:'alive',system:'SHY'});
   expect((await middleware(new NextRequest('https://shy.render.example/health'))).status).toBe(401);
 });
+
+it('accepts eight-character owner passwords and rejects shorter or incorrect passwords',async()=>{
+  configured();vi.stubEnv('SHY_OWNER_PASSWORD','fixture8');
+  const authorization='Basic '+btoa('owner:fixture8');
+  expect(await ownerAuthorized(authorization)).toBe(true);
+  expect(await ownerAuthorized('Basic '+btoa('owner:incorrect'))).toBe(false);
+  expect((await middleware(new NextRequest('https://shy.example/',{headers:{authorization}}))).status).toBe(200);
+  expect((await middleware(new NextRequest('https://shy.example/'))).status).toBe(401);
+  vi.stubEnv('SHY_OWNER_PASSWORD','short77');
+  expect(await ownerAuthorized('Basic '+btoa('owner:short77'))).toBe(false);
+  expect((await middleware(new NextRequest('https://shy.example/'))).status).toBe(503);
+});
