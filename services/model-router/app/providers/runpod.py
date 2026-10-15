@@ -34,10 +34,16 @@ class RunPodProvider(_types.ModelProvider):
     POLL_SECONDS = 2.0
 
     def __init__(self):
+        self.mode = os.getenv("SHY_RUNPOD_MODE", "dedicated").strip()
         self.endpoint_id = os.getenv("SHY_RUNPOD_ENDPOINT_ID", "").strip()
         self.api_key = os.getenv("SHY_RUNPOD_API_KEY", "").strip()
         self.model_id = os.getenv("SHY_RUNPOD_MODEL", "qwen/qwen3.5-4b").strip()
         self.configured = bool(re.fullmatch(r"[a-z0-9]{6,64}", self.endpoint_id) and self.api_key and self.model_id)
+        if self.mode == "public":
+            self.model_id = "Qwen/Qwen3-32B-AWQ"
+            self.configured = bool(self.api_key)
+        elif self.mode != "dedicated":
+            self.configured = False
         self.last_generation_succeeded = False
         self.retry_at = 0.0
         self._generation_lock = threading.Lock()
@@ -67,13 +73,14 @@ class RunPodProvider(_types.ModelProvider):
             return ()
         return (_types.ModelProfile(
             model_id=self.model_id, provider_id=self.provider_id,
-            display_name="Qwen 3.5 4B (RunPod)",
+            display_name="Qwen 3 32B (RunPod public)" if self.mode == "public" else "Qwen 3.5 4B (RunPod)",
             capabilities=(_types.ModelCapability.CHAT, _types.ModelCapability.REASONING,
                           _types.ModelCapability.CODING, _types.ModelCapability.RESEARCH_SYNTHESIS),
             context_window=4096, supports_tools=False, supports_vision=False,
             supports_structured_output=False, local=False,
             privacy_class=_types.PrivacyClass.REMOTE_ALLOWED,
-            cost_class=_types.CostClass.LOW, latency_class=_types.LatencyClass.SLOW,
+            cost_class=_types.CostClass.MEDIUM if self.mode == "public" else _types.CostClass.LOW,
+            latency_class=_types.LatencyClass.NORMAL if self.mode == "public" else _types.LatencyClass.SLOW,
             quality_class=_types.QualityClass.STANDARD, enabled=self.configured,
         ),)
 
@@ -141,6 +148,20 @@ class RunPodProvider(_types.ModelProvider):
                 code = exc.code if isinstance(exc, HostedInferenceError) else "timeout" if isinstance(exc, httpx.TimeoutException) else "unavailable"
                 raise HostedInferenceError(code) from None
 
+    def _public_completion(self, payload):
+        # Fixed provider/model allowlist. One paid submission, no automatic retries
+        # or fallback to a dedicated worker with a minutes-long cold start.
+        with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0),
+                          follow_redirects=False, trust_env=False) as client:
+            try:
+                response = client.post(
+                    "https://api.runpod.ai/v2/qwen3-32b-awq/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {self.api_key}"}, json=payload)
+                response.raise_for_status()
+                return response.json()
+            except httpx.TimeoutException:
+                raise HostedInferenceError("timeout") from None
+
     def _generate(self, request, model_id):
         self.last_generation_succeeded = False
         if not self.configured or model_id != self.model_id:
@@ -159,9 +180,16 @@ class RunPodProvider(_types.ModelProvider):
                    "chat_template_kwargs": {"enable_thinking": False}}
         started = time.monotonic()
         try:
-            result = self._submit_and_wait(payload)
+            result = self._public_completion(payload) if self.mode == "public" else self._submit_and_wait(payload)
             choice = result["choices"][0]
             content = choice["message"]["content"]
+            if self.mode == "public" and isinstance(content, str):
+                # Some Qwen templates include an empty reasoning delimiter even
+                # with thinking disabled. Never display a reasoning preamble.
+                if "</think>" in content:
+                    content = content.split("</think>", 1)[1]
+                elif "<think>" in content:
+                    raise ValueError("Incomplete hosted intelligence response.")
             if not isinstance(content, str) or not content.strip() or len(content) > 32000:
                 raise ValueError("Invalid hosted intelligence response.")
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
