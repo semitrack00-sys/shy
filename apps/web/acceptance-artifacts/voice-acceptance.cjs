@@ -114,7 +114,7 @@ let browser;
     return route.fulfill({ json: { document, deleted:document === null } });
   });
   await page.route('**/api/shy/health', route => route.fulfill({ json: {
-    status: 'degraded', system: 'SHY', version: '0.105.25', database_connected: true,
+    status: 'degraded', system: 'SHY', version: '0.105.26', database_connected: true,
     ollama_connected: false, local_model_available: false,
   } }));
   await page.route('**/api/shy/agent', route => {
@@ -138,7 +138,20 @@ let browser;
     return route.fulfill({ json: { status: 'RESPOND', message: 'This is a fixture reply.', conversation_id: 'fixture' } });
   });
   await page.goto('http://127.0.0.1:3000');
+  await page.locator('.shy-avatar--welcome img').waitFor();
+  await page.waitForFunction(() => [...document.querySelectorAll('.shy-avatar img')].every(image => image.complete && image.naturalWidth > 0));
+  assert.equal(await page.getByText('AI avatar', {exact:true}).count(), 2);
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({width, height:900});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, 'Avatar must not cause horizontal overflow');
+    if (process.env.SHY_AVATAR_SCREENSHOTS) {
+      require('node:fs').mkdirSync(process.env.SHY_AVATAR_SCREENSHOTS, {recursive:true});
+      await page.screenshot({path:require('node:path').join(process.env.SHY_AVATAR_SCREENSHOTS, `shy-avatar-${width}.png`), fullPage:false});
+    }
+  }
+  await page.setViewportSize({width:390,height:844});
   await page.getByRole('button', { name: 'Speak to SHY' }).click();
+  assert.equal(await page.locator('.shy-avatar--voice[data-state="listening"]').count(), 1);
   await page.evaluate(() => window.voiceFixture.recognition.onresult({ results: [{ isFinal: true, 0: { transcript: 'Hello SHY from a voice fixture' } }] }));
   await page.waitForFunction(() => document.querySelector('#shy-composer-input').value === 'Hello SHY from a voice fixture');
   assert.equal(await page.getByLabel('Message SHY', { exact: true }).inputValue(), 'Hello SHY from a voice fixture');

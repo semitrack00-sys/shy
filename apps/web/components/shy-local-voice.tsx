@@ -5,9 +5,9 @@ import { LocalRecorder, audioBase64 } from '@/lib/local-audio';
 import { FRONTEND_API_BASE } from '@/lib/config';
 import { VOICE_LANGUAGES } from '@/lib/browser-voice';
 
-export function ShyLocalVoice({ disabled, onTranscript, onStart, onActivity, cancelSignal }: {
+export function ShyLocalVoice({ disabled, onTranscript, onStart, onActivity, onStateChange, cancelSignal }: {
   disabled: boolean; onTranscript: (text: string) => void; onStart: () => void;
-  onActivity: (active: boolean) => void; cancelSignal: number;
+  onActivity: (active: boolean) => void; onStateChange?: (state: 'idle' | 'listening' | 'transcribing') => void; cancelSignal: number;
 }) {
   const recorder = useRef<LocalRecorder | null>(null);
   const request = useRef<AbortController | null>(null);
@@ -45,6 +45,7 @@ export function ShyLocalVoice({ disabled, onTranscript, onStart, onActivity, can
   useEffect(() => { if (disabled) cancel(); }, [disabled]);
   useEffect(() => { cancel(); }, [cancelSignal]);
   useEffect(() => { onActivity(recording || busy); }, [recording, busy, onActivity]);
+  useEffect(() => { onStateChange?.(recording ? 'listening' : busy ? 'transcribing' : 'idle'); }, [recording, busy, onStateChange]);
 
   async function refreshDevices() {
     cancel(); setError('');

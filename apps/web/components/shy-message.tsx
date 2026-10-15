@@ -4,6 +4,7 @@ import { parseReplyPreferences, parseResearchRequest } from '@/lib/shy-api';
 import { parseDocumentAnswer } from '@/lib/document-answer';
 
 import React, { useState } from 'react';
+import { ShyAvatar } from './shy-avatar';
 import { ShyMarkdown } from './shy-markdown';
 import { ShySourceCards } from './shy-source-cards';
 import { ShyResearchContext } from './shy-research-context';
@@ -42,7 +43,7 @@ export function ShyMessage({ message, onRetry }: ShyMessageProps) {
     <article id={`message-${message.id}`} className="shy-message" data-role={message.role} data-status={message.status}>
       <div className="shy-message-header">
         <div>
-          <div className="shy-message-name">{message.role === 'user' ? 'You' : 'SHY'}</div>
+          <div className="shy-message-identity">{message.role === 'assistant' && <ShyAvatar />}<div className="shy-message-name">{message.role === 'user' ? 'You' : 'SHY'}</div></div>
           <div className="shy-message-meta">
             <span>{getLocalTimeLabel(message.createdAt)}</span>
             {message.responseStatus ? <span className="shy-chip">{message.responseStatus}</span> : null}
