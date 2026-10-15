@@ -22,7 +22,7 @@ export function ShyAvatar({ size = 'small', state = 'idle', caption = false }: {
     </div>
     {caption && <figcaption>
       <span className="shy-avatar-disclosure">AI avatar</span>
-      <span className="shy-avatar-presence" role="status"><i aria-hidden="true" />{labels[state]}</span>
+      <span className="shy-avatar-presence" role="status" hidden={size === 'welcome'}><i aria-hidden="true" />{labels[state]}</span>
     </figcaption>}
   </figure>;
 }

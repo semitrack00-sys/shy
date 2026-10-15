@@ -97,7 +97,9 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
 
   return (
     <section className="shy-voice" aria-label="Voice conversation">
+      <div className="shy-voice-overview">
       <ShyAvatar size="voice" state={avatarState} caption />
+      <div className="shy-voice-control-panel">
       <div className="shy-voice-actions">
         <button className="shy-button" type="button" disabled={disabled || localActive || !supported || sessionState.active}
           aria-pressed={state.listening} onClick={() => state.listening
@@ -116,6 +118,8 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
         : state.speaking ? 'SHY is speaking…' : 'Speak, review the transcript, then press Send.'}</p>
       {!supported && <p className="shy-muted">Voice input is unavailable in this browser. Text chat remains available.</p>}
       {state.error && <p role="alert">{state.error}</p>}
+      </div>
+      </div>
       <details>
         <summary>Voice settings and privacy</summary>
         <p>On-device speech is used when supported. Browser speech may send audio or text to your browser’s speech provider. SHY receives the transcript when you send it or explicitly enable automatic sending for a wake session. Audio is not saved by SHY.</p>

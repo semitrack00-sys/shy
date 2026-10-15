@@ -13,7 +13,7 @@ export function ShyComposer({ value, onChange, onSend, disabled }: ShyComposerPr
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    ref.current?.focus();
+    ref.current?.focus({ preventScroll: true });
   }, []);
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {

@@ -141,9 +141,13 @@ let browser;
   await page.locator('.shy-avatar--welcome img').waitFor();
   await page.waitForFunction(() => [...document.querySelectorAll('.shy-avatar img')].every(image => image.complete && image.naturalWidth > 0));
   assert.equal(await page.getByText('AI avatar', {exact:true}).count(), 2);
+  assert.equal(await page.evaluate(() => window.scrollY), 0, 'Initial focus must keep the welcome portrait visible');
   for (const width of [390, 1440]) {
     await page.setViewportSize({width, height:900});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, 'Avatar must not cause horizontal overflow');
+    await page.evaluate(() => window.scrollTo(0,0));
+    const welcomeBounds=await page.locator('.shy-avatar--welcome').boundingBox();
+    assert.ok(welcomeBounds && welcomeBounds.y >= 0 && welcomeBounds.y + welcomeBounds.height < 900, 'Welcome portrait must remain visible');
     if (process.env.SHY_AVATAR_SCREENSHOTS) {
       require('node:fs').mkdirSync(process.env.SHY_AVATAR_SCREENSHOTS, {recursive:true});
       await page.screenshot({path:require('node:path').join(process.env.SHY_AVATAR_SCREENSHOTS, `shy-avatar-${width}.png`), fullPage:false});
