@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { BrowserVoice, VOICE_LANGUAGES, type VoiceState, type VoiceWindow } from '@/lib/browser-voice';
 import { WakeSession, type WakeState } from '@/lib/wake-session';
 import type { ChatMessage } from '@/lib/types';
+import { ShyAvatar, type AvatarState } from './shy-avatar';
 import { ShyLocalVoice } from './shy-local-voice';
 
 export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMessage, reply }: {
@@ -32,6 +33,7 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURI] = useState('');
   const [localActive, setLocalActive] = useState(false);
+  const [localVoiceState, setLocalVoiceState] = useState<'idle' | 'listening' | 'transcribing'>('idle');
   const [cancelSignal, setCancelSignal] = useState(0);
   const lastReply = useRef(reply?.id);
 
@@ -58,6 +60,7 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
   useEffect(() => {
     session.current?.stop(); setSessionConsent(false); setHandsfree(false);
     controller.current?.cancel();
+    setCancelSignal(value => value + 1);
     lastReply.current = reply?.id;
     // A conversation change invalidates recording and queued playback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -90,8 +93,13 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
     return () => { document.removeEventListener('visibilitychange', stop); window.removeEventListener('pagehide', stopSession); };
   }, []);
 
+  const avatarState: AvatarState = disabled ? 'thinking' : state.speaking ? 'speaking' : state.listening || localVoiceState === 'listening' ? 'listening' : localVoiceState === 'transcribing' ? 'transcribing' : state.error ? 'unavailable' : 'idle';
+
   return (
     <section className="shy-voice" aria-label="Voice conversation">
+      <div className="shy-voice-overview">
+      <ShyAvatar size="voice" state={avatarState} caption />
+      <div className="shy-voice-control-panel">
       <div className="shy-voice-actions">
         <button className="shy-button" type="button" disabled={disabled || localActive || !supported || sessionState.active}
           aria-pressed={state.listening} onClick={() => state.listening
@@ -110,6 +118,8 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
         : state.speaking ? 'SHY is speaking…' : 'Speak, review the transcript, then press Send.'}</p>
       {!supported && <p className="shy-muted">Voice input is unavailable in this browser. Text chat remains available.</p>}
       {state.error && <p role="alert">{state.error}</p>}
+      </div>
+      </div>
       <details>
         <summary>Voice settings and privacy</summary>
         <p>On-device speech is used when supported. Browser speech may send audio or text to your browser’s speech provider. SHY receives the transcript when you send it or explicitly enable automatic sending for a wake session. Audio is not saved by SHY.</p>
@@ -145,7 +155,7 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
           onChange={event => setVolume(Number(event.target.value))} /></label>
       </details>
       <ShyLocalVoice disabled={disabled} onTranscript={onTranscript} onStart={() => { session.current?.stop(); setSessionConsent(false); controller.current?.cancel(); }}
-        onActivity={setLocalActive} cancelSignal={cancelSignal} />
+        onActivity={setLocalActive} onStateChange={setLocalVoiceState} cancelSignal={cancelSignal} />
     </section>
   );
 }

@@ -102,3 +102,21 @@ it('pagehide cancels capture, invalidates consent and ignores late wake messages
   act(() => recognition.result('Hey SHY late')); expect(send).not.toHaveBeenCalled();
   expect(screen.getByRole('button', {name:'Start wake voice session'})).toBeDisabled();
 });
+
+it('shows portrait activity from real control states and clears it on stop or conversation change', () => {
+  const props={conversationId:'avatar-one',disabled:false,onTranscript:vi.fn(),reply};
+  const {rerender}=render(<ShyVoice {...props}/>);
+  expect(screen.getByText('AI avatar')).toBeInTheDocument();
+  expect(screen.getByText('Ready',{exact:true})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Speak to SHY'}));
+  expect(screen.getByText('Listening',{exact:true})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Stop voice'}));
+  expect(screen.getByText('Ready',{exact:true})).toBeInTheDocument();
+  rerender(<ShyVoice {...props} disabled/>);
+  expect(screen.getByText('Thinking',{exact:true})).toBeInTheDocument();
+  rerender(<ShyVoice {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Read latest reply'}));
+  expect(screen.getByText('Speaking',{exact:true})).toBeInTheDocument();
+  rerender(<ShyVoice {...props} conversationId="avatar-two"/>);
+  expect(screen.getByText('Ready',{exact:true})).toBeInTheDocument();
+});

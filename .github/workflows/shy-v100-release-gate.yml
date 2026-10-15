@@ -113,7 +113,15 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
       - run: npx playwright install --with-deps chromium
       - name: Browser voice and history acceptance (fixtures)
+        env:
+          SHY_AVATAR_SCREENSHOTS: acceptance-artifacts/avatar-screenshots
         run: node acceptance-artifacts/voice-acceptance.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shy-avatar-previews
+          path: apps/web/acceptance-artifacts/avatar-screenshots
+          if-no-files-found: ignore
 
   local_speech:
     runs-on: ubuntu-latest

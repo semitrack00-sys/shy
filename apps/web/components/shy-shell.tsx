@@ -14,6 +14,7 @@ import { ShyVoice } from './shy-voice';
 import { ShyMemoryManager } from './shy-memory-manager';
 import { ShyReplyPreferences } from './shy-reply-preferences';
 import { ShyDocuments } from './shy-documents';
+import { ShyAvatar } from './shy-avatar';
 import { ShyConversationSummary } from './shy-conversation-summary';
 
 function sortByUpdatedAt(conversations: ConversationThread[]): ConversationThread[] {
@@ -207,7 +208,7 @@ export function ShyShell() {
             <button type="button" className="shy-icon-button shy-mobile-toggle" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">
               ☰
             </button>
-            <div className="shy-mark" aria-hidden="true" />
+            <ShyAvatar size="header" />
             <div>
               <h1>SHY</h1>
               <p>Professional AI assistant workspace</p>
@@ -271,6 +272,7 @@ export function ShyShell() {
             </div>
           ) : (
             <div className="shy-empty-state">
+              <ShyAvatar size="welcome" caption />
               <h2 className="shy-empty-title">SHY</h2>
               <p className="shy-muted">How can I help you?</p>
             </div>
