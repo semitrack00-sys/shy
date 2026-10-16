@@ -9,11 +9,11 @@ const labels: Record<AvatarState, string> = {
   transcribing: 'Transcribing', unavailable: 'Voice needs attention',
 };
 
-export function ShyAvatar({ size = 'small', state = 'idle', caption = false }: {
-  size?: 'small' | 'header' | 'welcome' | 'voice'; state?: AvatarState; caption?: boolean;
+export function ShyAvatar({ size = 'small', state = 'idle', caption = false, motion = true }: {
+  size?: 'small' | 'header' | 'welcome' | 'voice'; state?: AvatarState; caption?: boolean; motion?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
-  return <figure className={`shy-avatar shy-avatar--${size}`} data-state={state}>
+  return <figure className={`shy-avatar shy-avatar--${size}`} data-state={state} data-motion={motion && !failed ? 'on' : 'off'}>
     <div className="shy-avatar-frame">
       {failed ? <span className="shy-avatar-fallback" aria-label={caption ? 'SHY AI avatar' : undefined} aria-hidden={!caption}>S</span>
         : <Image src="/shy-avatar-v1.webp" width={640} height={640} unoptimized
