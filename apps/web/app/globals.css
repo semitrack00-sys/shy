@@ -634,3 +634,12 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .shy-avatar .shy-avatar-image, .shy-avatar .shy-avatar-frame { animation: none !important; }
 }
+
+.shy-avatar--voice.shy-avatar--3d { --avatar-size: 240px; max-width: 100%; }
+.shy-avatar--3d .shy-avatar-frame { width: 240px; max-width: 100%; height: 280px; border-radius: 28px; background: radial-gradient(ellipse at 50% 35%, #24465e, #111e32 75%); }
+.shy-animated-avatar { width: 100%; height: 100%; }
+.shy-animated-avatar canvas { display: block; width: 100%; height: 100%; }
+@media (max-width: 600px) {
+  .shy-voice-overview:has(.shy-avatar--3d) { flex-direction: column; align-items: stretch; }
+  .shy-avatar--3d { align-self: center; }
+}
