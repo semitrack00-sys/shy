@@ -1939,9 +1939,14 @@ def _load_memory_history_for_message(message: str, conversation_id: uuid.UUID, u
 
 def _load_request_history(request, conversation_id, user_id):
     if (os.getenv("SHY_MODEL_BACKEND", "").strip().lower() == "runpod"
-            and request.allow_cloud_history and not request.local_only
+            and not request.local_only
             and getattr(request, "document_question", None) is None
             and not reply_generation_requires_local()):
+        if not request.allow_cloud_history:
+            # Cloud chat without history consent answers only the current message.
+            # Retrieving private memory here forced ordinary chats onto a local
+            # model that is intentionally absent on the hosted service.
+            return [], False
         recent = load_messages(conversation_id, user_id=user_id)
         bounded = bound_context(_filter_prompt_safe_messages(recent), max_chars=3200, max_messages=20)
         # Explicit consent covers this thread, not durable or cross-conversation retrieval.

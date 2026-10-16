@@ -54,18 +54,28 @@ class CloudContext(unittest.TestCase):
                     self.assertIn('RunPod cloud inference',request.messages[0].content)
                     self.assertTrue(any('Cedar' in m.content for m in request.messages[1:-1]))
                     self.assertEqual(request.metadata['privacy_requirement'],'REMOTE_ALLOWED')
+                    generate.reset_mock()
+                    response=TestClient(core.app).post('/chat',json={'message':'Say hello briefly.','project_id':project,'conversation_id':str(thread)})
+                    self.assertEqual(response.status_code,200,response.text)
+                    self.assertEqual(response.json()['provider'],'runpod')
+                    request=generate.call_args.kwargs['request']
+                    self.assertFalse(any('Cedar' in m.content for m in request.messages))
+                    self.assertEqual(request.metadata['privacy_requirement'],'REMOTE_ALLOWED')
         finally:
             with memory.connect() as conn:
                 with conn.cursor() as cur:
                     cur.execute('DELETE FROM durable_memories WHERE user_id=%s',(owner,))
                     cur.execute('DELETE FROM users WHERE id=%s',(owner,))
 
-    def test_default_and_local_only_requests_keep_local_memory_policy(self):
+    def test_default_omits_history_and_local_only_keeps_local_memory_policy(self):
         core=self.core
         with patch.dict(os.environ,{'SHY_MODEL_BACKEND':'runpod'}),patch.object(core,'reply_generation_requires_local',return_value=False),patch.object(core,'_load_memory_history_for_message',return_value=([{'role':'user','content':'local memory'}],True)) as loader:
-            for request in [core.ChatRequest(message='Hello'),core.ChatRequest(message='Hello',allow_cloud_history=True,local_only=True)]:
+            with patch.object(core,'load_messages',side_effect=AssertionError('Unconsented history read')):
+                self.assertEqual(core._load_request_history(core.ChatRequest(message='Hello'),uuid.uuid4(),uuid.uuid4()),([],False))
+            loader.assert_not_called()
+            for request in [core.ChatRequest(message='Hello',allow_cloud_history=True,local_only=True)]:
                 self.assertTrue(core._load_request_history(request,uuid.uuid4(),uuid.uuid4())[1])
-            self.assertEqual(loader.call_count,2)
+            self.assertEqual(loader.call_count,1)
             with patch.object(core,'reply_generation_requires_local',return_value=True):
                 self.assertTrue(core._load_request_history(core.ChatRequest(message='Hello',allow_cloud_history=True),uuid.uuid4(),uuid.uuid4())[1])
         from pydantic import ValidationError
