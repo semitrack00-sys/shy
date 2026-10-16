@@ -600,3 +600,37 @@ button {
 .shy-voice-overview { display: flex; align-items: center; gap: 1rem; margin-bottom: 12px; }
 .shy-voice-control-panel { flex: 1; min-width: 0; }
 .shy-avatar-presence[hidden] { display: none; }
+
+/* Portrait presence; only the large conversation portrait moves. */
+.shy-avatar--voice { --avatar-size: 152px; }
+.shy-avatar--voice .shy-avatar-image { transform: scale(1.06); transform-origin: 50% 78%; }
+.shy-avatar--voice[data-motion="on"][data-state="idle"] .shy-avatar-image { animation: shy-presence-breathe 7.3s ease-in-out infinite; }
+.shy-avatar--voice[data-motion="on"][data-state="listening"] .shy-avatar-image { animation: shy-presence-listen 6.1s ease-in-out infinite; }
+.shy-avatar--voice[data-motion="on"][data-state="thinking"] .shy-avatar-image,
+.shy-avatar--voice[data-motion="on"][data-state="transcribing"] .shy-avatar-image { animation: shy-presence-think 8.7s ease-in-out infinite; }
+.shy-avatar--voice[data-motion="on"][data-state="speaking"] .shy-avatar-image { animation: shy-presence-speak 4.3s ease-in-out infinite; }
+.shy-avatar[data-motion="off"] .shy-avatar-frame { animation: none; }
+@keyframes shy-presence-breathe {
+  0%, 100% { transform: scale(1.06) translateY(0); }
+  48% { transform: scale(1.075) translateY(-.4%); }
+}
+@keyframes shy-presence-listen {
+  0%, 100% { transform: scale(1.07) rotate(-1deg); }
+  22%, 38% { transform: scale(1.075) rotate(-.6deg) translateY(.7%); }
+  29%, 46%, 75% { transform: scale(1.07) rotate(-1deg) translateY(0); }
+}
+@keyframes shy-presence-think {
+  0%, 100% { transform: scale(1.06) rotate(0); }
+  30%, 65% { transform: scale(1.065) rotate(1.3deg) translateX(.5%); }
+}
+@keyframes shy-presence-speak {
+  0%, 100% { transform: scale(1.07) rotate(0); }
+  23% { transform: scale(1.075) rotate(-.9deg) translateY(.5%); }
+  47% { transform: scale(1.07) rotate(.6deg); }
+  68% { transform: scale(1.075) rotate(.2deg) translateY(.6%); }
+  85% { transform: scale(1.07) rotate(-.4deg); }
+}
+@media (max-width: 600px) { .shy-avatar--voice { --avatar-size: 128px; } }
+@media (prefers-reduced-motion: reduce) {
+  .shy-avatar .shy-avatar-image, .shy-avatar .shy-avatar-frame { animation: none !important; }
+}
