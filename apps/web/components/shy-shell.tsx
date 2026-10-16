@@ -294,7 +294,7 @@ export function ShyShell() {
                 void submitMessage(text); return true;
               }}
               reply={activeConversation?.messages.filter(message => message.role === 'assistant').at(-1)} />
-            <ShyComposer value={composerValue} onChange={setComposerValue} onSend={() => void submitMessage(composerValue)} disabled={isSending} />
+            <ShyComposer key={`composer-${activeConversation?.id ?? "new"}`} value={composerValue} onChange={setComposerValue} onSend={(research) => void submitMessage(composerValue, undefined, undefined, research ? {freshness: "auto"} : undefined)} researchAvailable={health?.research_configured === true} disabled={isSending} />
           </div>
         </section>
       </main>
