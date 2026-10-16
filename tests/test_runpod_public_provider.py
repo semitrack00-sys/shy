@@ -22,7 +22,7 @@ def run():
         sent = calls[0]
         assert str(sent.url) == 'https://api.runpod.ai/v2/qwen3-32b-awq/openai/v1/chat/completions'
         body = json.loads(sent.content)
-        assert body['max_tokens'] == 512 and body['chat_template_kwargs'] == {'enable_thinking':False}
+        assert body['max_tokens'] == 1024 and body['chat_template_kwargs'] == {'enable_thinking':False}
         assert [m['role'] for m in body['messages']] == ['system','user']
         for privacy in ('LOCAL_ONLY','PRIVATE_REMOTE_ALLOWED'):
             private = types.ModelRequest(messages=req.messages,capability=req.capability,metadata={'privacy_requirement':privacy})
@@ -32,6 +32,10 @@ def run():
             except ValueError:
                 pass
         assert len(calls) == 1
+        for requested, expected in ((None, 1024), (128, 128), (2048, 1024)):
+            bounded = types.ModelRequest(messages=req.messages, capability=req.capability, max_output_tokens=requested)
+            p.generate(bounded, p.model_id)
+            assert json.loads(calls[-1].content)['max_tokens'] == expected
     for failure in (401, 429, 500, 'timeout'):
         calls.clear()
         def fail(req):
