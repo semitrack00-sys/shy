@@ -30,6 +30,7 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
   const [language, setLanguage] = useState('en-US');
   const [rate, setRate] = useState(1);
   const [volume, setVolume] = useState(1);
+  const [avatarMotion, setAvatarMotion] = useState(true);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURI] = useState('');
   const [localActive, setLocalActive] = useState(false);
@@ -98,14 +99,14 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
   return (
     <section className="shy-voice" aria-label="Voice conversation">
       <div className="shy-voice-overview">
-      <ShyAvatar size="voice" state={avatarState} caption />
+      <ShyAvatar size="voice" state={avatarState} caption motion={avatarMotion} />
       <div className="shy-voice-control-panel">
       <div className="shy-voice-actions">
         <button className="shy-button" type="button" disabled={disabled || localActive || !supported || sessionState.active}
           aria-pressed={state.listening} onClick={() => state.listening
             ? controller.current?.stopListening()
             : controller.current?.start(language, allowBrowserService, onTranscript)}>
-          {state.listening ? 'Finish recording' : 'Speak to SHY'}
+          {state.listening ? 'Finish recording' : state.speaking ? 'Interrupt and speak' : 'Speak to SHY'}
         </button>
         <button className="shy-button" type="button" disabled={!state.listening && !state.speaking && !localActive && !sessionState.active}
           onClick={() => { session.current?.stop(); setSessionConsent(false); controller.current?.cancel(); setCancelSignal(value => value + 1); }}>Stop voice</button>
@@ -122,6 +123,8 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
       </div>
       <details>
         <summary>Voice settings and privacy</summary>
+        <label><input type="checkbox" checked={avatarMotion} onChange={event => setAvatarMotion(event.target.checked)} /> Animate SHY’s portrait</label>
+        <small>Subtle portrait movement follows listening and speaking. Facial lip-sync and hand gestures are not enabled.</small>
         <p>On-device speech is used when supported. Browser speech may send audio or text to your browser’s speech provider. SHY receives the transcript when you send it or explicitly enable automatic sending for a wake session. Audio is not saved by SHY.</p>
         <p>Wake listening uses browser speech transcripts, not a custom acoustic wake detector. Speech may be processed until the session ends. Limits: three minutes, twelve captures or six automatically sent messages.</p>
         <label><input type="checkbox" checked={sessionConsent} disabled={sessionState.active} onChange={event => setSessionConsent(event.target.checked)} />Allow a bounded wake voice session.</label>
