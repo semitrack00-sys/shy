@@ -1537,6 +1537,7 @@ def _collect_runtime_health_snapshot() -> dict[str, Any]:
         "model_backend": model_backend,
         "hosted_model": hosted_model,
         "hosted_model_configured": hosted_model_configured,
+        "research_configured": research_service is not None,
         "hosted_model_inference_verified": hosted_model_verified,
         "knowledge_store": {
             "type": knowledge_store.__class__.__name__,
