@@ -28,3 +28,23 @@ it('shares thread context only after explicit consent and refreshes model status
   fireEvent.click(screen.getByRole('button',{name:'New chat',exact:true}));
   expect(screen.getByLabelText('Allow RunPod to use this chat’s recent messages for follow-ups')).not.toBeChecked();
 });
+it('routes explicitly selected composer research through the cited research request',async()=>{
+  Element.prototype.scrollIntoView=vi.fn();
+  const requests: Record<string,unknown>[]=[];
+  vi.stubGlobal('fetch',vi.fn(async (url:string,options?:RequestInit)=>{
+    if(url.endsWith('/health')) return new Response(JSON.stringify({status:'ok',system:'SHY',version:'test',research_configured:true}));
+    if(url.endsWith('/agent')){requests.push(JSON.parse(String(options?.body)));return new Response(JSON.stringify({status:'RESPOND',message:'Research answer.',conversation_id:'11111111-1111-4111-8111-111111111111'}));}
+    return new Response('{}');
+  }));
+  render(<ShyShell/>);
+  const search=screen.getByLabelText('Search web for this answer');
+  await waitFor(()=>expect(search).toBeEnabled());
+  fireEvent.change(screen.getByLabelText('Message SHY'),{target:{value:'Latest space news'}});
+  fireEvent.click(search);
+  fireEvent.click(screen.getByRole('button',{name:'Search and answer'}));
+  await waitFor(()=>expect(requests).toHaveLength(1));
+  expect(requests[0]).toMatchObject({message:'Latest space news',research_request:{freshness:'auto'}});
+  expect(requests[0]).not.toHaveProperty('allow_cloud_history');
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Send',exact:true})).toBeDisabled());
+  expect(screen.getByLabelText('Search web for this answer')).not.toBeChecked();
+});
