@@ -31,6 +31,8 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
   const [rate, setRate] = useState(1);
   const [volume, setVolume] = useState(1);
   const [avatarMotion, setAvatarMotion] = useState(true);
+  const [animatedAvatar, setAnimatedAvatar] = useState(true);
+  const [wave, setWave] = useState(0);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURI] = useState('');
   const [localActive, setLocalActive] = useState(false);
@@ -99,9 +101,10 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
   return (
     <section className="shy-voice" aria-label="Voice conversation">
       <div className="shy-voice-overview">
-      <ShyAvatar size="voice" state={avatarState} caption motion={avatarMotion} />
+      <ShyAvatar size="voice" state={avatarState} caption motion={avatarMotion} animated={animatedAvatar} wave={wave} />
       <div className="shy-voice-control-panel">
       <div className="shy-voice-actions">
+        {animatedAvatar && <button className="shy-button" type="button" disabled={!avatarMotion} onClick={() => setWave(value => value + 1)}>Wave</button>}
         <button className="shy-button" type="button" disabled={disabled || localActive || !supported || sessionState.active}
           aria-pressed={state.listening} onClick={() => state.listening
             ? controller.current?.stopListening()
@@ -124,7 +127,8 @@ export function ShyVoice({ conversationId, disabled, onTranscript, onHandsfreeMe
       <details>
         <summary>Voice settings and privacy</summary>
         <label><input type="checkbox" checked={avatarMotion} onChange={event => setAvatarMotion(event.target.checked)} /> Animate SHY’s portrait</label>
-        <small>Subtle portrait movement follows listening and speaking. Facial lip-sync and hand gestures are not enabled.</small>
+        <label><input type="checkbox" checked={animatedAvatar} onChange={event => setAnimatedAvatar(event.target.checked)} /> Use free 3D character</label>
+        <small>Blinking, head movement, and hand gestures run on this device. Mouth movement follows speech playback approximately. Turn off 3D to use the original portrait. Your device’s reduced-motion preference pauses animation.</small>
         <p>On-device speech is used when supported. Browser speech may send audio or text to your browser’s speech provider. SHY receives the transcript when you send it or explicitly enable automatic sending for a wake session. Audio is not saved by SHY.</p>
         <p>Wake listening uses browser speech transcripts, not a custom acoustic wake detector. Speech may be processed until the session ends. Limits: three minutes, twelve captures or six automatically sent messages.</p>
         <label><input type="checkbox" checked={sessionConsent} disabled={sessionState.active} onChange={event => setSessionConsent(event.target.checked)} />Allow a bounded wake voice session.</label>
