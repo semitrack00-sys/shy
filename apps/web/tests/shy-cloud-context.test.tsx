@@ -16,16 +16,16 @@ it('shares thread context only after explicit consent and refreshes model status
   const checkbox=await screen.findByLabelText('Allow RunPod to use this chat’s recent messages for follow-ups');
   expect(checkbox).not.toBeChecked();
   fireEvent.change(screen.getByLabelText('Message SHY'),{target:{value:'Hello'}});
-  fireEvent.click(screen.getByRole('button',{name:'Send',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:'Send'}));
   await waitFor(()=>expect(healthCalls).toBe(2));
   expect(requests[0]).not.toHaveProperty('allow_cloud_history');
   fireEvent.click(checkbox);
   fireEvent.change(screen.getByLabelText('Message SHY'),{target:{value:'What did I say?'}});
-  fireEvent.click(screen.getByRole('button',{name:'Send',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:'Send'}));
   await waitFor(()=>expect(requests).toHaveLength(2));
   expect(requests[1]).toMatchObject({allow_cloud_history:true,conversation_id:'11111111-1111-4111-8111-111111111111'});
   await waitFor(()=>expect(healthCalls).toBe(3));
-  fireEvent.click(screen.getByRole('button',{name:'New chat',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:'New chat'}));
   expect(screen.getByLabelText('Allow RunPod to use this chat’s recent messages for follow-ups')).not.toBeChecked();
 });
 it('routes explicitly selected composer research through the cited research request',async()=>{
@@ -45,6 +45,6 @@ it('routes explicitly selected composer research through the cited research requ
   await waitFor(()=>expect(requests).toHaveLength(1));
   expect(requests[0]).toMatchObject({message:'Latest space news',research_request:{freshness:'auto'}});
   expect(requests[0]).not.toHaveProperty('allow_cloud_history');
-  await waitFor(()=>expect(screen.getByRole('button',{name:'Send',exact:true})).toBeDisabled());
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Send'})).toBeDisabled());
   expect(screen.getByLabelText('Search web for this answer')).not.toBeChecked();
 });

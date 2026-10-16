@@ -9,7 +9,7 @@ it('suggests research without sending externally until selected, and resets afte
   expect(screen.getByText(/This may need up-to-date/)).toBeInTheDocument();
   const checkbox = screen.getByLabelText('Search web for this answer');
   expect(checkbox).not.toBeChecked();
-  fireEvent.click(screen.getByRole('button', {name:'Send', exact:true}));
+  fireEvent.click(screen.getByRole('button', {name:'Send'}));
   expect(send).toHaveBeenLastCalledWith(false);
   fireEvent.click(checkbox);
   fireEvent.keyDown(screen.getByLabelText('Message SHY'), {key:'Enter'});
