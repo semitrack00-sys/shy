@@ -56,6 +56,7 @@ export interface ShyHealthResponse {
   model_backend?: string;
   hosted_model?: string;
   hosted_model_configured?: boolean;
+  research_configured?: boolean;
   hosted_model_inference_verified?: boolean;
 }
 
