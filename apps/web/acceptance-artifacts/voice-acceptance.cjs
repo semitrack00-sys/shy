@@ -13,7 +13,7 @@ let browser;
     if (Date.now() > deadline) throw new Error('Web server readiness timed out');
     await new Promise(resolve => setTimeout(resolve, 250));
   }
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await page.addInitScript(() => {
     class Recognition {
@@ -154,6 +154,21 @@ let browser;
     }
   }
   await page.setViewportSize({width:390,height:844});
+  const character=page.locator('.shy-animated-avatar canvas');
+  await character.waitFor();
+  await character.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(300);
+  const idleFrame=await character.screenshot();
+  await page.getByRole('button',{name:'Wave',exact:true}).click();
+  await page.waitForTimeout(600);
+  assert.notDeepEqual(idleFrame,await character.screenshot(),'3D character must animate');
+  if(process.env.SHY_AVATAR_SCREENSHOTS) await page.locator('.shy-voice-overview').screenshot({path:path.join(process.env.SHY_AVATAR_SCREENSHOTS,'shy-3d-wave.png')});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.waitForTimeout(300);
+  const frozen=await character.screenshot();
+  await page.waitForTimeout(250);
+  assert.deepEqual(frozen,await character.screenshot(),'Reduced motion freezes the character');
+  await page.emulateMedia({reducedMotion:'no-preference'});
   await page.getByRole('button', { name: 'Speak to SHY' }).click();
   assert.equal(await page.locator('.shy-avatar--voice[data-state="listening"]').count(), 1);
   await page.evaluate(() => window.voiceFixture.recognition.onresult({ results: [{ isFinal: true, 0: { transcript: 'Hello SHY from a voice fixture' } }] }));
