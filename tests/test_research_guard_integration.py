@@ -53,6 +53,21 @@ class ResearchGuardIntegration(unittest.TestCase):
         response, generation = self.call_agent('Evidence [1].', 'javascript:alert(1)')
         self.assertEqual(response.json()['status'], 'FAILED'); self.assertEqual(generation.await_count, 0)
 
+    def test_filtered_recent_evidence_keeps_original_source_number(self):
+        from datetime import datetime, timezone
+        payload = {'results': [
+            {'url': 'https://example.com/old', 'title': 'Old', 'snippet': 'Stale excerpt', 'source_date': '2025-01-01'},
+            {'url': 'https://example.com/new', 'title': 'New', 'snippet': 'Recent excerpt', 'source_date': '2026-10-11'},
+        ]}
+        with patch.object(self.core, 'utc_now', return_value=datetime(2026, 10, 11, 12, tzinfo=timezone.utc)), patch.object(self.core, 'generate_intelligence_response', AsyncMock(return_value='Recent excerpt [2].')) as generation:
+            result = asyncio.run(self.core.generate_research_response('NASA this week', research_output=payload))
+        self.assertEqual(result, 'Recent excerpt [2].')
+        prompt = generation.call_args.kwargs['message']
+        self.assertIn('[2] TITLE: New', prompt)
+        self.assertNotIn('Stale excerpt', prompt)
+        self.assertNotIn('https://example.com/old', prompt)
+        self.assertEqual(generation.await_count, 1)
+
     def test_recent_requests_need_dated_evidence_before_generation(self):
         from datetime import datetime, timezone
         now = datetime(2026,10,11,12,tzinfo=timezone.utc)
@@ -85,7 +100,12 @@ class ResearchGuardIntegration(unittest.TestCase):
                         self.assertEqual(result.public_metadata()['date_window_basis'],basis)
                         self.assertEqual(result.public_metadata()['mode'],'model_synthesis')
                 self.assertEqual(generation.await_count,1)
-                self.assertIn('provider date estimates',generation.call_args.kwargs['message'])
+                prompt = generation.call_args.kwargs['message']
+                self.assertIn('provider date estimates', prompt)
+                self.assertIn('[1] TITLE: A', prompt)
+                self.assertNotIn('[2] TITLE: B', prompt)
+                self.assertNotIn('https://example.com/b', prompt)
+                self.assertGreaterEqual(generation.call_args.kwargs['generation_options']['num_predict'], 1024)
 
 
 
