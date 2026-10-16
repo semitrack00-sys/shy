@@ -174,7 +174,10 @@ class RunPodProvider(_types.ModelProvider):
             raise ValueError("Hosted intelligence accepts text chat only.")
         if not messages or sum(len(item["content"]) for item in messages) > 12000:
             raise ValueError("Hosted intelligence context exceeds its limit.")
-        tokens = min(512, max(1, int(request.max_output_tokens or 512)))
+        # Public chat has room for complete explanations; dedicated worker keeps
+        # its existing latency/cost ceiling. Explicit smaller budgets still win.
+        token_limit = 1024 if self.mode == "public" else 512
+        tokens = min(token_limit, max(1, int(request.max_output_tokens or token_limit)))
         payload = {"model": self.model_id, "messages": messages, "stream": False,
                    "max_tokens": tokens, "temperature": request.temperature if request.temperature is not None else 0.2,
                    "chat_template_kwargs": {"enable_thinking": False}}
